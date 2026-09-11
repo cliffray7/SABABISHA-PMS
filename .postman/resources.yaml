@@ -1,0 +1,10 @@
+# Use this workspace to collaborate
+workspace:
+  id: 0bc0276f-70ff-4233-8023-e4b259b0e143
+
+localResources:
+  collections:
+    - ../tests/Pms.ApiTests/postman/pms-api.postman_collection.json
+    - ../tests/Pms.ApiTests/postman/Sababisha PMS API
+  environments:
+    - ../tests/Pms.ApiTests/postman/Sababisha PMS - Local.environment.yaml

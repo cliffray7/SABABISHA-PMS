@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{baseUrl}}/account"
+method: GET
+scripts:
+  - type: afterResponse
+    code: pm.test('Protected endpoint rejects anonymous request', () => pm.response.to.have.status(401));
+order: 4000

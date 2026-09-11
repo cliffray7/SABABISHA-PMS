@@ -1,0 +1,149 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Install TaskFlow web dependencies",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": [
+				"install",
+				"--prefix",
+				"apps/web",
+				"--no-audit",
+				"--no-fund"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Install TaskFlow web dependencies",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": [
+				"install",
+				"--prefix",
+				"apps/web",
+				"--no-audit",
+				"--no-fund"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build TaskFlow web",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": [
+				"run",
+				"build",
+				"--prefix",
+				"apps/web"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Install TaskFlow web dependencies",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": [
+				"install",
+				"--prefix",
+				"apps/web",
+				"--no-audit",
+				"--no-fund"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build TaskFlow web",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": [
+				"run",
+				"build",
+				"--prefix",
+				"apps/web"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Run TaskFlow web",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": [
+				"run",
+				"dev",
+				"--prefix",
+				"apps/web",
+				"--",
+				"--host",
+				"127.0.0.1",
+				"--port",
+				"5173"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Start SQL Server database",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts/setup-sqlserver.ps1"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build frontend",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": [
+				"run",
+				"build",
+				"--prefix",
+				"apps/web"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Run Pms API",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"--project",
+				"src/Pms.Api/Pms.Api.csproj",
+				"--urls",
+				"http://localhost:5141"
+			],
+			"isBackground": true,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "build"
+		}
+	]
+}

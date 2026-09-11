@@ -1,0 +1,7 @@
+$kind: collection
+description: ""
+variables:
+  baseUrl: http://localhost:5141/api/v1
+  email: postman@example.invalid
+  password: ChangeMe123!
+  accessToken: ""

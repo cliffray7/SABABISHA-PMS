@@ -1,0 +1,8 @@
+name: Sababisha PMS - Local
+values:
+  - key: baseUrl
+    value: 'http://localhost:5141/api/v1'
+  - key: email
+    value: postman@example.invalid
+  - key: password
+    value: ChangeMe123!
