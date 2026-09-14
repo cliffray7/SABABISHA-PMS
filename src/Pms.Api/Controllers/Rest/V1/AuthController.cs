@@ -13,7 +13,7 @@ namespace Pms.Api.Controllers.Rest.V1;
 public sealed class AuthController(PmsDbContext db, IPasswordHasher<User> passwordHasher, TokenService tokens, AppMail mail, Microsoft.Extensions.Options.IOptions<JwtOptions> jwtOptions) : ControllerBase
 {
     [HttpPost("register")]
-    public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<LoginChallengeResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
         var email = request.Email.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName)) return BadRequest(new { message = "First and last names are required." });
@@ -27,9 +27,7 @@ public sealed class AuthController(PmsDbContext db, IPasswordHasher<User> passwo
         };
         user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
         db.Users.Add(user);
-        var response = await IssueTokens(user, cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
-        return Ok(response);
+        return Ok(await IssueOtp(user, cancellationToken));
     }
 
     [HttpPost("login")]
@@ -41,6 +39,11 @@ public sealed class AuthController(PmsDbContext db, IPasswordHasher<User> passwo
 
         await db.LoginOtpCodes.Where(code => code.UserId == user.Id && code.UsedAt == null)
             .ExecuteUpdateAsync(update => update.SetProperty(code => code.UsedAt, DateTime.UtcNow), cancellationToken);
+        return Ok(await IssueOtp(user, cancellationToken));
+    }
+
+    private async Task<LoginChallengeResponse> IssueOtp(User user, CancellationToken cancellationToken)
+    {
         var otp = tokens.CreateOtp();
         db.LoginOtpCodes.Add(new LoginOtpCode
         {
@@ -49,7 +52,7 @@ public sealed class AuthController(PmsDbContext db, IPasswordHasher<User> passwo
         });
         await db.SaveChangesAsync(cancellationToken);
         await mail.SendOtp(user.Email, otp);
-        return Ok(new LoginChallengeResponse(true, user.Email));
+        return new LoginChallengeResponse(true, user.Email);
     }
 
     [HttpPost("verify-otp")]
@@ -69,6 +72,7 @@ public sealed class AuthController(PmsDbContext db, IPasswordHasher<User> passwo
                 otp.AttemptCount++;
                 if (otp.AttemptCount >= 5) otp.UsedAt = DateTime.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
+                await tx.CommitAsync(cancellationToken);
                 return BadRequest(new { message = otp.UsedAt is null ? "The verification code is incorrect." : "Too many incorrect codes. Log in again to request a new code." });
             }
             otp.UsedAt = DateTime.UtcNow;

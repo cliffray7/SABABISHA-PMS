@@ -1,16 +1,17 @@
-﻿import { chromium } from 'playwright-core';
+import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
-import { account, cleanup, prefix, password, request, mailToken } from './helpers.mjs';
+import { account, cleanup, prefix, password, request, mailToken, mailOtp } from './helpers.mjs';
 const web='http://127.0.0.1:5173/';
 const browser=await chromium.launch({channel:'msedge',headless:true});
 const errors=[]; let page;
 try {
-  const user=await account('owner');
+  const user={email:prefix+'-owner@example.invalid'};
   const context=await browser.newContext({viewport:{width:1440,height:1000}});
   page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(30000);page.setDefaultNavigationTimeout(60000);
-  await page.goto(web+'#login',{waitUntil:'domcontentloaded'});
-  await page.getByLabel('Email address').fill(user.email);await page.getByLabel('Password',{exact:true}).fill(password);await page.getByRole('button',{name:'Log in',exact:true}).click();
+  await page.goto(web+'#register',{waitUntil:'domcontentloaded'});
+  await page.getByLabel('First name').fill('owner'); await page.getByLabel('Last name').fill('Smoke'); await page.getByLabel('Email address').fill(user.email); await page.getByLabel('Password',{exact:true}).fill(password); await page.getByRole('button',{name:'Create account',exact:true}).click();
+  await page.getByRole('heading',{name:'Verify your email',exact:true}).waitFor(); assert.equal(await page.evaluate(()=>localStorage.getItem('taskflow.accessToken')),null); await page.getByLabel('Verification code').fill(await mailOtp(user.email)); await page.getByRole('button',{name:'Verify code',exact:true}).click();
   await page.getByRole('heading',{name:'Welcome to TaskFlow',exact:true}).waitFor();
   await page.getByRole('button',{name:'Create organization',exact:true}).click();
   let dialog=page.getByRole('dialog');await dialog.getByLabel('Organization name').fill(prefix);await dialog.getByLabel('Workspace slug').fill(prefix);await dialog.getByRole('button',{name:'Create organization',exact:true}).click();

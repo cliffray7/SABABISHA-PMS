@@ -11,7 +11,7 @@ export async function request(path, { token, body, method = body ? 'POST' : 'GET
   if (response.status===204 || status>=400) return null;
   return response.json();
 }
-export async function account(name) { const email=prefix+'-'+name+'@example.invalid'; const auth=await request('/auth/register',{body:{firstName:name,lastName:'Smoke',email,password}}); return {...auth,email}; }
+export async function account(name) { const email=prefix+'-'+name+'@example.invalid'; const challenge=await request('/auth/register',{body:{firstName:name,lastName:'Smoke',email,password}}); assert.equal(challenge.requiresOtp,true); assert.equal(challenge.accessToken,undefined); assert.equal(challenge.refreshToken,undefined); const auth=await request('/auth/verify-otp',{body:{email,code:await mailOtp(email)}}); return {...auth,email}; }
 export async function mailToken(email, subject) { const inbox=await request('/dev/inbox'); const message=inbox.find(m=>m.to===email&&m.subject.startsWith(subject)); assert.ok(message,'Expected local email'); return new URLSearchParams(new URL(message.link).hash.split('?')[1]).get('token'); }
 export async function mailOtp(email) { const inbox=await request('/dev/inbox'); const message=inbox.find(m=>m.to===email&&m.subject.startsWith('Your TaskFlow verification code')); assert.ok(message,'Expected local verification email'); const code=message.body?.match(/\b\d{6}\b/)?.[0]; assert.ok(code,'Expected a six-digit verification code'); return code; }
 export function cleanup() { const script=fileURLToPath(new URL('../../../scripts/cleanup-smoke.ps1',import.meta.url)); execFileSync('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',script,'-TestPrefix',prefix],{stdio:'inherit'}); }

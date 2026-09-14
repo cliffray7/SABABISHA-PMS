@@ -31,6 +31,7 @@ DELETE FROM organizations WHERE id IN (SELECT id FROM @orgs);
 DELETE FROM notifications WHERE user_id IN (SELECT id FROM @users);
 DELETE FROM password_reset_tokens WHERE user_id IN (SELECT id FROM @users);
 DELETE FROM refresh_tokens WHERE user_id IN (SELECT id FROM @users);
+DELETE FROM login_otp_codes WHERE user_id IN (SELECT id FROM @users);
 DELETE FROM users WHERE id IN (SELECT id FROM @users);
 COMMIT;
 '@

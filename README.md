@@ -156,6 +156,12 @@ task so recipients can download the file. Rejected uploads create no notificatio
 
 ### Local email and password reset
 
+Registration and login both require email OTP verification before issuing access
+and refresh tokens. Submit the six-digit code to `POST /api/v1/auth/verify-otp`.
+Codes expire after 10 minutes, are single-use, and are invalidated after five
+incorrect attempts. If registration verification is interrupted or email delivery
+fails, log in with the registered credentials to request a fresh code.
+
 When the API runs in Development without `Smtp:Host`, reset links and invitations
 appear in **Development inbox**. This inbox is only served to loopback requests;
 it is not real email delivery. Its messages are held in memory until API restart.
