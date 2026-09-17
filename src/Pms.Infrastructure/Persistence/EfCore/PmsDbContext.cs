@@ -32,7 +32,7 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
         });
         modelBuilder.Entity<LoginOtpCode>(entity =>
         {
-            entity.ToTable("login_otp_codes");
+            entity.ToTable("login_otp_codes", tb => tb.UseSqlOutputClause(false));
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.UserId, x.ExpiresAt });
             entity.Property(x => x.CodeHash).HasMaxLength(128).IsRequired();

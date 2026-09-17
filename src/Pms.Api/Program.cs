@@ -1,4 +1,6 @@
 using System.Text;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -57,6 +59,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
             ValidateLifetime = true, ClockSkew = TimeSpan.FromSeconds(30)
         };
+        options.MapInboundClaims = false;
     });
 builder.Services.AddDbContext<PmsDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("PmsDatabase"), sql =>
@@ -68,7 +71,42 @@ builder.Services.AddScoped<IAiTaskService>(services => new GeminiTaskService(
     services.GetRequiredService<IHttpClientFactory>().CreateClient("Gemini"),
     new GeminiSettings(builder.Configuration["Gemini:ApiKey"], builder.Configuration["Gemini:Model"]),
     services.GetRequiredService<ILogger<GeminiTaskService>>()));
-builder.Services.AddAuthorization();
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("SuperAdmin", policy =>
+        policy.RequireAssertion(context =>
+        {
+            var adminUserIds = builder.Configuration.GetSection("Operations:AdminUserIds").Get<string[]>() ?? [];
+            Console.WriteLine("--- SuperAdmin Policy Check ---");
+            Console.WriteLine($"Configured Admin IDs: [{string.Join(", ", adminUserIds)}]");
+
+            var userIdClaim = context.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            Console.WriteLine($"User ID Claim from Token: {userIdClaim ?? "NULL"}");
+
+            if (userIdClaim == null || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                Console.WriteLine("Result: Failure (Could not parse User ID from token).");
+                Console.WriteLine("---------------------------------");
+                return false;
+            }
+
+            foreach (var adminIdStr in adminUserIds)
+            {
+                if (Guid.TryParse(adminIdStr, out var adminId) && userId == adminId)
+                {
+                    Console.WriteLine($"Result: Success (User ID {userId} matched Admin ID {adminId}).");
+                    Console.WriteLine("---------------------------------");
+                    return true;
+                }
+            }
+
+            Console.WriteLine($"Result: Failure (User ID {userId} not found in configured Admin IDs).");
+            Console.WriteLine("---------------------------------");
+            return false;
+        }));
+});
+
 builder.Services
     .AddGraphQLServer()
     .AddAuthorizationCore()
