@@ -33,3 +33,7 @@ export interface AdminAnalyticsResponse {
   tasksByStatus: TaskStatusPoint[];
   tasksByPriority: TaskPriorityPoint[];
 }
+
+export interface AdminUser { id:string; firstName:string; lastName:string; email:string; status:string; createdAt:string; organizationCount:number; }
+export interface AdminOrganization { id:string; name:string; slug:string; owner:string | null; memberCount:number; projectCount:number; createdAt:string; }
+export interface AdminProject { id:string; name:string; organizationName:string | null; status:string; taskCount:number; createdAt:string; dueDate:string | null; archivedAt:string | null; }

@@ -40,6 +40,7 @@ body{background:var(--page);color:var(--ink)}
 
 /* Clear interaction feedback without changing the existing layout. */
 .skip-link{position:fixed;left:12px;top:-48px;z-index:20;background:var(--violet);color:#fff;border-radius:8px;padding:10px 14px;font-weight:700;text-decoration:none}.skip-link:focus{top:12px}
+.admin-nav-heading{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.1em;margin:18px 12px 6px;text-transform:uppercase}.sidebar section:first-of-type .admin-nav-heading{margin-top:0}
 
 /* The shell uses CSS variables, so non-MUI workspace screens follow the MUI color mode. */
 :root[data-theme='dark']{--page:#12131a;--panel:#1c1e28;--ink:#eef0f8;--muted:#aeb3c2;--line:#343845;--soft:#282b37;--shadow-soft:0 10px 28px rgba(0,0,0,.28);color-scheme:dark}

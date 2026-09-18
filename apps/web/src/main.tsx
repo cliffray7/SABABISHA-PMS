@@ -11,6 +11,9 @@ import AdminDashboard from './AdminDashboard';
 import AdminAnalytics from './AdminAnalytics';
 import AdminReports from './AdminReports';
 import AdminNav from './AdminNav';
+import AdminManagement from './AdminManagement';
+import { AdminActivity, AdminHealth, AdminSettings } from './AdminPlatform';
+import LandingPage from './LandingPage';
 import { OrganizationModal, ProjectForm, TaskForm } from './Forms';
 import { Brand, Empty, Feedback, Form, Modal, useAction, value } from './ui';
 import './styles.css';
@@ -24,10 +27,10 @@ const theme = (mode: ColorMode) => createTheme({
 });
 
 type AdminAccessState = 'checking' | 'admin' | 'user';
-const adminRoutes = new Set(['admin', 'admin/analytics', 'admin/reports']);
+const adminRoutes = new Set(['admin', 'admin/analytics', 'admin/users', 'admin/organizations', 'admin/projects', 'admin/activity', 'admin/health', 'admin/reports', 'admin/settings']);
 
 function App({ mode, toggleTheme }: { mode: ColorMode; toggleTheme: () => void }) {
-  const [route,setRoute] = useState(location.hash.slice(1) || 'dashboard'); const [authenticated,setAuthenticated] = useState(signedIn());
+  const [route,setRoute] = useState(location.hash.slice(1) || 'landing'); const [authenticated,setAuthenticated] = useState(signedIn());
   const [adminAccess, setAdminAccess] = useState<AdminAccessState>(authenticated ? 'checking' : 'user');
   const [localMail,setLocalMail] = useState(false); const [version,setVersion] = useState(0); const refresh = () => setVersion(v => v+1);
   const { notices, error: notificationError, reload: reloadNotifications, markRead } = useNotifications(authenticated && adminAccess === 'user', version);
@@ -39,11 +42,12 @@ function App({ mode, toggleTheme }: { mode: ColorMode; toggleTheme: () => void }
   const action = useAction(); const organization = organizations.find(o => o.id === organizationId); const project = projects.find(p => p.id === projectId); const admin = ['OWNER','ADMIN'].includes(organization?.role ?? '');
   useEffect(() => { document.documentElement.dataset.theme = mode; }, [mode]);
   useEffect(() => { if (route.startsWith('invite?')) sessionStorage.setItem('taskflow.invitation',route); }, [route]);
-  useEffect(() => { if (authenticated && ['login','register'].includes(route)) { location.hash = 'dashboard'; setRoute('dashboard'); } }, [authenticated,route]);
+  useEffect(() => { if (authenticated && ['landing','login','register'].includes(route)) { location.hash = 'dashboard'; setRoute('dashboard'); } }, [authenticated,route]);
   const navigate = (next: string) => { location.hash = next; setRoute(next); setMobile(false); setBell(false); setModal(''); };
   const chooseOrg = (id: string) => { setOrganizationId(id); localStorage.setItem('taskflow.organizationId',id); setProjects([]); setTasks([]); setMetrics(undefined); setMembers([]); setInvitations([]); setProjectId(''); localStorage.removeItem('taskflow.projectId'); };
   const chooseProject = (id: string) => { setProjectId(id); localStorage.setItem('taskflow.projectId',id); setTasks([]); setMetrics(undefined); setProjectMembers([]); };
-  useEffect(() => { api.get('/auth/mail-mode').then(r => setLocalMail(r.data.local)).catch(() => {}); const hash = () => { setRoute(location.hash.slice(1) || 'dashboard'); setModal(''); }; const expired = () => { setAuthenticated(false); navigate('login'); }; window.addEventListener('hashchange',hash); window.addEventListener('session-expired',expired); return () => { window.removeEventListener('hashchange',hash); window.removeEventListener('session-expired',expired); }; }, []);
+  useEffect(() => { const hash = () => { setRoute(location.hash.slice(1) || 'landing'); setModal(''); }; const expired = () => { setAuthenticated(false); navigate('landing'); }; window.addEventListener('hashchange',hash); window.addEventListener('session-expired',expired); return () => { window.removeEventListener('hashchange',hash); window.removeEventListener('session-expired',expired); }; }, []);
+  useEffect(() => { if (['login','register','forgot','reset','otp','inbox'].includes(route.split('?')[0])) api.get('/auth/mail-mode').then(response => setLocalMail(response.data.local)).catch(() => {}); }, [route]);
   useEffect(() => {
     if (!authenticated) { setAdminAccess('user'); setLoading(false); return; }
     let cancelled = false; setLoading(true); setError(''); setAdminAccess('checking');
@@ -85,15 +89,16 @@ function App({ mode, toggleTheme }: { mode: ColorMode; toggleTheme: () => void }
   }, [adminAccess, route]);
   useEffect(() => { if (route === 'notifications') void reloadNotifications(); }, [route, reloadNotifications]);
   useEffect(() => { if (pendingTask) { const task = tasks.find(t => t.id === pendingTask); if (task) { setSelected(task); setModal('task'); setPendingTask(''); } } }, [tasks,pendingTask]);
-  const logout = () => void action.run(async () => { try { await api.post('/auth/logout',{refreshToken:localStorage.getItem('taskflow.refreshToken')}); } finally { clearAuth(); setAuthenticated(false); setAdminAccess('user'); setPerson(undefined); setOrganizations([]); setProjects([]); setTasks([]); setOrganizationId(''); setProjectId(''); navigate('login'); } });
+  const logout = () => void action.run(async () => { try { await api.post('/auth/logout',{refreshToken:localStorage.getItem('taskflow.refreshToken')}); } finally { clearAuth(); setAuthenticated(false); setAdminAccess('user'); setPerson(undefined); setOrganizations([]); setProjects([]); setTasks([]); setOrganizationId(''); setProjectId(''); navigate('landing'); } });
   const openNotice = (n: Notice) => void action.run(async () => { await markRead(n.id); setBell(false); if (n.projectId && n.relatedId) { const p = (await api.get<Project>('/projects/' + n.projectId)).data; if (p.organizationId !== organizationId) chooseOrg(p.organizationId); setProjectId(p.id); setPendingTask(n.relatedId); navigate('board'); refresh(); } });
   const readAll = () => void action.run(async () => { await markRead(); });
   const openTask = (t?: Task) => { setSelected(t); setModal('task'); };
   const authMode = route.split('?')[0];
-  if (['reset','forgot','otp'].includes(authMode) || !authenticated) return <Auth key={route} localMail={localMail} route={['login','register','reset','forgot','otp'].includes(authMode) ? route : 'login'} navigate={navigate} onLogin={() => { setAuthenticated(true); const invitation = sessionStorage.getItem('taskflow.invitation') || (authMode === 'invite' ? route : ''); navigate(invitation || 'dashboard'); refresh(); }}/ >;
+  if (!authenticated && (authMode === 'landing' || authMode === '')) return <LandingPage navigate={navigate} mode={mode} toggleTheme={toggleTheme}/>;
+  if (['reset','forgot','otp','login','register'].includes(authMode) || !authenticated) return <Auth key={route} localMail={localMail} route={['login','register','reset','forgot','otp'].includes(authMode) ? route : 'login'} navigate={navigate} onLogin={() => { setAuthenticated(true); const invitation = sessionStorage.getItem('taskflow.invitation') || (authMode === 'invite' ? route : ''); navigate(invitation || 'dashboard'); refresh(); }}/ >;
   if (authMode === 'inbox') return <Inbox navigate={navigate}/>;
   if (adminAccess === 'checking' || loading) return <main className="auth-page"><div className="auth-card"><Brand/><p role="status">Checking account access…</p></div></main>;
-  if (adminAccess === 'admin') return <PlatformShell route={authMode} navigate={navigate} logout={logout} busy={action.busy} person={person} mode={mode} toggleTheme={toggleTheme}>{authMode === 'admin/analytics' ? <AdminAnalytics /> : authMode === 'admin/reports' ? <AdminReports /> : <AdminDashboard />}</PlatformShell>;
+  if (adminAccess === 'admin') return <PlatformShell route={authMode} navigate={navigate} logout={logout} busy={action.busy} person={person} mode={mode} toggleTheme={toggleTheme}>{authMode === 'admin/analytics' ? <AdminAnalytics /> : authMode === 'admin/users' ? <AdminManagement page="users"/> : authMode === 'admin/organizations' ? <AdminManagement page="organizations"/> : authMode === 'admin/projects' ? <AdminManagement page="projects"/> : authMode === 'admin/activity' ? <AdminActivity/> : authMode === 'admin/health' ? <AdminHealth/> : authMode === 'admin/reports' ? <AdminReports /> : authMode === 'admin/settings' ? <AdminSettings/> : <AdminDashboard />}</PlatformShell>;
   if (authMode === 'invite') return <main className="auth-page"><div className="auth-card"><Brand/><h1>Join your team</h1><p className="muted">You are signed in as {person?.email}. Accept this invitation to access your organization.</p><Feedback error={action.error}/><button className="primary" disabled={action.busy} onClick={() => void action.run(async () => { const token = new URLSearchParams(route.split('?')[1]).get('token'); const response = await api.post('/organizations/invitations/accept',{token}); sessionStorage.removeItem('taskflow.invitation'); chooseOrg(response.data.organizationId); navigate('dashboard'); refresh(); })}>Accept invitation</button><button className="text-button" onClick={() => { sessionStorage.setItem('taskflow.invitation',route); logout(); }}>Use a different account</button><button className="text-button" onClick={() => navigate('dashboard')}>Back to workspace</button></div></main>;
   const filtered = tasks.filter(t => (t.title + ' ' + (t.description ?? '')).toLowerCase().includes(search.toLowerCase()) && (!priority || t.priority === priority));
   const manager = ['PROJECT_MANAGER','TEAM_LEAD'].includes(project?.role ?? ''); const writable = Boolean(project && project.role !== 'VIEWER');

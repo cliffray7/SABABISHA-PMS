@@ -12,6 +12,39 @@ namespace Pms.Api.Controllers.Rest.V1;
 [Authorize(Policy = "SuperAdmin")]
 public sealed class AdminController(PmsDbContext db) : ControllerBase
 {
+    [HttpGet("users")]
+    public async Task<IActionResult> GetUsers(CancellationToken cancellationToken) => Ok(await db.Users
+        .AsNoTracking()
+        .OrderByDescending(user => user.CreatedAt)
+        .Select(user => new
+        {
+            user.Id, user.FirstName, user.LastName, user.Email, user.Status, user.CreatedAt,
+            OrganizationCount = db.OrganizationMembers.Count(member => member.UserId == user.Id && member.Status == "active")
+        }).ToListAsync(cancellationToken));
+
+    [HttpGet("organizations")]
+    public async Task<IActionResult> GetOrganizations(CancellationToken cancellationToken) => Ok(await db.Organizations
+        .AsNoTracking()
+        .OrderByDescending(organization => organization.CreatedAt)
+        .Select(organization => new
+        {
+            organization.Id, organization.Name, organization.Slug, organization.CreatedAt,
+            Owner = db.OrganizationMembers.Where(member => member.OrganizationId == organization.Id && member.Role == "OWNER")
+                .Join(db.Users, member => member.UserId, user => user.Id, (_, user) => user.FirstName + " " + user.LastName).FirstOrDefault(),
+            MemberCount = db.OrganizationMembers.Count(member => member.OrganizationId == organization.Id && member.Status == "active"),
+            ProjectCount = db.Projects.Count(project => project.OrganizationId == organization.Id)
+        }).ToListAsync(cancellationToken));
+
+    [HttpGet("projects")]
+    public async Task<IActionResult> GetProjects(CancellationToken cancellationToken) => Ok(await db.Projects
+        .AsNoTracking()
+        .OrderByDescending(project => project.CreatedAt)
+        .Select(project => new
+        {
+            project.Id, project.Name, project.Status, project.CreatedAt, project.DueDate, project.ArchivedAt,
+            OrganizationName = db.Organizations.Where(organization => organization.Id == project.OrganizationId).Select(organization => organization.Name).FirstOrDefault(),
+            TaskCount = db.Tasks.Count(task => task.ProjectId == project.Id && task.ParentTaskId == null && task.DeletedAt == null)
+        }).ToListAsync(cancellationToken));
     
     // SUPER ADMIN DASHBOARD
     // GET /api/v1/admin/dashboard
