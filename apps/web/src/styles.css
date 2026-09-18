@@ -40,6 +40,17 @@ body{background:var(--page);color:var(--ink)}
 
 /* Clear interaction feedback without changing the existing layout. */
 .skip-link{position:fixed;left:12px;top:-48px;z-index:20;background:var(--violet);color:#fff;border-radius:8px;padding:10px 14px;font-weight:700;text-decoration:none}.skip-link:focus{top:12px}
+
+/* The shell uses CSS variables, so non-MUI workspace screens follow the MUI color mode. */
+:root[data-theme='dark']{--page:#12131a;--panel:#1c1e28;--ink:#eef0f8;--muted:#aeb3c2;--line:#343845;--soft:#282b37;--shadow-soft:0 10px 28px rgba(0,0,0,.28);color-scheme:dark}
+:root[data-theme='dark'] body,:root[data-theme='dark'] .shell{background:#12131a;color:var(--ink)}
+:root[data-theme='dark'] .shell{background:linear-gradient(135deg,#12131a 0%,#171923 55%,#15141d 100%)}
+:root[data-theme='dark'] .topbar,:root[data-theme='dark'] .sidebar,:root[data-theme='dark'] .auth-card,:root[data-theme='dark'] .metric,:root[data-theme='dark'] .progress-panel,:root[data-theme='dark'] .list-panel,:root[data-theme='dark'] .members-panel,:root[data-theme='dark'] .notifications-page,:root[data-theme='dark'] .task-card,:root[data-theme='dark'] .notification-row,:root[data-theme='dark'] .notification-panel,:root[data-theme='dark'] .panel-footer,:root[data-theme='dark'] .app-modal,:root[data-theme='dark'] .empty-state,:root[data-theme='dark'] .ai-suggestion{background:#1c1e28;color:var(--ink)}
+:root[data-theme='dark'] .auth-page{background:radial-gradient(circle at 15% 20%,#29254c 0,transparent 32%),#12131a}
+:root[data-theme='dark'] input,:root[data-theme='dark'] select,:root[data-theme='dark'] textarea,:root[data-theme='dark'] .secondary,:root[data-theme='dark'] .column,:root[data-theme='dark'] .check-label,:root[data-theme='dark'] .attachment,:root[data-theme='dark'] .subtask-item,:root[data-theme='dark'] .crumb select,:root[data-theme='dark'] .task-list-row{background:#252834;color:var(--ink)}
+:root[data-theme='dark'] .notification-row.unread,:root[data-theme='dark'] .nav-item.active{background:#302d57}
+:root[data-theme='dark'] .notification-row:hover,:root[data-theme='dark'] .nav-item:hover:not(:disabled),:root[data-theme='dark'] .secondary:hover:not(:disabled){background:#292c39}
+:root[data-theme='dark'] input:disabled,:root[data-theme='dark'] fieldset:disabled input,:root[data-theme='dark'] fieldset:disabled textarea,:root[data-theme='dark'] fieldset:disabled select{background:#2a2d38;color:var(--muted)}
 button,.task-card,.notification-row,.nav-item{transition:background-color .16s ease,border-color .16s ease,box-shadow .16s ease,transform .16s ease}
 .nav-item:hover:not(:disabled){background:#f5f4ff;color:var(--violet)}.task-card:hover{transform:translateY(-1px)}
 input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #b4adff;outline-offset:1px}

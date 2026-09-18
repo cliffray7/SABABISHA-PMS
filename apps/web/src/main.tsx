@@ -1,9 +1,10 @@
-﻿import { StrictMode, useEffect, useState } from 'react';
+﻿import { StrictMode, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ApolloProvider } from '@apollo/client/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
-import { Bell, CirclePlus, LayoutDashboard, List, LogOut, Menu, Search, Settings, Users } from 'lucide-react';
+import { Bell, CirclePlus, LayoutDashboard, List, LogOut, Menu, Moon, Search, Settings, Sun, Users } from 'lucide-react';
+import axios from 'axios';
 import { api, clearAuth, DashboardMetrics, dateLabel, errorMessage, graphqlClient, initials, Invitation, Member, Notice, Organization, overdue, Person, priorities, Project, queryClient, signedIn, statuses, Task } from './api';
 import { Auth, Inbox } from './Auth';
 import AdminDashboard from './AdminDashboard';
@@ -15,23 +16,28 @@ import { Brand, Empty, Feedback, Form, Modal, useAction, value } from './ui';
 import './styles.css';
 import { useNotifications } from './useNotifications';
 
-const theme = createTheme({
+type ColorMode = 'light' | 'dark';
+const theme = (mode: ColorMode) => createTheme({
   typography: { fontFamily: '"DM Sans", "Segoe UI", sans-serif' },
   shape: { borderRadius: 8 },
-  palette: { primary: { main: '#165dff' }, secondary: { main: '#ef8354' } }
+  palette: { mode, primary: { main: '#6659ef' }, secondary: { main: '#ef8354' } }
 });
 
-function App() {
+type AdminAccessState = 'checking' | 'admin' | 'user';
+const adminRoutes = new Set(['admin', 'admin/analytics', 'admin/reports']);
+
+function App({ mode, toggleTheme }: { mode: ColorMode; toggleTheme: () => void }) {
   const [route,setRoute] = useState(location.hash.slice(1) || 'dashboard'); const [authenticated,setAuthenticated] = useState(signedIn());
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [adminAccess, setAdminAccess] = useState<AdminAccessState>(authenticated ? 'checking' : 'user');
   const [localMail,setLocalMail] = useState(false); const [version,setVersion] = useState(0); const refresh = () => setVersion(v => v+1);
-  const { notices, error: notificationError, reload: reloadNotifications, markRead } = useNotifications(authenticated, version);
+  const { notices, error: notificationError, reload: reloadNotifications, markRead } = useNotifications(authenticated && adminAccess === 'user', version);
   const [person,setPerson] = useState<Person>(); const [organizations,setOrganizations] = useState<Organization[]>([]); const [organizationId,setOrganizationId] = useState(localStorage.getItem('taskflow.organizationId') ?? '');
   const [projects,setProjects] = useState<Project[]>([]); const [projectId,setProjectId] = useState(localStorage.getItem('taskflow.projectId') ?? '');
   const [members,setMembers] = useState<Member[]>([]); const [projectMembers,setProjectMembers] = useState<Member[]>([]); const [tasks,setTasks] = useState<Task[]>([]); const [metrics,setMetrics] = useState<DashboardMetrics>(); const [invitations,setInvitations] = useState<Invitation[]>([]);
   const [loading,setLoading] = useState(true); const [projectLoading,setProjectLoading] = useState(false); const [error,setError] = useState(''); const [search,setSearch] = useState(''); const [priority,setPriority] = useState('');
   const [mobile,setMobile] = useState(false); const [bell,setBell] = useState(false); const [modal,setModal] = useState(''); const [selected,setSelected] = useState<Task>(); const [pendingTask,setPendingTask] = useState('');
   const action = useAction(); const organization = organizations.find(o => o.id === organizationId); const project = projects.find(p => p.id === projectId); const admin = ['OWNER','ADMIN'].includes(organization?.role ?? '');
+  useEffect(() => { document.documentElement.dataset.theme = mode; }, [mode]);
   useEffect(() => { if (route.startsWith('invite?')) sessionStorage.setItem('taskflow.invitation',route); }, [route]);
   useEffect(() => { if (authenticated && ['login','register'].includes(route)) { location.hash = 'dashboard'; setRoute('dashboard'); } }, [authenticated,route]);
   const navigate = (next: string) => { location.hash = next; setRoute(next); setMobile(false); setBell(false); setModal(''); };
@@ -39,43 +45,60 @@ function App() {
   const chooseProject = (id: string) => { setProjectId(id); localStorage.setItem('taskflow.projectId',id); setTasks([]); setMetrics(undefined); setProjectMembers([]); };
   useEffect(() => { api.get('/auth/mail-mode').then(r => setLocalMail(r.data.local)).catch(() => {}); const hash = () => { setRoute(location.hash.slice(1) || 'dashboard'); setModal(''); }; const expired = () => { setAuthenticated(false); navigate('login'); }; window.addEventListener('hashchange',hash); window.addEventListener('session-expired',expired); return () => { window.removeEventListener('hashchange',hash); window.removeEventListener('session-expired',expired); }; }, []);
   useEffect(() => {
-    if (!authenticated) { setLoading(false); return; }
-    let cancelled = false; setLoading(true); setError('');
-    Promise.all([api.get<Person>('/account'), api.get<Organization[]>('/organizations'), api.get('/admin/dashboard').then(() => true).catch(() => false)]).then(([u, o, isAdmin]) => { if (cancelled) return; const nextOrganizationId = o.data.some(x => x.id === organizationId) ? organizationId : o.data[0]?.id ?? ''; setPerson(u.data); setOrganizations(o.data); setOrganizationId(nextOrganizationId); setIsSuperAdmin(isAdmin); if (nextOrganizationId !== organizationId) { setProjectId(''); localStorage.removeItem('taskflow.projectId'); } }).catch(e => { if (!cancelled) setError(errorMessage(e)); }).finally(() => { if (!cancelled) setLoading(false); });
+    if (!authenticated) { setAdminAccess('user'); setLoading(false); return; }
+    let cancelled = false; setLoading(true); setError(''); setAdminAccess('checking');
+    Promise.all([api.get<Person>('/account'), api.get('/admin/dashboard').then(() => 'admin' as const).catch(error => {
+      if (axios.isAxiosError(error) && error.response?.status === 403) return 'user' as const;
+      throw error;
+    })]).then(([user, access]) => {
+      if (cancelled) return;
+      setPerson(user.data); setAdminAccess(access);
+    }).catch(error => { if (!cancelled) setError(errorMessage(error)); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [authenticated, version]);
   useEffect(() => {
-    if (!authenticated || !organizationId) return; let cancelled = false; setProjectLoading(true);
+    if (!authenticated || adminAccess !== 'user') return;
+    let cancelled = false;
+    api.get<Organization[]>('/organizations').then(response => {
+      if (cancelled) return;
+      setOrganizations(response.data);
+      const nextOrganizationId = response.data.some(item => item.id === organizationId) ? organizationId : response.data[0]?.id ?? '';
+      setOrganizationId(nextOrganizationId);
+      if (nextOrganizationId !== organizationId) { setProjectId(''); localStorage.removeItem('taskflow.projectId'); }
+    }).catch(error => { if (!cancelled) setError(errorMessage(error)); });
+    return () => { cancelled = true; };
+  }, [authenticated, adminAccess, version]);
+  useEffect(() => {
+    if (!authenticated || adminAccess !== 'user' || !organizationId) return; let cancelled = false; setProjectLoading(true);
     Promise.all([api.get<Project[]>('/projects',{params:{organizationId}}),api.get<Member[]>(`/organizations/${organizationId}/members`),admin ? api.get<Invitation[]>(`/organizations/${organizationId}/invitations`) : Promise.resolve({data:[] as Invitation[]})]).then(([p,m,i]) => { if (cancelled) return; setProjects(p.data); setMembers(m.data); setInvitations(i.data); setProjectId(current => p.data.some(x => x.id === current) ? current : p.data[0]?.id ?? ''); }).catch(e => { if (!cancelled) setError(errorMessage(e)); }).finally(() => { if (!cancelled) setProjectLoading(false); });
     return () => { cancelled = true; };
-  }, [authenticated,organizationId,admin,version]);
+  }, [authenticated,adminAccess,organizationId,admin,version]);
   useEffect(() => {
-    if (!authenticated || !projectId) { setTasks([]); setMetrics(undefined); setProjectMembers([]); return; } let cancelled = false; setProjectLoading(true);
+    if (!authenticated || adminAccess !== 'user' || !projectId) { setTasks([]); setMetrics(undefined); setProjectMembers([]); return; } let cancelled = false; setProjectLoading(true);
     Promise.all([api.get<{data:Task[]}>('/tasks',{params:{projectId}}),api.get<Member[]>(`/projects/${projectId}/members`),api.get<DashboardMetrics>('/dashboard/metrics',{params:{projectId}})]).then(([t,m,d]) => { if (cancelled) return; setTasks(t.data.data); setProjectMembers(m.data); setMetrics(d.data); }).catch(e => { if (!cancelled) setError(errorMessage(e)); }).finally(() => { if (!cancelled) setProjectLoading(false); });
     return () => { cancelled = true; };
-  }, [authenticated,projectId,version]);
+  }, [authenticated,adminAccess,projectId,version]);
+  useEffect(() => {
+    if (adminAccess === 'checking') return;
+    if (adminAccess === 'admin' && !adminRoutes.has(route.split('?')[0])) navigate('admin');
+    if (adminAccess === 'user' && adminRoutes.has(route.split('?')[0])) navigate('dashboard');
+  }, [adminAccess, route]);
   useEffect(() => { if (route === 'notifications') void reloadNotifications(); }, [route, reloadNotifications]);
   useEffect(() => { if (pendingTask) { const task = tasks.find(t => t.id === pendingTask); if (task) { setSelected(task); setModal('task'); setPendingTask(''); } } }, [tasks,pendingTask]);
-  const logout = () => void action.run(async () => { try { await api.post('/auth/logout',{refreshToken:localStorage.getItem('taskflow.refreshToken')}); } finally { clearAuth(); setAuthenticated(false); setPerson(undefined); setOrganizations([]); setProjects([]); setTasks([]); setOrganizationId(''); setProjectId(''); navigate('login'); } });
+  const logout = () => void action.run(async () => { try { await api.post('/auth/logout',{refreshToken:localStorage.getItem('taskflow.refreshToken')}); } finally { clearAuth(); setAuthenticated(false); setAdminAccess('user'); setPerson(undefined); setOrganizations([]); setProjects([]); setTasks([]); setOrganizationId(''); setProjectId(''); navigate('login'); } });
   const openNotice = (n: Notice) => void action.run(async () => { await markRead(n.id); setBell(false); if (n.projectId && n.relatedId) { const p = (await api.get<Project>('/projects/' + n.projectId)).data; if (p.organizationId !== organizationId) chooseOrg(p.organizationId); setProjectId(p.id); setPendingTask(n.relatedId); navigate('board'); refresh(); } });
   const readAll = () => void action.run(async () => { await markRead(); });
   const openTask = (t?: Task) => { setSelected(t); setModal('task'); };
   const authMode = route.split('?')[0];
-  if (authMode === 'inbox') return <Inbox navigate={navigate}/>;
-  if (authMode === 'admin') return <AdminDashboard />;
-  if (authMode === 'admin/analytics') return <AdminAnalytics />;
-  if (authMode === 'admin/reports') return <AdminReports />;
   if (['reset','forgot','otp'].includes(authMode) || !authenticated) return <Auth key={route} localMail={localMail} route={['login','register','reset','forgot','otp'].includes(authMode) ? route : 'login'} navigate={navigate} onLogin={() => { setAuthenticated(true); const invitation = sessionStorage.getItem('taskflow.invitation') || (authMode === 'invite' ? route : ''); navigate(invitation || 'dashboard'); refresh(); }}/ >;
+  if (authMode === 'inbox') return <Inbox navigate={navigate}/>;
+  if (adminAccess === 'checking' || loading) return <main className="auth-page"><div className="auth-card"><Brand/><p role="status">Checking account access…</p></div></main>;
+  if (adminAccess === 'admin') return <PlatformShell route={authMode} navigate={navigate} logout={logout} busy={action.busy} person={person} mode={mode} toggleTheme={toggleTheme}>{authMode === 'admin/analytics' ? <AdminAnalytics /> : authMode === 'admin/reports' ? <AdminReports /> : <AdminDashboard />}</PlatformShell>;
   if (authMode === 'invite') return <main className="auth-page"><div className="auth-card"><Brand/><h1>Join your team</h1><p className="muted">You are signed in as {person?.email}. Accept this invitation to access your organization.</p><Feedback error={action.error}/><button className="primary" disabled={action.busy} onClick={() => void action.run(async () => { const token = new URLSearchParams(route.split('?')[1]).get('token'); const response = await api.post('/organizations/invitations/accept',{token}); sessionStorage.removeItem('taskflow.invitation'); chooseOrg(response.data.organizationId); navigate('dashboard'); refresh(); })}>Accept invitation</button><button className="text-button" onClick={() => { sessionStorage.setItem('taskflow.invitation',route); logout(); }}>Use a different account</button><button className="text-button" onClick={() => navigate('dashboard')}>Back to workspace</button></div></main>;
   const filtered = tasks.filter(t => (t.title + ' ' + (t.description ?? '')).toLowerCase().includes(search.toLowerCase()) && (!priority || t.priority === priority));
   const manager = ['PROJECT_MANAGER','TEAM_LEAD'].includes(project?.role ?? ''); const writable = Boolean(project && project.role !== 'VIEWER');
-  return <div className="shell"><a className="skip-link" href="#main-content">Skip to main content</a><header className="topbar"><button className="mobile-menu" aria-label="Toggle navigation" aria-expanded={mobile} onClick={() => setMobile(!mobile)}><Menu size={20}/></button><Brand/><div className="crumb"><select aria-label="Organization" value={organizationId} onChange={e => chooseOrg(e.target.value)}>{!organizations.length && <option value="">Your workspace</option>}{organizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select><span>/</span><select aria-label="Project" value={projectId} onChange={e => chooseProject(e.target.value)}><option value="">Choose project</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div><div className="top-actions"><button className="icon-button notification-button" aria-label="Notifications" aria-expanded={bell} onClick={() => { setBell(!bell); void reloadNotifications(); }}><Bell size={19}/>{notices.some(n => !n.isRead) && <span className="unread-dot"/>}</button><button className="avatar" aria-label="Account settings" onClick={() => navigate('settings')}>{person ? initials(person.firstName,person.lastName) : '…'}</button></div>{bell && <div className="notification-panel"><div className="panel-heading"><h3>Notifications</h3><button className="link-button" onClick={readAll}>Mark all read</button></div>{notices.length ? notices.slice(0,4).map(n => <button className={'notification-row '+(!n.isRead?'unread':'')} key={n.id} onClick={() => openNotice(n)}><Bell size={17}/><div><strong>{n.message}</strong><small>{new Date(n.createdAt).toLocaleString()}</small></div></button>) : <p className="empty-small">You're all caught up.</p>}<button className="panel-footer" onClick={() => navigate('notifications')}>View all notifications</button></div>}</header>
-    import AdminNav from './AdminNav';
-
-// ...
-
+  return <div className="shell"><a className="skip-link" href="#main-content">Skip to main content</a><header className="topbar"><button className="mobile-menu" aria-label="Toggle navigation" aria-expanded={mobile} onClick={() => setMobile(!mobile)}><Menu size={20}/></button><Brand/><div className="crumb"><select aria-label="Organization" value={organizationId} onChange={e => chooseOrg(e.target.value)}>{!organizations.length && <option value="">Your workspace</option>}{organizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select><span>/</span><select aria-label="Project" value={projectId} onChange={e => chooseProject(e.target.value)}><option value="">Choose project</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div><div className="top-actions"><button className="icon-button notification-button" aria-label="Notifications" aria-expanded={bell} onClick={() => { setBell(!bell); void reloadNotifications(); }}><Bell size={19}/>{notices.some(n => !n.isRead) && <span className="unread-dot"/>}</button><ThemeToggle mode={mode} toggle={toggleTheme}/><button className="avatar" aria-label="Account settings" onClick={() => navigate('settings')}>{person ? initials(person.firstName,person.lastName) : '…'}</button></div>{bell && <div className="notification-panel"><div className="panel-heading"><h3>Notifications</h3><button className="link-button" onClick={readAll}>Mark all read</button></div>{notices.length ? notices.slice(0,4).map(n => <button className={'notification-row '+(!n.isRead?'unread':'')} key={n.id} onClick={() => openNotice(n)}><Bell size={17}/><div><strong>{n.message}</strong><small>{new Date(n.createdAt).toLocaleString()}</small></div></button>) : <p className="empty-small">You're all caught up.</p>}<button className="panel-footer" onClick={() => navigate('notifications')}>View all notifications</button></div>}</header>
 <aside className={'sidebar '+(mobile?'is-open':'')}><div className="workspace-name">Workspace <small>{organization?.role?.toLowerCase()}</small></div>
-    {isSuperAdmin && <AdminNav route={route} navigate={navigate} />}
     {[{id:'dashboard',label:'Dashboard',icon:LayoutDashboard},{id:'board',label:'Board',icon:List},{id:'members',label:'Members',icon:Users},{id:'notifications',label:'Notifications',icon:Bell},{id:'settings',label:'Settings',icon:Settings}].map(item => <button key={item.id} className={'nav-item '+(route===item.id?'active':'')} aria-current={route===item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><item.icon size={18}/>{item.label}</button>)}<div className="sidebar-bottom"><button className="nav-item" onClick={() => setModal('organization')}><CirclePlus size={18}/>New organization</button>{localMail && <button className="nav-item" onClick={() => navigate('inbox')}>Development inbox</button>}<button className="nav-item" disabled={action.busy} onClick={logout}><LogOut size={18}/>Log out</button></div></aside>
     <main className="content" id="main-content" tabIndex={-1}><Feedback error={error || action.error || notificationError}/>{error && <button className="secondary" onClick={refresh}>Retry loading</button>}{loading && !person ? <Empty title="Loading your workspace…"/> : !organization && !error ? <Empty title="Welcome to TaskFlow"><p>Create your organization to start planning projects, or accept an invitation from your team.</p><button className="primary" onClick={() => setModal('organization')}>Create organization</button></Empty> : <>
       {['board','dashboard'].includes(route) && <><div className="page-heading"><div><p className="eyebrow">{organization?.name ?? 'WORKSPACE'} / {route === 'dashboard' ? 'OVERVIEW' : 'PROJECT'}</p><h1>{route === 'dashboard' ? `Welcome, ${person?.firstName ?? ''}` : project?.name ?? 'Your projects'}</h1><p className="muted">{route === 'dashboard' ? 'A clear view of your team’s work.' : project?.description || 'Plan, track, and deliver together.'}</p></div><div className="button-row">{organization?.role !== 'GUEST' && <button className="secondary" onClick={() => setModal('project')}>New project</button>}{writable && <button className="primary" onClick={() => openTask()}><CirclePlus size={18}/>New task</button>}</div></div>
@@ -89,6 +112,16 @@ function App() {
     {modal === 'task' && project && <TaskForm task={selected} project={project} members={projectMembers} close={() => setModal('')} saved={() => { setModal(''); refresh(); }} changed={refresh}/ >}
   </div>;
 }
+
+function ThemeToggle({ mode, toggle }: { mode:ColorMode; toggle:()=>void }) {
+  const nextMode = mode === 'dark' ? 'light' : 'dark';
+  return <button className="icon-button" aria-label={`Switch to ${nextMode} mode`} title={`Switch to ${nextMode} mode`} onClick={toggle}>{mode === 'dark' ? <Sun size={19}/> : <Moon size={19}/>}</button>;
+}
+
+function PlatformShell({ route, navigate, logout, busy, person, mode, toggleTheme, children }: { route:string; navigate:(route:string)=>void; logout:()=>void; busy:boolean; person?:Person; mode:ColorMode; toggleTheme:()=>void; children:ReactNode }) {
+  return <div className="shell"><a className="skip-link" href="#main-content">Skip to main content</a><header className="topbar"><Brand/><div className="crumb platform-title">Platform Administration</div><div className="top-actions"><ThemeToggle mode={mode} toggle={toggleTheme}/><button className="avatar" aria-label="Account settings" onClick={() => navigate('admin')}>{person ? initials(person.firstName,person.lastName) : '…'}</button></div></header><aside className="sidebar"><div className="workspace-name">PLATFORM</div><AdminNav route={route} navigate={navigate}/><div className="sidebar-bottom"><button className="nav-item" disabled={busy} onClick={logout}><LogOut size={18}/>Log out</button></div></aside><main className="content" id="main-content" tabIndex={-1}>{children}</main></div>;
+}
+
 function TaskViews({ tasks, members, mode, openTask, writable, move }: { tasks:Task[]; members:Member[]; mode:string; openTask:(task:Task)=>void; writable:boolean; move:(id:string,status:string)=>void }) {
   const card = (t:Task) => <button draggable={writable} onDragStart={e => e.dataTransfer.setData('text/plain',t.id)} className="task-card" key={t.id} onClick={() => openTask(t)}><span className="task-title">{t.title}</span><span className="task-meta"><b className={'priority '+t.priority.toLowerCase()}>{t.priority}</b><span className={overdue(t)?'danger-text':''}>{t.status==='DONE'?'Completed':dateLabel(t.dueDate)}</span></span>{Boolean(t.subtaskCount) && <small className="subtask-summary">{t.completedSubtaskCount ?? 0}/{t.subtaskCount} subtasks complete</small>}<span className="assignee-chips">{t.assigneeIds.length ? t.assigneeIds.map(id => { const m = members.find(x=>x.userId===id); return <span className="task-assignee" key={id} title={m?m.firstName+' '+m.lastName:'Assigned teammate'}>{m?initials(m.firstName,m.lastName):'?'}</span>; }) : <small>Unassigned</small>}</span></button>;
   if (mode==='list') return <section className="list-panel">{tasks.length ? tasks.map(t=><div className="task-list-entry" key={t.id}>{card(t)}<span className="status-tag">{t.status}</span></div>) : <Empty title="No tasks match this view"/>}</section>;
@@ -110,4 +143,9 @@ function SettingsPage({person,project,refresh,editProject,archive}:{person:Perso
   const action=useAction();const [message,setMessage]=useState('');
   return <><div className="page-heading"><h1>Settings</h1></div><section className="list-panel settings-panel"><h2>Your account</h2><Form onSubmit={data=>void action.run(async()=>{await api.patch('/account',{firstName:value(data,'firstName'),lastName:value(data,'lastName'),timezone:value(data,'timezone')});setMessage('Profile saved.');refresh();})}><div className="two-col"><label>First name<input name="firstName" required maxLength={100} defaultValue={person.firstName}/></label><label>Last name<input name="lastName" required maxLength={100} defaultValue={person.lastName}/></label></div><label>Email address<input value={person.email} disabled/></label><label>Timezone<input name="timezone" required maxLength={100} defaultValue={person.timezone} placeholder="Africa/Nairobi"/></label><Feedback error={action.error}/>{message&&<p className="success-message" role="status">{message}</p>}<button className="primary" disabled={action.busy}>Save profile</button></Form><hr/><h3>Password</h3><p>Request a secure reset link to change your password.</p><button className="secondary" disabled={action.busy} onClick={()=>void action.run(async()=>{await api.post('/auth/forgot-password',{email:person.email});setMessage('Password reset requested. Check your email or the development inbox.');})}>Send password reset link</button></section>{project&&['PROJECT_MANAGER','TEAM_LEAD'].includes(project.role)&&<section className="list-panel settings-panel"><h2>Project settings</h2><p>{project.name} · {project.status}</p><div className="button-row"><button className="secondary" onClick={editProject}>Edit project</button><button className="danger" onClick={archive}>Archive project</button></div></section>}</>;
 }
-createRoot(document.getElementById('root')!).render(<StrictMode><ThemeProvider theme={theme}><CssBaseline/><ApolloProvider client={graphqlClient}><QueryClientProvider client={queryClient}><App/></QueryClientProvider></ApolloProvider></ThemeProvider></StrictMode>);
+function Root() {
+  const [mode, setMode] = useState<ColorMode>(() => localStorage.getItem('taskflow.colorMode') === 'dark' ? 'dark' : 'light');
+  const toggleTheme = () => setMode(current => { const next = current === 'dark' ? 'light' : 'dark'; localStorage.setItem('taskflow.colorMode', next); return next; });
+  return <ThemeProvider theme={theme(mode)}><CssBaseline/><ApolloProvider client={graphqlClient}><QueryClientProvider client={queryClient}><App mode={mode} toggleTheme={toggleTheme}/></QueryClientProvider></ApolloProvider></ThemeProvider>;
+}
+createRoot(document.getElementById('root')!).render(<StrictMode><Root/></StrictMode>);

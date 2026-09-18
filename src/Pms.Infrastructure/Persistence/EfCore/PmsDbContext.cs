@@ -82,7 +82,9 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
 
         modelBuilder.Entity<OrganizationInvitation>(entity =>
         {
-            entity.ToTable("organization_invitations");
+            // The deployed table has an audit trigger. SQL Server does not allow
+            // EF Core's default UPDATE ... OUTPUT form on trigger-backed tables.
+            entity.ToTable("organization_invitations", table => table.UseSqlOutputClause(false));
             entity.HasKey(invitation => invitation.Id);
             entity.HasIndex(invitation => invitation.TokenHash).IsUnique();
             entity.HasIndex(invitation => new { invitation.OrganizationId, invitation.Email });

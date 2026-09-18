@@ -463,7 +463,8 @@ const AdminDashboard = () => {
           CHARTS
       =================================================== */}
 
-      {analytics && (
+      {analytics && analytics.userGrowth.length === 0 && analytics.projectGrowth.length === 0 && analytics.tasksByStatus.length === 0 && analytics.tasksByPriority.length === 0 && <Alert severity="info" sx={{ mb: 3 }}>No platform activity was recorded for this date range.</Alert>}
+      {analytics && (analytics.userGrowth.length > 0 || analytics.projectGrowth.length > 0 || analytics.tasksByStatus.length > 0 || analytics.tasksByPriority.length > 0) && (
         <Grid container spacing={3}>
           {/* USER GROWTH */}
 

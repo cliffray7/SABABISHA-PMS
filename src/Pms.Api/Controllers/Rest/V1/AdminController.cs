@@ -12,10 +12,10 @@ namespace Pms.Api.Controllers.Rest.V1;
 [Authorize(Policy = "SuperAdmin")]
 public sealed class AdminController(PmsDbContext db) : ControllerBase
 {
-    // =====================================================
+    
     // SUPER ADMIN DASHBOARD
     // GET /api/v1/admin/dashboard
-    // =====================================================
+
 
     [HttpGet("dashboard")]
     public async Task<IActionResult> GetDashboardMetrics(

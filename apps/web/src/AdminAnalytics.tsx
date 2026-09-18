@@ -25,16 +25,18 @@ const AdminAnalytics = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" sx={{ mb: 2 }}>Detailed Analytics</Typography>
+      <Typography variant="h4" component="h1" sx={{ mb: 1 }}>Analytics</Typography>
+      <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>Monitor platform growth and activity.</Typography>
       <Box sx={{ mb: 3 }}>
-        <Button onClick={() => setDate(7)}>Last 7 Days</Button>
-        <Button onClick={() => setDate(30)}>Last 30 Days</Button>
-        <Button onClick={() => setDate(90)}>Last 90 Days</Button>
+        <Button onClick={() => setDate(7)}>7 Days</Button>
+        <Button onClick={() => setDate(30)}>30 Days</Button>
+        <Button onClick={() => setDate(90)}>90 Days</Button>
       </Box>
 
       {isLoading && <CircularProgress />}
       {error && <Alert severity="error">Failed to load analytics data.</Alert>}
-      {analytics && (
+      {analytics && analytics.userGrowth.length === 0 && analytics.projectGrowth.length === 0 && analytics.tasksByStatus.length === 0 && analytics.tasksByPriority.length === 0 && <Alert severity="info">No platform activity was recorded for this date range.</Alert>}
+      {analytics && (analytics.userGrowth.length > 0 || analytics.projectGrowth.length > 0 || analytics.tasksByStatus.length > 0 || analytics.tasksByPriority.length > 0) && (
         <Grid container spacing={4}>
           <Grid item xs={12}>
             <UserGrowthChart data={analytics.userGrowth} />
