@@ -43,9 +43,15 @@ builder.Services.AddRateLimiter(options => options.AddPolicy("auth", context =>
             QueueLimit = 0
         })));
 var frontendOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? ["http://127.0.0.1:5173", "http://localhost:5173"];
+    ?? ["http://127.0.0.1:5173", "http://localhost:5173", "https://taskflow-pms.vercel.app"];
+// Always include the production Vercel origin regardless of config loading.
+var allOrigins = frontendOrigins
+    .Concat(["https://taskflow-pms.vercel.app"])
+    .Where(origin => Uri.TryCreate(origin, UriKind.Absolute, out _))
+    .Distinct()
+    .ToArray();
 builder.Services.AddCors(options => options.AddPolicy(FrontendCors, policy => policy
-    .WithOrigins(frontendOrigins.Where(origin => Uri.TryCreate(origin, UriKind.Absolute, out _)).ToArray())
+    .WithOrigins(allOrigins)
     .AllowAnyHeader()
     .AllowAnyMethod()));
 builder.Services.AddEndpointsApiExplorer();
