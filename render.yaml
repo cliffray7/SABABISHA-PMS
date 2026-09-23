@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: sababisha-pms-api
+    runtime: docker
+    dockerfilePath: infrastructure/docker/api.Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/live
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__PmsDatabase
+        sync: false
+      - key: Jwt__SigningKey
+        generateValue: true
+      - key: Cors__AllowedOrigins__0
+        sync: false
+      - key: FrontendUrl
+        sync: false
+      - key: Uploads__Path
+        value: /app/data/uploads
+    disk:
+      name: attachments
+      mountPath: /app/data
+      sizeGB: 1

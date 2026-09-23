@@ -1,0 +1,47 @@
+Launching lib\main.dart on sdk gphone16k x86 64 in debug mode...
+Running Gradle task 'assembleDebug'...                          
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>if "Windows_NT" == "Windows_NT" setlocal
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>set DEFAULT_JVM_OPTS= 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>set DIRNAME=C:\Users\Admin\SABABISHA-PMS\apps\mobile\android\ 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>if "C:\Users\Admin\SABABISHA-PMS\apps\mobile\android\" == "" set DIRNAME=. 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>set APP_BASE_NAME=gradlew 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>set APP_HOME=C:\Users\Admin\SABABISHA-PMS\apps\mobile\android\ 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>if defined JAVA_HOME goto findJavaFromJavaHome 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>set JAVA_HOME=C:\Program Files\Android\Android Studio\jbr 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>set JAVA_EXE=C:\Program Files\Android\Android Studio\jbr/bin/java.exe 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>if exist "C:\Program Files\Android\Android Studio\jbr/bin/java.exe" goto init 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>if not "Windows_NT" == "Windows_NT" goto win9xME_args 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>if "@eval[2+2]" == "4" goto 4NT_args 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>set CMD_LINE_ARGS= 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>set _SKIP=2 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>if "x-q" == "x" goto execute 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>set CMD_LINE_ARGS=-q -Ptarget-platform=android-x64 -Ptarget=C:\Users\Admin\SABABISHA-PMS\apps\mobile\lib\main.dart -Pbase-application-name=android.app.Application -Pdart-defines=RkxVVFRFUl9CVUlMRF9OQU1FPTAuMS4w,RkxVVFRFUl9CVUlMRF9OVU1CRVI9MQ==,RkxVVFRFUl9WRVJTSU9OPTMuNDcuNA==,RkxVVFRFUl9DSEFOTkVMPXN0YWJsZQ==,RkxVVFRFUl9HSVRfVVJMPWh0dHBzOi8vZ2l0aHViLmNvbS9mbHV0dGVyL2ZsdXR0ZXIuZ2l0,RkxVVFRFUl9GUkFNRVdPUktfUkVWSVNJT049OTU4NGM2NzEzYg==,RkxVVFRFUl9FTkdJTkVfUkVWSVNJT049MDZhMmUyYTExMA==,RkxVVFRFUl9EQVJUX1ZFUlNJT049My4xMy4z -Pdart-obfuscation=false -Ptrack-widget-creation=true -Ptree-shake-icons=false -Pfilesystem-scheme=org-dartlang-root -Pflutter.androidSdkRoot=C:\Users\Admin\AppData\Local\Android\sdk -Pflutter.installedNdkVersions=28.2.13676358 -Pflutter.sdkManagerPath=C:\Users\Admin\AppData\Local\Android\sdk\cmdline-tools\latest\bin\sdkmanager.bat assembleDebug 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>goto execute 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>set CLASSPATH=C:\Users\Admin\SABABISHA-PMS\apps\mobile\android\\gradle\wrapper\gradle-wrapper.jar 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>"C:\Program Files\Android\Android Studio\jbr/bin/java.exe"    "-Dorg.gradle.appname=gradlew" -classpath "C:\Users\Admin\SABABISHA-PMS\apps\mobile\android\\gradle\wrapper\gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain -q -Ptarget-platform=android-x64 -Ptarget=C:\Users\Admin\SABABISHA-PMS\apps\mobile\lib\main.dart -Pbase-application-name=android.app.Application -Pdart-defines=RkxVVFRFUl9CVUlMRF9OQU1FPTAuMS4w,RkxVVFRFUl9CVUlMRF9OVU1CRVI9MQ==,RkxVVFRFUl9WRVJTSU9OPTMuNDcuNA==,RkxVVFRFUl9DSEFOTkVMPXN0YWJsZQ==,RkxVVFRFUl9HSVRfVVJMPWh0dHBzOi8vZ2l0aHViLmNvbS9mbHV0dGVyL2ZsdXR0ZXIuZ2l0,RkxVVFRFUl9GUkFNRVdPUktfUkVWSVNJT049OTU4NGM2NzEzYg==,RkxVVFRFUl9FTkdJTkVfUkVWSVNJT049MDZhMmUyYTExMA==,RkxVVFRFUl9EQVJUX1ZFUlNJT049My4xMy4z -Pdart-obfuscation=false -Ptrack-widget-creation=true -Ptree-shake-icons=false -Pfilesystem-scheme=org-dartlang-root -Pflutter.androidSdkRoot=C:\Users\Admin\AppData\Local\Android\sdk -Pflutter.installedNdkVersions=28.2.13676358 -Pflutter.sdkManagerPath=C:\Users\Admin\AppData\Local\Android\sdk\cmdline-tools\latest\bin\sdkmanager.bat assembleDebug 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>if "0" == "0" goto mainEnd 
+
+C:\Users\Admin\SABABISHA-PMS\apps\mobile\android>if "Windows_NT" == "Windows_NT" endlocal
+Running Gradle task 'assembleDebug'...                            378.8s
+√ Built build\app\outputs\flutter-apk\app-debug.apk
+Installing build\app\outputs\flutter-apk\app-debug.apk...        5903.0s

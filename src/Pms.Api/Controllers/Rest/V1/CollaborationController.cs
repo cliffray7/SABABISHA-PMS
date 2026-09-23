@@ -8,8 +8,18 @@ using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 namespace Pms.Api.Controllers.Rest.V1;
 [ApiController, Authorize]
-public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment environment) : ControllerBase
+public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment environment, IConfiguration configuration) : ControllerBase
 {
+    private string UploadFolder
+    {
+        get
+        {
+            var configuredPath = configuration["Uploads:Path"];
+            return string.IsNullOrWhiteSpace(configuredPath)
+                ? Path.Combine(environment.ContentRootPath, ".data", "uploads")
+                : Path.GetFullPath(configuredPath, environment.ContentRootPath);
+        }
+    }
     private async Task<WorkTask?> TaskAccess(Guid id, bool write, CancellationToken ct)
     {
         var task = await db.Tasks.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt == null, ct);
@@ -69,7 +79,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         if (file.Length <= 0 || file.Length > 10_000_000) return BadRequest(new { message = "Choose a file between 1 byte and 10 MB." });
         var name = Path.GetFileName(file.FileName); if (name.Length > 500) return BadRequest(new { message = "File name is too long." });
         var attachment = new Attachment { Id = Guid.NewGuid(), TaskId = id, UploadedBy = CurrentUser.Id(User), FileName = name, FileUrl = "local", FileSize = file.Length, FileType = "application/octet-stream" };
-        var folder = Path.Combine(environment.ContentRootPath, ".data", "uploads"); Directory.CreateDirectory(folder);
+        var folder = UploadFolder; Directory.CreateDirectory(folder);
         var path = Path.Combine(folder, attachment.Id.ToString());
         var recipients = await db.ProjectMembers
             .Where(member => member.ProjectId == task.ProjectId && member.Status == "active"
@@ -99,7 +109,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
     {
         var attachment = await db.Attachments.SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt == null, ct);
         if (attachment?.TaskId is not Guid taskId || await TaskAccess(taskId, false, ct) is null) return NotFound();
-        var path = Path.Combine(environment.ContentRootPath, ".data", "uploads", id.ToString());
+        var path = Path.Combine(UploadFolder, id.ToString());
         return System.IO.File.Exists(path) ? PhysicalFile(path, "application/octet-stream", attachment.FileName) : NotFound();
     }
     [HttpDelete("/api/v1/attachments/{id:guid}")]
@@ -113,7 +123,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         if (attachment.UploadedBy != userId && !await IsManager(task.ProjectId, userId, ct)) return Forbid();
         attachment.DeletedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
-        var path = Path.Combine(environment.ContentRootPath, ".data", "uploads", id.ToString());
+        var path = Path.Combine(UploadFolder, id.ToString());
         if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
         return NoContent();
     }

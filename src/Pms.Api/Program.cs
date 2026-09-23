@@ -18,6 +18,11 @@ using Pms.Infrastructure.Persistence.Dapper;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Railway and Render assign the public HTTP port at runtime. Respect their PORT
+// value while retaining the normal ASP.NET Core configuration for local and Docker use.
+if (int.TryParse(Environment.GetEnvironmentVariable("PORT"), out var port))
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+
 // Console logging is reliable for local development and avoids Windows Event
 // Log permission failures masking the original request exception.
 builder.Logging.ClearProviders();
@@ -37,8 +42,10 @@ builder.Services.AddRateLimiter(options => options.AddPolicy("auth", context =>
             SegmentsPerWindow = 6,
             QueueLimit = 0
         })));
+var frontendOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? ["http://127.0.0.1:5173", "http://localhost:5173"];
 builder.Services.AddCors(options => options.AddPolicy(FrontendCors, policy => policy
-    .WithOrigins("http://127.0.0.1:5173", "http://localhost:5173")
+    .WithOrigins(frontendOrigins.Where(origin => Uri.TryCreate(origin, UriKind.Absolute, out _)).ToArray())
     .AllowAnyHeader()
     .AllowAnyMethod()));
 builder.Services.AddEndpointsApiExplorer();

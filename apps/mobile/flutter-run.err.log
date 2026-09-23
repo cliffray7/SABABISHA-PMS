@@ -1,0 +1,15 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/C:/Users/Admin/.gradle/wrapper/dists/gradle-9.3.1-all/9ot9r568e8zfvvd4mn8rbu1j0/gradle-9.3.1/lib/native-platform-0.22-milestone-29.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+adb shell am force-stop failed: ProcessException: Process timed out:
+
+  Command: C:\Users\Admin\AppData\Local\Android\sdk\platform-tools\adb.exe -s emulator-5554 shell am force-stop com.example.sababisha_pms_mobile
+Error: ADB exited with exit code 1
+Performing Streamed Install
+
+* daemon still not running
+adb: failed to run abb_exec. Error: cannot connect to daemon at tcp:5037: cannot connect to 127.0.0.1:5037: No connection could be made because the target machine actively refused it. (10061)
+adb.exe: connect error for write: cannot connect to daemon at tcp:5037: cannot connect to 127.0.0.1:5037: No connection could be made because the target machine actively refused it. (10061)
+Error launching application on sdk gphone16k x86 64.
