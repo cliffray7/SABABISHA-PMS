@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/models.dart';
 import '../services/api_client.dart';
@@ -538,6 +539,28 @@ class _AttachmentTile extends StatelessWidget {
   final String taskId;
   final ApiClient api;
 
+  Future<void> _download(BuildContext context) async {
+    try {
+      final url = await api.attachmentDownloadUrl(attachment.id);
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not open the file.')),
+          );
+        }
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Download failed.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListTile(
@@ -547,7 +570,11 @@ class _AttachmentTile extends StatelessWidget {
           overflow: TextOverflow.ellipsis, maxLines: 1),
       subtitle: Text(
           '${(attachment.fileSize / 1024).toStringAsFixed(1)} KB · ${dateLabel(attachment.createdAt)}'),
-      trailing: const Icon(Icons.download_outlined, size: 18),
+      trailing: IconButton(
+        icon: const Icon(Icons.download_outlined, size: 18),
+        onPressed: () => _download(context),
+        tooltip: 'Download',
+      ),
     );
   }
 }

@@ -5,7 +5,6 @@ import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/app_state.dart';
 import '../widgets/common.dart';
-import 'task_detail_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen(

@@ -6,10 +6,10 @@ import 'package:http/http.dart' as http;
 import '../models/models.dart';
 import 'session_store.dart';
 
-/// API root.  Override with --dart-define=API_BASE_URL=... for physical devices.
+/// API root.  Override with --dart-define=API_BASE_URL=... to point elsewhere.
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://10.0.2.2:5141/api/v1',
+  defaultValue: 'https://taskflow-api-rki8.onrender.com/api/v1',
 );
 
 class ApiException implements Exception {
@@ -327,7 +327,7 @@ class ApiClient {
     required bool done,
   }) async {
     await _authorized('PATCH', '/tasks/$taskId/subtasks/$subtaskId',
-        body: {'status': done ? 'DONE' : 'TO DO'});
+        body: {'done': done});
   }
 
   Future<void> deleteSubtask({
@@ -348,10 +348,12 @@ class ApiClient {
     required String taskId,
     required String content,
     String? parentCommentId,
+    List<String> mentionedUserIds = const [],
   }) async {
     final response = await _authorized('POST', '/tasks/$taskId/comments',
         body: {
           'content': content,
+          'mentionedUserIds': mentionedUserIds,
           if (parentCommentId != null) 'parentCommentId': parentCommentId,
         });
     return Comment.fromJson(_json(response));
@@ -391,9 +393,9 @@ class ApiClient {
     }
   }
 
-  Future<String> attachmentDownloadUrl(String taskId, String attachmentId) {
-    // Returns a URL the user can open in the browser.
-    return Future.value('$apiBaseUrl/tasks/$taskId/attachments/$attachmentId');
+  Future<String> attachmentDownloadUrl(String attachmentId) {
+    // Returns the authenticated download endpoint URL.
+    return Future.value('$apiBaseUrl/attachments/$attachmentId/download');
   }
 
   // ─── Notifications ───────────────────────────────────────────────────────

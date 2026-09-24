@@ -303,11 +303,8 @@ class Comment {
   factory Comment.fromJson(Map<String, dynamic> json) => Comment(
         id: json['id'] as String,
         content: json['content'] as String,
-        authorId: json['authorId'] as String? ?? '',
-        authorName: json['authorName'] as String? ??
-            ((json['author'] as Map<String, dynamic>?)?['firstName'] as String? ?? '') +
-                ' ' +
-                ((json['author'] as Map<String, dynamic>?)?['lastName'] as String? ?? ''),
+        authorId: json['userId'] as String? ?? '',
+        authorName: json['author'] as String? ?? '',
         createdAt: json['createdAt'] as String,
         parentCommentId: json['parentCommentId'] as String?,
       );
