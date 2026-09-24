@@ -295,8 +295,8 @@ Future<void> _showCreateOrgDialog(
                     try {
                       await state.api
                           .createOrganization(name: nameCtrl.text.trim());
-                      await state.loadOrganizations();
                       if (ctx.mounted) Navigator.pop(ctx);
+                      await state.loadOrganizations();
                     } on ApiException catch (e) {
                       set(() {
                         error = e.message;

@@ -58,7 +58,8 @@ class _PmsAppState extends State<PmsApp> {
   }
 
   void _handleSignedIn() {
-    setState(() => _init = _tryRestore());
+    final future = _tryRestore();
+    setState(() => _init = future);
   }
 
   void _handleSignedOut() {
