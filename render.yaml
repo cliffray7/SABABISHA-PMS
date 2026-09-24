@@ -30,6 +30,8 @@ services:
         sync: false
       - key: Uploads__Path
         value: /app/data/uploads
+      - key: Operations__AdminUserIds__0
+        sync: false
     disk:
       name: attachments
       mountPath: /app/data

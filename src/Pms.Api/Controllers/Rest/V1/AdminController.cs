@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Pms.Infrastructure.Persistence.EfCore;
@@ -7,11 +8,99 @@ using CsvHelper;
 
 namespace Pms.Api.Controllers.Rest.V1;
 
+/// <summary>Request body for admin-created user accounts.</summary>
+public sealed record AdminCreateUserRequest(
+    string FirstName,
+    string LastName,
+    string Email,
+    string Password,
+    string? Timezone);
+
 [ApiController]
 [Route("api/v1/admin")]
 [Authorize(Policy = "SuperAdmin")]
 public sealed class AdminController(PmsDbContext db) : ControllerBase
 {
+    // =====================================================
+    // CREATE USER
+    // POST /api/v1/admin/users
+    // =====================================================
+
+    [HttpPost("users")]
+    public async Task<IActionResult> CreateUser(
+        [FromBody] AdminCreateUserRequest request,
+        [FromServices] IPasswordHasher<Pms.Domain.Entities.User> passwordHasher,
+        CancellationToken cancellationToken)
+    {
+        var email = request.Email.Trim().ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
+            return BadRequest(new { message = "First and last names are required." });
+
+        if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8)
+            return BadRequest(new { message = "Password must be at least 8 characters." });
+
+        if (await db.Users.AnyAsync(u => u.Email == email, cancellationToken))
+            return Conflict(new { message = "An account with that email address already exists." });
+
+        var user = new Pms.Domain.Entities.User
+        {
+            Id           = Guid.NewGuid(),
+            FirstName    = request.FirstName.Trim(),
+            LastName     = request.LastName.Trim(),
+            Email        = email,
+            PasswordHash = string.Empty,
+            Status       = "active",
+            Timezone     = request.Timezone?.Trim() ?? "UTC",
+        };
+
+        user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
+        db.Users.Add(user);
+        await db.SaveChangesAsync(cancellationToken);
+
+        return CreatedAtAction(nameof(GetUsers), new { },
+            new { user.Id, user.FirstName, user.LastName, user.Email, user.Status, user.CreatedAt });
+    }
+
+    // =====================================================
+    // SUSPEND / DELETE USER
+    // DELETE /api/v1/admin/users/{id}            → suspend (soft)
+    // DELETE /api/v1/admin/users/{id}?permanent=true → hard delete
+    // =====================================================
+
+    [HttpDelete("users/{id:guid}")]
+    public async Task<IActionResult> DeleteUser(
+        Guid id,
+        [FromQuery] bool permanent,
+        CancellationToken cancellationToken)
+    {
+        var user = await db.Users.FindAsync([id], cancellationToken);
+        if (user is null) return NotFound(new { message = "User not found." });
+
+        // Prevent the super admin from removing themselves.
+        var callerId = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+        if (Guid.TryParse(callerId, out var callerGuid) && callerGuid == id)
+            return BadRequest(new { message = "You cannot remove your own account." });
+
+        if (permanent)
+        {
+            db.Users.Remove(user);
+            await db.SaveChangesAsync(cancellationToken);
+            return NoContent();
+        }
+
+        // Soft suspend — preserves all tasks, comments, and org memberships.
+        user.Status    = "suspended";
+        user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(new { user.Id, user.Status });
+    }
+
+    // =====================================================
+    // LIST USERS
+    // GET /api/v1/admin/users
+    // =====================================================
+
     [HttpGet("users")]
     public async Task<IActionResult> GetUsers(CancellationToken cancellationToken) => Ok(await db.Users
         .AsNoTracking()
@@ -70,18 +159,18 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
 
             TotalTasks = await db.Tasks
                 .AsNoTracking()
-                .CountAsync(cancellationToken),
+                .CountAsync(t => t.ParentTaskId == null && t.DeletedAt == null, cancellationToken),
 
             CompletedTasks = await db.Tasks
                 .AsNoTracking()
                 .CountAsync(
-                    t => t.Status == "DONE",
+                    t => t.Status == "DONE" && t.ParentTaskId == null && t.DeletedAt == null,
                     cancellationToken),
 
             ActiveProjects = await db.Projects
                 .AsNoTracking()
                 .CountAsync(
-                    p => p.Status == "IN_PROGRESS",
+                    p => p.Status == "ACTIVE" && p.ArchivedAt == null,
                     cancellationToken)
         };
 
