@@ -1,39 +1,36 @@
-using System.Net;
-using System.Net.Mail;
 using System.Collections.Concurrent;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 
 namespace Pms.Api.Auth;
 
 public sealed record LocalMail(Guid Id, string To, string Subject, string Link, DateTime CreatedAt, string? Body = null);
-public sealed class AppMail(IConfiguration config, ILogger<AppMail> logger)
+
+public sealed class AppMail(IConfiguration config, IHttpClientFactory httpClientFactory, ILogger<AppMail> logger)
 {
     private readonly ConcurrentQueue<LocalMail> inbox = new();
-    public bool IsLocal => string.IsNullOrWhiteSpace(config["Smtp:Host"]);
+
+    // Local mode when no Brevo API key is configured — falls back to in-memory inbox.
+    public bool IsLocal => string.IsNullOrWhiteSpace(config["Brevo:ApiKey"]);
+
     public LocalMail[] Messages => inbox.Reverse().Take(50).ToArray();
-    public string Link(string path) => (config["FrontendUrl"] ?? "http://127.0.0.1:5173").TrimEnd('/') + "/#" + path;
+
+    public string Link(string path) =>
+        (config["FrontendUrl"] ?? "http://127.0.0.1:5173").TrimEnd('/') + "/#" + path;
+
     public async Task Send(string to, string subject, string link)
     {
         logger.LogInformation("Sending email to {To}: {Subject} -> {Link}", to, subject, link);
+        var body = $"{subject}\n\nOpen this link: {link}\n\nIf you did not request this, ignore this message.";
         if (IsLocal)
         {
-            inbox.Enqueue(new LocalMail(Guid.NewGuid(), to, subject, link, DateTime.UtcNow));
-            while (inbox.Count > 50) inbox.TryDequeue(out _);
+            Enqueue(new LocalMail(Guid.NewGuid(), to, subject, link, DateTime.UtcNow));
             return;
         }
-        try
-        {
-            using var client = new SmtpClient(config["Smtp:Host"], config.GetValue("Smtp:Port", 587)) { EnableSsl = config.GetValue("Smtp:EnableSsl", true) };
-            if (!string.IsNullOrWhiteSpace(config["Smtp:Username"])) client.Credentials = new NetworkCredential(config["Smtp:Username"], config["Smtp:Password"]);
-            using var message = new MailMessage(config["Smtp:From"] ?? "taskflow@localhost", to, subject, $"{subject}\n\nOpen this link: {link}\n\nIf you did not request this, ignore this message.");
-            await client.SendMailAsync(message);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to deliver email via SMTP to {To}. Storing in fallback inbox.", to);
-            inbox.Enqueue(new LocalMail(Guid.NewGuid(), to, subject, link, DateTime.UtcNow));
-            while (inbox.Count > 50) inbox.TryDequeue(out _);
-        }
+        await SendViaBrevo(to, subject, body);
     }
+
     public async Task SendOtp(string to, string code)
     {
         const string subject = "Your TaskFlow verification code";
@@ -41,22 +38,59 @@ public sealed class AppMail(IConfiguration config, ILogger<AppMail> logger)
         logger.LogInformation("TaskFlow verification OTP for {To}: {Code}", to, code);
         if (IsLocal)
         {
-            inbox.Enqueue(new LocalMail(Guid.NewGuid(), to, subject, Link("otp?email=" + Uri.EscapeDataString(to)), DateTime.UtcNow, body));
-            while (inbox.Count > 50) inbox.TryDequeue(out _);
+            Enqueue(new LocalMail(Guid.NewGuid(), to, subject, Link("otp?email=" + Uri.EscapeDataString(to)), DateTime.UtcNow, body));
             return;
         }
+        await SendViaBrevo(to, subject, body);
+    }
+
+    private async Task SendViaBrevo(string to, string subject, string textBody)
+    {
         try
         {
-            using var client = new SmtpClient(config["Smtp:Host"], config.GetValue("Smtp:Port", 587)) { EnableSsl = config.GetValue("Smtp:EnableSsl", true) };
-            if (!string.IsNullOrWhiteSpace(config["Smtp:Username"])) client.Credentials = new NetworkCredential(config["Smtp:Username"], config["Smtp:Password"]);
-            using var message = new MailMessage(config["Smtp:From"] ?? "taskflow@localhost", to, subject, body);
-            await client.SendMailAsync(message);
+            var from = config["Brevo:From"] ?? "noreply@taskflow.app";
+            var fromName = config["Brevo:FromName"] ?? "TaskFlow";
+
+            var payload = new
+            {
+                sender = new { email = from, name = fromName },
+                to = new[] { new { email = to } },
+                subject,
+                textContent = textBody
+            };
+
+            var json = JsonSerializer.Serialize(payload);
+            var request = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            request.Headers.Add("api-key", config["Brevo:ApiKey"]);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            var client = httpClientFactory.CreateClient("Brevo");
+            var response = await client.SendAsync(request);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                logger.LogError("Brevo API rejected email to {To}: {StatusCode} {Error}", to, response.StatusCode, error);
+                Enqueue(new LocalMail(Guid.NewGuid(), to, subject, string.Empty, DateTime.UtcNow, $"Delivery failed: {error}"));
+            }
+            else
+            {
+                logger.LogInformation("Brevo delivered email to {To}", to);
+            }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to deliver OTP via SMTP to {To}. Storing in fallback inbox.", to);
-            inbox.Enqueue(new LocalMail(Guid.NewGuid(), to, subject, Link("otp?email=" + Uri.EscapeDataString(to)), DateTime.UtcNow, body));
-            while (inbox.Count > 50) inbox.TryDequeue(out _);
+            logger.LogError(ex, "Failed to deliver email via Brevo HTTP API to {To}. Storing in fallback inbox.", to);
+            Enqueue(new LocalMail(Guid.NewGuid(), to, subject, string.Empty, DateTime.UtcNow));
         }
+    }
+
+    private void Enqueue(LocalMail mail)
+    {
+        inbox.Enqueue(mail);
+        while (inbox.Count > 50) inbox.TryDequeue(out _);
     }
 }

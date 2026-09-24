@@ -31,6 +31,11 @@ builder.Logging.AddJsonConsole();
 
 const string FrontendCors = "FrontendCors";
 builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles);
+builder.Services.AddHttpClient("Brevo", client =>
+{
+    client.BaseAddress = new Uri("https://api.brevo.com/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 builder.Services.AddSingleton<AppMail>();
 builder.Services.AddRateLimiter(options => options.AddPolicy("auth", context =>
     System.Threading.RateLimiting.RateLimitPartition.GetSlidingWindowLimiter(
