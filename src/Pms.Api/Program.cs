@@ -76,10 +76,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddDbContext<PmsDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("PmsDatabase"), sql =>
-        sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(5), null)));
+        // Azure SQL serverless can take up to 30 seconds to resume from auto-pause.
+        // Retry up to 6 times with up to 30 seconds between attempts.
+        sql.EnableRetryOnFailure(6, TimeSpan.FromSeconds(30), null)
+           .CommandTimeout(60)));
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database", tags: ["ready"]);
 builder.Services.AddScoped<DashboardRepository>();
 builder.Services.AddHttpClient("Gemini", client => client.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddHostedService<KeepAliveService>();
 builder.Services.AddScoped<IAiTaskService>(services => new GeminiTaskService(
     services.GetRequiredService<IHttpClientFactory>().CreateClient("Gemini"),
     new GeminiSettings(builder.Configuration["Gemini:ApiKey"], builder.Configuration["Gemini:Model"]),
@@ -137,7 +141,20 @@ else
     app.UseHsts();
 }
 
+// CORS must be first — before exception handling — so the header is present on all
+// responses including errors. The global exception handler below then catches any
+// unhandled exception and returns a JSON 500 while CORS headers are already written.
 app.UseCors(FrontendCors);
+
+// Global exception handler: catches unhandled exceptions after CORS headers are set,
+// returns a clean JSON 500, and never lets Kestrel swallow the CORS header.
+app.UseExceptionHandler(errApp => errApp.Run(async ctx =>
+{
+    ctx.Response.StatusCode = 500;
+    ctx.Response.ContentType = "application/json";
+    await ctx.Response.WriteAsJsonAsync(new { error = "An unexpected error occurred. Please try again." });
+}));
+
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
