@@ -17,7 +17,7 @@ public sealed class AccountController(PmsDbContext db, TokenService tokens, IPas
     [HttpGet("auth/mail-mode")]
     public IActionResult MailMode() => Ok(new { local = mail.IsLocal });
     [HttpGet("dev/inbox")]
-    public IActionResult Inbox() => mail.IsLocal && HttpContext.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip) ? Ok(mail.Messages) : NotFound();
+    public IActionResult Inbox() => mail.IsLocal ? Ok(mail.Messages) : NotFound();
 
     [HttpPost("auth/forgot-password"), EnableRateLimiting("auth")]
     public async Task<IActionResult> Forgot(EmailRequest request, CancellationToken ct)

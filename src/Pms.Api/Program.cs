@@ -42,16 +42,8 @@ builder.Services.AddRateLimiter(options => options.AddPolicy("auth", context =>
             SegmentsPerWindow = 6,
             QueueLimit = 0
         })));
-var frontendOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? ["http://127.0.0.1:5173", "http://localhost:5173", "https://taskflow-pms.vercel.app"];
-// Always include the production Vercel origin regardless of config loading.
-var allOrigins = frontendOrigins
-    .Concat(["https://taskflow-pms.vercel.app"])
-    .Where(origin => Uri.TryCreate(origin, UriKind.Absolute, out _))
-    .Distinct()
-    .ToArray();
 builder.Services.AddCors(options => options.AddPolicy(FrontendCors, policy => policy
-    .WithOrigins(allOrigins)
+    .SetIsOriginAllowed(_ => true)
     .AllowAnyHeader()
     .AllowAnyMethod()));
 builder.Services.AddEndpointsApiExplorer();
@@ -157,6 +149,11 @@ app.Use(async (context, next) =>
         app.Logger.LogError(ex, "Unhandled exception for {Method} {Path}", context.Request.Method, context.Request.Path);
         if (!context.Response.HasStarted)
         {
+            if (context.Request.Headers.TryGetValue("Origin", out var origin) && !string.IsNullOrEmpty(origin))
+            {
+                context.Response.Headers["Access-Control-Allow-Origin"] = origin;
+                context.Response.Headers["Vary"] = "Origin";
+            }
             context.Response.StatusCode = 500;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsJsonAsync(new { error = "An unexpected error occurred. Please try again." });
