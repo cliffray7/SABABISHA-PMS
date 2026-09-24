@@ -41,13 +41,18 @@ class _PmsAppState extends State<PmsApp> {
   Future<bool> _tryRestore() async {
     if (await _sessions.read() == null) return false;
     try {
-      await _appState.loadAccount();
-      if (_appState.account == null) return false;
+      // Call api directly so errors propagate — AppState.loadAccount()
+      // swallows errors internally which would silently return false here.
+      final account = await _api.account();
+      _appState.account = account;
       await _appState.loadOrganizations();
       await _appState.loadNotifications();
-      return true;
+      return _appState.account != null;
     } on ApiException {
       await _sessions.clear();
+      return false;
+    } catch (_) {
+      // Network error — don't clear the session, let the user retry later.
       return false;
     }
   }
