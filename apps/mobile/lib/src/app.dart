@@ -108,22 +108,52 @@ class _PmsAppState extends State<PmsApp> {
   }
 
   ThemeData _buildTheme(Brightness brightness) {
+    final isLight = brightness == Brightness.light;
     return ThemeData(
       colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF3156D3),
+        seedColor: const Color(0xFF4D40ED),
         brightness: brightness,
       ),
       useMaterial3: true,
-      fontFamily: 'Roboto',
+      fontFamily: 'DM Sans',
+      scaffoldBackgroundColor:
+          isLight ? const Color(0xFFF7F8FC) : const Color(0xFF12131A),
       inputDecorationTheme: const InputDecorationTheme(
         border: OutlineInputBorder(),
       ),
-      cardTheme: const CardThemeData(
+      cardTheme: CardThemeData(
         elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(12)),
-          side: BorderSide(color: Color(0x1A000000)),
+        color: isLight ? Colors.white : const Color(0xFF1C1E28),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(8)),
+          side: BorderSide(color: Color(0xFFE1E1E6)),
         ),
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: isLight ? Colors.white : const Color(0xFF1C1E28),
+        foregroundColor: const Color(0xFF1F212B),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        shape: const Border(
+          bottom: BorderSide(color: Color(0xFFD9DBDE), width: 1),
+        ),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: isLight ? Colors.white : const Color(0xFF1C1E28),
+        indicatorColor: const Color(0xFFEFEDFF),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return const TextStyle(
+                color: Color(0xFF4D40ED), fontWeight: FontWeight.w600);
+          }
+          return const TextStyle(color: Color(0xFF737887));
+        }),
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return const IconThemeData(color: Color(0xFF4D40ED));
+          }
+          return const IconThemeData(color: Color(0xFF737887));
+        }),
       ),
     );
   }
