@@ -16,6 +16,18 @@ services:
         sync: false
       - key: FrontendUrl
         sync: false
+      - key: Smtp__Host
+        value: smtp-relay.brevo.com
+      - key: Smtp__Port
+        value: "587"
+      - key: Smtp__EnableSsl
+        value: "false"
+      - key: Smtp__From
+        sync: false
+      - key: Smtp__Username
+        sync: false
+      - key: Smtp__Password
+        sync: false
       - key: Uploads__Path
         value: /app/data/uploads
     disk:
