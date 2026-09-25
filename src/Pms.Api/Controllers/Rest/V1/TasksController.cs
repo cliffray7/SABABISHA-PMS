@@ -127,8 +127,10 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
         await db.SaveChangesAsync(ct); return NoContent();
     }
     // Queues an in-app notification and fires a task-assigned email.
-    // The email lookup and send happen on a background thread so the HTTP response
-    // is never delayed. Values are captured before the DbContext is disposed.
+    // The user's email is looked up synchronously on the same DbContext call
+    // that's already in scope, then the send is dispatched to a background
+    // thread — so the HTTP response is never delayed and the DbContext is
+    // never touched after the request ends.
     private void Notify(Guid uid, WorkTask task)
     {
         db.Notifications.Add(new Notification
@@ -141,23 +143,24 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
             RelatedId = task.Id
         });
 
-        // Capture everything we need before the DbContext scope ends.
-        var userId    = uid;
+        // Look up the assignee email NOW — DbContext is alive and in scope.
+        var userEmail = db.Users
+            .Where(u => u.Id == uid)
+            .Select(u => new { u.Email, u.FirstName })
+            .FirstOrDefault();
+
+        if (userEmail is null) return;
+
+        // Capture primitives so nothing from the request scope leaks into the thread.
+        var toEmail   = userEmail.Email;
+        var firstName = userEmail.FirstName;
         var taskTitle = task.Title;
         var projectId = task.ProjectId;
         var taskId    = task.Id;
+        var appMail   = mail;
 
-        // Fire-and-forget: look up the assignee's email, then send.
-        // AppMail swallows delivery failures — no impact on the request.
-        _ = db.Users.AsNoTracking()
-            .Where(u => u.Id == userId)
-            .Select(u => new { u.Email, u.FirstName })
-            .FirstOrDefaultAsync()
-            .ContinueWith(t =>
-            {
-                if (t.IsCompletedSuccessfully && t.Result is { } user)
-                    _ = mail.SendTaskAssigned(user.Email, user.FirstName, taskTitle, projectId, taskId);
-            });
+        // Fire-and-forget — AppMail handles all delivery failures internally.
+        _ = Task.Run(() => appMail.SendTaskAssigned(toEmail, firstName, taskTitle, projectId, taskId));
     }
 }
 public sealed record CreateTaskRequest([Required, StringLength(300)] string Title, string? Description, string? Status, string? Priority, DateTime? DueDate, [Required] IReadOnlyCollection<Guid> AssigneeIds, DateTime? StartDate = null, Guid? ParentTaskId = null);
