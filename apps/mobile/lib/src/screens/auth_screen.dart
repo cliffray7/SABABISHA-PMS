@@ -1,6 +1,215 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
+
+const _kOtpSeconds = 600; // 10 minutes
+
+// ─── OTP 6-box input ─────────────────────────────────────────────────────────
+
+class _OtpBoxes extends StatefulWidget {
+  const _OtpBoxes({required this.onComplete, required this.busy});
+  final void Function(String code) onComplete;
+  final bool busy;
+
+  @override
+  State<_OtpBoxes> createState() => _OtpBoxesState();
+}
+
+class _OtpBoxesState extends State<_OtpBoxes> {
+  final _controllers = List.generate(6, (_) => TextEditingController());
+  final _focusNodes = List.generate(6, (_) => FocusNode());
+
+  @override
+  void dispose() {
+    for (final c in _controllers) c.dispose();
+    for (final f in _focusNodes) f.dispose();
+    super.dispose();
+  }
+
+  void _onChanged(int i, String val) {
+    final digit = val.replaceAll(RegExp(r'\D'), '');
+    if (digit.length > 1) {
+      // Paste handling — distribute digits across boxes
+      final digits = digit.substring(0, digit.length.clamp(0, 6));
+      for (int j = 0; j < digits.length && j < 6; j++) {
+        _controllers[j].text = digits[j];
+      }
+      final next = (digits.length).clamp(0, 5);
+      _focusNodes[next].requestFocus();
+      _checkComplete();
+      return;
+    }
+    if (digit.isNotEmpty) {
+      _controllers[i].text = digit;
+      if (i < 5) _focusNodes[i + 1].requestFocus();
+      _checkComplete();
+    } else {
+      _controllers[i].clear();
+    }
+  }
+
+  void _onKeyDown(int i, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.backspace &&
+        _controllers[i].text.isEmpty &&
+        i > 0) {
+      _focusNodes[i - 1].requestFocus();
+      _controllers[i - 1].clear();
+    }
+  }
+
+  void _checkComplete() {
+    final code = _controllers.map((c) => c.text).join();
+    if (code.length == 6 && code.split('').every((d) => RegExp(r'\d').hasMatch(d))) {
+      widget.onComplete(code);
+    }
+  }
+
+  void clear() {
+    for (final c in _controllers) c.clear();
+    _focusNodes[0].requestFocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(6, (i) {
+        return Padding(
+          padding: EdgeInsets.only(right: i < 5 ? 8 : 0),
+          child: SizedBox(
+            width: 44,
+            height: 52,
+            child: KeyboardListener(
+              focusNode: FocusNode(skipTraversal: true),
+              onKeyEvent: (e) => _onKeyDown(i, e),
+              child: TextFormField(
+                controller: _controllers[i],
+                focusNode: _focusNodes[i],
+                enabled: !widget.busy,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                maxLength: 2, // allow 2 to catch paste
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+                decoration: InputDecoration(
+                  counterText: '',
+                  contentPadding: EdgeInsets.zero,
+                  filled: true,
+                  fillColor: isDark
+                      ? const Color(0xFF252834)
+                      : Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0xFFD9DBDE)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0xFFD9DBDE)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(
+                        color: Color(0xFF4D40ED), width: 2),
+                  ),
+                ),
+                onChanged: (v) => _onChanged(i, v),
+                autofocus: i == 0,
+                autocorrect: false,
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+// ─── OTP countdown + resend ──────────────────────────────────────────────────
+
+class _OtpCountdown extends StatefulWidget {
+  const _OtpCountdown({required this.busy, required this.onResend});
+  final bool busy;
+  final VoidCallback onResend;
+
+  @override
+  State<_OtpCountdown> createState() => _OtpCountdownState();
+}
+
+class _OtpCountdownState extends State<_OtpCountdown> {
+  late int _seconds;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _seconds = _kOtpSeconds;
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() { if (_seconds > 0) _seconds--; });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void reset() {
+    setState(() => _seconds = _kOtpSeconds);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final expired = _seconds == 0;
+    final mins = (_seconds ~/ 60).toString().padLeft(2, '0');
+    final secs = (_seconds % 60).toString().padLeft(2, '0');
+    final urgentColor = const Color(0xFFDA3038);
+
+    return Column(children: [
+      if (!expired)
+        Text(
+          'Code expires in $mins:$secs',
+          style: TextStyle(
+            fontSize: 13,
+            color: _seconds < 60 ? urgentColor : const Color(0xFF737887),
+            fontWeight: _seconds < 60 ? FontWeight.w600 : FontWeight.normal,
+          ),
+        )
+      else
+        const Text(
+          'Code expired.',
+          style: TextStyle(fontSize: 13, color: Color(0xFF737887)),
+        ),
+      const SizedBox(height: 6),
+      TextButton(
+        onPressed: widget.busy ? null : widget.onResend,
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(
+          expired ? 'Send new code' : 'Resend code',
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF4D40ED),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    ]);
+  }
+}
 
 enum _AuthMode { login, register, otp, forgotPassword }
 
@@ -12,7 +221,6 @@ class _AuthBody extends StatelessWidget {
     required this.lastName,
     required this.email,
     required this.password,
-    required this.otp,
     required this.mode,
     required this.busy,
     required this.obscure,
@@ -21,6 +229,8 @@ class _AuthBody extends StatelessWidget {
     required this.onToggleObscure,
     required this.onModeChange,
     required this.onSubmit,
+    required this.onOtpComplete,
+    required this.onResend,
   });
 
   final GlobalKey<FormState> formKey;
@@ -28,7 +238,6 @@ class _AuthBody extends StatelessWidget {
   final TextEditingController lastName;
   final TextEditingController email;
   final TextEditingController password;
-  final TextEditingController otp;
   final _AuthMode mode;
   final bool busy;
   final bool obscure;
@@ -37,6 +246,8 @@ class _AuthBody extends StatelessWidget {
   final VoidCallback onToggleObscure;
   final void Function(_AuthMode) onModeChange;
   final Future<void> Function(ApiClient) onSubmit;
+  final void Function(String code) onOtpComplete;
+  final VoidCallback onResend;
 
   @override
   Widget build(BuildContext context) {
@@ -120,17 +331,14 @@ class _AuthBody extends StatelessWidget {
                                 'Enter the 6-digit code sent to ${email.text.trim()}.',
                                 style: Theme.of(context).textTheme.bodySmall),
                             const SizedBox(height: 16),
-                            TextFormField(
-                              controller: otp,
-                              decoration: const InputDecoration(
-                                  labelText: 'Verification code',
-                                  prefixIcon: Icon(Icons.lock_clock_outlined)),
-                              keyboardType: TextInputType.number,
-                              maxLength: 6,
-                              validator: (v) =>
-                                  RegExp(r'^\d{6}$').hasMatch(v ?? '')
-                                      ? null
-                                      : 'Enter the 6-digit code.',
+                            _OtpBoxes(
+                              busy: busy,
+                              onComplete: onOtpComplete,
+                            ),
+                            const SizedBox(height: 12),
+                            _OtpCountdown(
+                              busy: busy,
+                              onResend: onResend,
                             ),
                           ] else ...[
                             if (mode == _AuthMode.register) ...[
@@ -190,7 +398,8 @@ class _AuthBody extends StatelessWidget {
 
                           const SizedBox(height: 20),
 
-                          // Submit button — api comes from context via _ApiScope
+                          // Submit button — only for non-OTP modes
+                          if (mode != _AuthMode.otp)
                           Builder(builder: (ctx) {
                             final api = _ApiScope.of(ctx);
                             return FilledButton(
@@ -325,7 +534,6 @@ class _AuthPageState extends State<AuthPage> {
   final _lastName = TextEditingController();
   final _email = TextEditingController();
   final _password = TextEditingController();
-  final _otp = TextEditingController();
 
   _AuthMode _mode = _AuthMode.login;
   bool _busy = false;
@@ -339,8 +547,30 @@ class _AuthPageState extends State<AuthPage> {
     _lastName.dispose();
     _email.dispose();
     _password.dispose();
-    _otp.dispose();
     super.dispose();
+  }
+
+  Future<void> _submitOtp(String code) async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      await widget.api.verifyOtp(
+          email: _email.text.trim(), code: code);
+      widget.onSignedIn();
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _resendOtp() {
+    // Go back to login with email prefilled so user re-submits credentials
+    // which triggers a fresh OTP from the backend.
+    setState(() {
+      _mode = _AuthMode.login;
+      _error = null;
+      _info = 'Enter your password again to receive a new code.';
+    });
   }
 
   Future<void> _submit(ApiClient api) async {
@@ -367,10 +597,8 @@ class _AuthPageState extends State<AuthPage> {
           setState(() => _mode = _AuthMode.otp);
           break;
         case _AuthMode.otp:
-          await api.verifyOtp(
-              email: _email.text.trim(), code: _otp.text.trim());
-          widget.onSignedIn();
-          return;
+          // handled by _submitOtp
+          break;
         case _AuthMode.forgotPassword:
           await api.forgotPassword(_email.text.trim());
           setState(() {
@@ -397,7 +625,6 @@ class _AuthPageState extends State<AuthPage> {
         lastName: _lastName,
         email: _email,
         password: _password,
-        otp: _otp,
         mode: _mode,
         busy: _busy,
         obscure: _obscure,
@@ -410,6 +637,8 @@ class _AuthPageState extends State<AuthPage> {
           _info = null;
         }),
         onSubmit: _submit,
+        onOtpComplete: _submitOtp,
+        onResend: _resendOtp,
       ),
     );
   }
