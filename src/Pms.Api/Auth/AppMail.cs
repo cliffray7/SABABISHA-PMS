@@ -44,6 +44,20 @@ public sealed class AppMail(IConfiguration config, IHttpClientFactory httpClient
         await SendViaBrevo(to, subject, body);
     }
 
+    public async Task SendTaskAssigned(string to, string assigneeName, string taskTitle, Guid projectId, Guid taskId)
+    {
+        const string subject = "You have been assigned a task on TaskFlow";
+        var link = Link($"project?id={projectId}&task={taskId}");
+        var body = $"Hi {assigneeName},\n\nYou have been assigned to the task \"{taskTitle}\".\n\nOpen the task: {link}\n\nIf you were not expecting this, contact your project manager.";
+        logger.LogInformation("Sending task-assigned email to {To} for task {TaskId}", to, taskId);
+        if (IsLocal)
+        {
+            Enqueue(new LocalMail(Guid.NewGuid(), to, subject, link, DateTime.UtcNow, body));
+            return;
+        }
+        await SendViaBrevo(to, subject, body);
+    }
+
     private async Task SendViaBrevo(string to, string subject, string textBody)
     {
         try

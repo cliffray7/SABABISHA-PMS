@@ -7,7 +7,7 @@ using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 namespace Pms.Api.Controllers.Rest.V1;
 [ApiController, Authorize, Route("api/v1/tasks")]
-public sealed class TasksController(PmsDbContext db) : ControllerBase
+public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerBase
 {
     private static readonly string[] Statuses = ["TO DO", "IN PROGRESS", "REVIEW", "DONE"];
     private static readonly string[] Priorities = ["URGENT", "HIGH", "MEDIUM", "LOW"];
@@ -126,7 +126,39 @@ public sealed class TasksController(PmsDbContext db) : ControllerBase
         task.DeletedAt = null; task.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct); return NoContent();
     }
-    private void Notify(Guid uid, WorkTask task) => db.Notifications.Add(new Notification { Id = Guid.NewGuid(), UserId = uid, Type = "TASK_ASSIGNED", Message = $"You were assigned to {task.Title}.", EntityType = "TASK", RelatedId = task.Id });
+    // Queues an in-app notification and fires a task-assigned email.
+    // The email lookup and send happen on a background thread so the HTTP response
+    // is never delayed. Values are captured before the DbContext is disposed.
+    private void Notify(Guid uid, WorkTask task)
+    {
+        db.Notifications.Add(new Notification
+        {
+            Id = Guid.NewGuid(),
+            UserId = uid,
+            Type = "TASK_ASSIGNED",
+            Message = $"You were assigned to {task.Title}.",
+            EntityType = "TASK",
+            RelatedId = task.Id
+        });
+
+        // Capture everything we need before the DbContext scope ends.
+        var userId    = uid;
+        var taskTitle = task.Title;
+        var projectId = task.ProjectId;
+        var taskId    = task.Id;
+
+        // Fire-and-forget: look up the assignee's email, then send.
+        // AppMail swallows delivery failures — no impact on the request.
+        _ = db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.Email, u.FirstName })
+            .FirstOrDefaultAsync()
+            .ContinueWith(t =>
+            {
+                if (t.IsCompletedSuccessfully && t.Result is { } user)
+                    _ = mail.SendTaskAssigned(user.Email, user.FirstName, taskTitle, projectId, taskId);
+            });
+    }
 }
 public sealed record CreateTaskRequest([Required, StringLength(300)] string Title, string? Description, string? Status, string? Priority, DateTime? DueDate, [Required] IReadOnlyCollection<Guid> AssigneeIds, DateTime? StartDate = null, Guid? ParentTaskId = null);
 public sealed record UpdateTaskRequest([StringLength(300)] string? Title, string? Description, string? Status, string? Priority, DateTime? DueDate, IReadOnlyCollection<Guid>? AssigneeIds = null, DateTime? StartDate = null, bool ClearDueDate = false, bool ClearStartDate = false);
