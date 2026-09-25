@@ -555,9 +555,9 @@ class _AuthPageState extends State<AuthPage> {
     try {
       await widget.api.verifyOtp(
           email: _email.text.trim(), code: code);
-      widget.onSignedIn();
+      WidgetsBinding.instance.addPostFrameCallback((_) => widget.onSignedIn());
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
