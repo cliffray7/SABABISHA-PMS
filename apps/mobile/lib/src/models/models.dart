@@ -368,3 +368,192 @@ const taskPriorities = ['URGENT', 'HIGH', 'MEDIUM', 'LOW'];
 const orgRoles = ['ADMIN', 'MEMBER', 'GUEST'];
 const projectRoles = ['PROJECT_MANAGER', 'TEAM_LEAD', 'CONTRIBUTOR', 'VIEWER'];
 const projectStatuses = ['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED'];
+
+
+// ─── Admin Models ─────────────────────────────────────────────────────────────
+
+class AdminDashboardMetrics {
+  const AdminDashboardMetrics({
+    required this.totalUsers,
+    required this.totalOrganizations,
+    required this.totalProjects,
+    required this.totalTasks,
+    required this.completedTasks,
+    required this.activeProjects,
+  });
+  final int totalUsers;
+  final int totalOrganizations;
+  final int totalProjects;
+  final int totalTasks;
+  final int completedTasks;
+  final int activeProjects;
+
+  factory AdminDashboardMetrics.fromJson(Map<String, dynamic> json) =>
+      AdminDashboardMetrics(
+        totalUsers: json['totalUsers'] as int? ?? 0,
+        totalOrganizations: json['totalOrganizations'] as int? ?? 0,
+        totalProjects: json['totalProjects'] as int? ?? 0,
+        totalTasks: json['totalTasks'] as int? ?? 0,
+        completedTasks: json['completedTasks'] as int? ?? 0,
+        activeProjects: json['activeProjects'] as int? ?? 0,
+      );
+}
+
+class AdminUser {
+  const AdminUser({
+    required this.id,
+    required this.firstName,
+    required this.lastName,
+    required this.email,
+    required this.status,
+    required this.createdAt,
+    required this.organizationCount,
+  });
+  final String id;
+  final String firstName;
+  final String lastName;
+  final String email;
+  final String status;
+  final String createdAt;
+  final int organizationCount;
+
+  String get fullName => '$firstName $lastName';
+  bool get isActive => status == 'active';
+
+  factory AdminUser.fromJson(Map<String, dynamic> json) => AdminUser(
+        id: json['id'] as String,
+        firstName: json['firstName'] as String,
+        lastName: json['lastName'] as String,
+        email: json['email'] as String,
+        status: json['status'] as String? ?? 'active',
+        createdAt: json['createdAt'] as String,
+        organizationCount: json['organizationCount'] as int? ?? 0,
+      );
+}
+
+class AdminOrganization {
+  const AdminOrganization({
+    required this.id,
+    required this.name,
+    required this.slug,
+    this.owner,
+    required this.memberCount,
+    required this.projectCount,
+    required this.createdAt,
+  });
+  final String id;
+  final String name;
+  final String slug;
+  final String? owner;
+  final int memberCount;
+  final int projectCount;
+  final String createdAt;
+
+  factory AdminOrganization.fromJson(Map<String, dynamic> json) =>
+      AdminOrganization(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        slug: json['slug'] as String? ?? '',
+        owner: json['owner'] as String?,
+        memberCount: json['memberCount'] as int? ?? 0,
+        projectCount: json['projectCount'] as int? ?? 0,
+        createdAt: json['createdAt'] as String,
+      );
+}
+
+class AdminProject {
+  const AdminProject({
+    required this.id,
+    required this.name,
+    this.organizationName,
+    required this.status,
+    required this.taskCount,
+    required this.createdAt,
+    this.dueDate,
+    this.archivedAt,
+  });
+  final String id;
+  final String name;
+  final String? organizationName;
+  final String status;
+  final int taskCount;
+  final String createdAt;
+  final String? dueDate;
+  final String? archivedAt;
+
+  bool get isArchived => archivedAt != null;
+  String get displayStatus => isArchived ? 'ARCHIVED' : status;
+
+  factory AdminProject.fromJson(Map<String, dynamic> json) => AdminProject(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        organizationName: json['organizationName'] as String?,
+        status: json['status'] as String? ?? 'ACTIVE',
+        taskCount: json['taskCount'] as int? ?? 0,
+        createdAt: json['createdAt'] as String,
+        dueDate: json['dueDate'] as String?,
+        archivedAt: json['archivedAt'] as String?,
+      );
+}
+
+class AdminGrowthPoint {
+  const AdminGrowthPoint({required this.date, required this.count});
+  final String date;
+  final int count;
+}
+
+class AdminStatusPoint {
+  const AdminStatusPoint({required this.label, required this.count});
+  final String label;
+  final int count;
+}
+
+class AdminAnalytics {
+  const AdminAnalytics({
+    required this.userGrowth,
+    required this.projectGrowth,
+    required this.tasksByStatus,
+    required this.tasksByPriority,
+  });
+  final List<AdminGrowthPoint> userGrowth;
+  final List<AdminGrowthPoint> projectGrowth;
+  final List<AdminStatusPoint> tasksByStatus;
+  final List<AdminStatusPoint> tasksByPriority;
+
+  factory AdminAnalytics.fromJson(Map<String, dynamic> json) {
+    List<AdminGrowthPoint> parseGrowth(List<dynamic> list, String key) =>
+        list
+            .cast<Map<String, dynamic>>()
+            .map((e) => AdminGrowthPoint(
+                  date: e['date'] as String? ?? '',
+                  count: e[key] as int? ?? 0,
+                ))
+            .toList();
+
+    List<AdminStatusPoint> parseStatus(List<dynamic> list, String key) =>
+        list
+            .cast<Map<String, dynamic>>()
+            .map((e) => AdminStatusPoint(
+                  label: e[key] as String? ?? '',
+                  count: e['count'] as int? ?? 0,
+                ))
+            .toList();
+
+    return AdminAnalytics(
+      userGrowth: parseGrowth(
+          (json['userGrowth'] as List<dynamic>?) ?? [], 'users'),
+      projectGrowth: parseGrowth(
+          (json['projectGrowth'] as List<dynamic>?) ?? [], 'projects'),
+      tasksByStatus: parseStatus(
+          (json['tasksByStatus'] as List<dynamic>?) ?? [], 'status'),
+      tasksByPriority: parseStatus(
+          (json['tasksByPriority'] as List<dynamic>?) ?? [], 'priority'),
+    );
+  }
+}
+
+class AdminHealthStatus {
+  const AdminHealthStatus({required this.api, required this.database});
+  final String api;
+  final String database;
+}

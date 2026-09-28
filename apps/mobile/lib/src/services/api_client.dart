@@ -422,6 +422,110 @@ class ApiClient {
     return DashboardMetrics.fromJson(_json(response));
   }
 
+  // ─── Admin ───────────────────────────────────────────────────────────────
+
+  Future<AdminDashboardMetrics> adminDashboard() async {
+    final response = await _authorized('GET', '/admin/dashboard');
+    return AdminDashboardMetrics.fromJson(_json(response));
+  }
+
+  Future<AdminAnalytics> adminAnalytics({
+    required String from,
+    required String to,
+  }) async {
+    final response = await _authorized('GET', '/admin/analytics',
+        params: {'from': from, 'to': to});
+    return AdminAnalytics.fromJson(_json(response));
+  }
+
+  Future<List<AdminUser>> adminUsers() async {
+    final response = await _authorized('GET', '/admin/users');
+    return _jsonList(response).map(AdminUser.fromJson).toList();
+  }
+
+  Future<AdminUser> adminCreateUser({
+    required String firstName,
+    required String lastName,
+    required String email,
+    required String password,
+    String timezone = 'UTC',
+  }) async {
+    final response = await _authorized('POST', '/admin/users', body: {
+      'firstName': firstName,
+      'lastName': lastName,
+      'email': email,
+      'password': password,
+      'timezone': timezone,
+    });
+    return AdminUser.fromJson(_json(response));
+  }
+
+  Future<void> adminSuspendUser(String userId) async {
+    await _authorized('DELETE', '/admin/users/$userId');
+  }
+
+  Future<void> adminDeleteUser(String userId) async {
+    await _authorized('DELETE', '/admin/users/$userId',
+        params: {'permanent': 'true'});
+  }
+
+  Future<List<AdminOrganization>> adminOrganizations() async {
+    final response = await _authorized('GET', '/admin/organizations');
+    return _jsonList(response).map(AdminOrganization.fromJson).toList();
+  }
+
+  Future<List<AdminProject>> adminProjects() async {
+    final response = await _authorized('GET', '/admin/projects');
+    return _jsonList(response).map(AdminProject.fromJson).toList();
+  }
+
+  /// Returns the raw CSV bytes for a system report.
+  Future<List<int>> adminReport() async {
+    var session = await _sessionStore.read();
+    if (session == null) {
+      throw const ApiException('Your session has expired.', statusCode: 401);
+    }
+
+    final uri = _uri('/admin/reports', {'format': 'csv'});
+    final request = http.Request('GET', uri)
+      ..headers['Authorization'] = 'Bearer ${session.accessToken}';
+
+    try {
+      final streamed = await _http.send(request).timeout(const Duration(seconds: 30));
+      final response = await http.Response.fromStream(streamed);
+      if (response.statusCode == 401) {
+        session = await _refresh(session.refreshToken);
+        final retry = http.Request('GET', uri)
+          ..headers['Authorization'] = 'Bearer ${session.accessToken}';
+        final retryStreamed = await _http.send(retry).timeout(const Duration(seconds: 30));
+        final retryResponse = await http.Response.fromStream(retryStreamed);
+        _ensureSuccess(retryResponse);
+        return retryResponse.bodyBytes.toList();
+      }
+      _ensureSuccess(response);
+      return response.bodyBytes.toList();
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      throw const ApiException('Report download failed. Check your connection.');
+    }
+  }
+
+  Future<AdminHealthStatus> adminHealth() async {
+    final results = await Future.wait([
+      _authorized('GET', '/health'),
+      _authorized('GET', '/ready'),
+    ]);
+    final apiStatus = _json(results[0])['status'] as String? ?? 'Unknown';
+    final readyBody = _json(results[1]);
+    final dbStatus =
+        ((readyBody['entries'] as Map<String, dynamic>?)?['database']
+                as Map<String, dynamic>?)?['status'] as String? ??
+            readyBody['status'] as String? ??
+            'Unknown';
+    return AdminHealthStatus(api: apiStatus, database: dbStatus);
+  }
+
   // ─── Private helpers ─────────────────────────────────────────────────────
 
   Future<http.Response> _authorized(

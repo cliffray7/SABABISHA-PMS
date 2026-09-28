@@ -11,6 +11,21 @@ class AppState extends ChangeNotifier {
   // ─── Auth ─────────────────────────────────────────────────────────────────
   Account? account;
 
+  // ─── Super admin ──────────────────────────────────────────────────────────
+  bool isSuperAdmin = false;
+  AdminDashboardMetrics? adminMetrics;
+  AdminAnalytics? adminAnalytics;
+  List<AdminUser> adminUsers = [];
+  List<AdminOrganization> adminOrgs = [];
+  List<AdminProject> adminProjects = [];
+  AdminHealthStatus? adminHealth;
+  bool loadingAdminMetrics = false;
+  bool loadingAdminUsers = false;
+  bool loadingAdminOrgs = false;
+  bool loadingAdminProjects = false;
+  bool loadingAdminAnalytics = false;
+  bool loadingAdminHealth = false;
+
   // ─── Organizations ────────────────────────────────────────────────────────
   List<Organization> organizations = [];
   Organization? selectedOrg;
@@ -62,8 +77,43 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Probes the admin dashboard endpoint. A 200 means the current user is a
+  /// super admin; a 403 means they are not. A network error (e.g. cold-start
+  /// spin-up on Render) is retried once after 4 seconds before giving up so
+  /// a slow API wake-up does not permanently hide the Admin tab.
+  Future<void> checkSuperAdmin({bool retry = true}) async {
+    try {
+      await api.adminDashboard();
+      isSuperAdmin = true;
+    } on ApiException catch (e) {
+      // 403 = definitely not an admin. Any other API error keeps current state.
+      if (e.statusCode == 403) {
+        isSuperAdmin = false;
+      }
+      // else: keep existing value — don't downgrade a confirmed admin on a
+      // transient error.
+    } catch (_) {
+      // Network / timeout error. If we haven't retried yet, wait and try once
+      // more to handle cold-start spin-up delays (e.g. Render free tier).
+      if (retry) {
+        await Future.delayed(const Duration(seconds: 4));
+        await checkSuperAdmin(retry: false);
+        return;
+      }
+      // Second failure: keep existing state unchanged.
+    }
+    notifyListeners();
+  }
+
   void signOut() {
     account = null;
+    isSuperAdmin = false;
+    adminMetrics = null;
+    adminAnalytics = null;
+    adminUsers = [];
+    adminOrgs = [];
+    adminProjects = [];
+    adminHealth = null;
     organizations = [];
     selectedOrg = null;
     projects = [];
@@ -76,6 +126,86 @@ class AppState extends ChangeNotifier {
     notifications = [];
     error = null;
     notifyListeners();
+  }
+
+  // ─── Admin data loading ───────────────────────────────────────────────────
+
+  Future<void> loadAdminDashboard() async {
+    loadingAdminMetrics = true;
+    notifyListeners();
+    try {
+      adminMetrics = await api.adminDashboard();
+    } catch (e) {
+      _setError(e);
+    } finally {
+      loadingAdminMetrics = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadAdminAnalytics({required String from, required String to}) async {
+    loadingAdminAnalytics = true;
+    notifyListeners();
+    try {
+      adminAnalytics = await api.adminAnalytics(from: from, to: to);
+    } catch (e) {
+      _setError(e);
+    } finally {
+      loadingAdminAnalytics = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadAdminUsers() async {
+    loadingAdminUsers = true;
+    notifyListeners();
+    try {
+      adminUsers = await api.adminUsers();
+    } catch (e) {
+      _setError(e);
+    } finally {
+      loadingAdminUsers = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadAdminOrgs() async {
+    loadingAdminOrgs = true;
+    notifyListeners();
+    try {
+      adminOrgs = await api.adminOrganizations();
+    } catch (e) {
+      _setError(e);
+    } finally {
+      loadingAdminOrgs = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadAdminProjects() async {
+    loadingAdminProjects = true;
+    notifyListeners();
+    try {
+      adminProjects = await api.adminProjects();
+    } catch (e) {
+      _setError(e);
+    } finally {
+      loadingAdminProjects = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadAdminHealth() async {
+    loadingAdminHealth = true;
+    notifyListeners();
+    try {
+      adminHealth = await api.adminHealth();
+    } catch (e) {
+      _setError(e);
+    } finally {
+      loadingAdminHealth = false;
+      notifyListeners();
+    }
   }
 
   // ─── Organizations ────────────────────────────────────────────────────────
