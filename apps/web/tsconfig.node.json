@@ -2,6 +2,10 @@
   "compilerOptions": {
     "composite": true,
     "skipLibCheck": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationDir": "./node_modules/.cache/types",
+    "tsBuildInfoFile": "./node_modules/.cache/tsconfig.node.tsbuildinfo",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true

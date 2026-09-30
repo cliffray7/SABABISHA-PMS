@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Pms.Api.Auth;
+using Pms.Api.Activity;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 namespace Pms.Api.Controllers.Rest.V1;
@@ -21,7 +22,9 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
         if (await db.Organizations.AnyAsync(x => x.Name == name || x.Slug == slug, ct)) return Conflict(new { message = "An organization with this name or slug already exists." });
         var organization = new Organization { Id = Guid.NewGuid(), Name = name, Slug = slug };
         organization.Members.Add(new OrganizationMember { Id = Guid.NewGuid(), UserId = CurrentUser.Id(User), Role = "OWNER" });
-        db.Organizations.Add(organization); await db.SaveChangesAsync(ct);
+        db.Organizations.Add(organization);
+        await ActivityRecorder.RecordAsync(db, User, Request, organization.Id, "People", "organization.created", "organization", organization.Id, organization.Name, $"created organization \"{organization.Name}\"", ct);
+        await db.SaveChangesAsync(ct);
         return Ok(new { organization.Id, organization.Name, organization.Slug, role = "OWNER" });
     }
     [HttpGet("{id:guid}/members")]
@@ -38,7 +41,13 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
         var member = await db.OrganizationMembers.SingleOrDefaultAsync(x => x.OrganizationId == id && x.UserId == userId, ct);
         if (member is null) return NotFound();
         if (member.Role == "OWNER" || userId == CurrentUser.Id(User)) return BadRequest(new { message = "You cannot change the owner's role or your own role." });
-        member.Role = request.Role; await db.SaveChangesAsync(ct); return NoContent();
+        var previousRole = member.Role;
+        member.Role = request.Role;
+        var organization = await db.Organizations.SingleAsync(x => x.Id == id, ct);
+        var changedUser = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
+        var changedName = $"{changedUser.FirstName} {changedUser.LastName}";
+        await ActivityRecorder.RecordAsync(db, User, Request, id, "People", "organization.member_role_changed", "user", userId, changedName, $"changed {changedName}'s role from {previousRole} to {request.Role} in organization \"{organization.Name}\"", ct);
+        await db.SaveChangesAsync(ct); return NoContent();
     }
     [HttpDelete("{id:guid}/members/{userId:guid}")]
     public async Task<IActionResult> RemoveMember(Guid id, Guid userId, CancellationToken ct)
@@ -49,6 +58,10 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
         if (member is null) return NotFound();
         if (member.Role == "OWNER") return BadRequest(new { message = "The organization owner cannot be removed." });
         member.Status = "inactive";
+        var organization = await db.Organizations.SingleAsync(x => x.Id == id, ct);
+        var removedUser = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
+        var removedName = $"{removedUser.FirstName} {removedUser.LastName}";
+        await ActivityRecorder.RecordAsync(db, User, Request, id, "People", "organization.member_removed", "user", userId, removedName, $"removed {removedName} from organization \"{organization.Name}\"", ct);
         await db.ProjectMembers.Where(x => x.UserId == userId && db.Projects.Any(project => project.Id == x.ProjectId && project.OrganizationId == id))
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, "inactive"), ct);
         await db.RefreshTokens.Where(x => x.UserId == userId && x.RevokedAt == null)
@@ -70,7 +83,10 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
         if (await (from m in db.OrganizationMembers join u in db.Users on m.UserId equals u.Id where m.OrganizationId == id && m.Status == "active" && u.Email == email select m).AnyAsync(ct)) return Conflict(new { message = "This person is already a member." });
         var token = tokens.CreateRefreshToken();
         var invitation = new OrganizationInvitation { Id = Guid.NewGuid(), OrganizationId = id, Email = email, Role = request.Role, TokenHash = tokens.HashRefreshToken(token), ExpiresAt = DateTime.UtcNow.AddDays(7) };
-        db.OrganizationInvitations.Add(invitation); await db.SaveChangesAsync(ct);
+        db.OrganizationInvitations.Add(invitation);
+        var organization = await db.Organizations.SingleAsync(x => x.Id == id, ct);
+        await ActivityRecorder.RecordAsync(db, User, Request, id, "People", "organization.invitation_created", "organization", id, organization.Name, $"invited a person to organization \"{organization.Name}\" as {request.Role}", ct);
+        await db.SaveChangesAsync(ct);
         await mail.Send(email, "Join your team on TaskFlow", mail.Link("invite?token=" + Uri.EscapeDataString(token)));
         return Ok(new { invitation.Id, invitation.Email, invitation.Role });
     }
@@ -78,7 +94,12 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
     public async Task<IActionResult> CancelInvite(Guid id, Guid invitationId, CancellationToken ct)
     {
         if (!await Admin(id, ct)) return Forbid();
-        await db.OrganizationInvitations.Where(x => x.OrganizationId == id && x.Id == invitationId && x.AcceptedAt == null).ExecuteDeleteAsync(ct);
+        var invitation = await db.OrganizationInvitations.SingleOrDefaultAsync(x => x.OrganizationId == id && x.Id == invitationId && x.AcceptedAt == null, ct);
+        if (invitation is null) return NoContent();
+        db.OrganizationInvitations.Remove(invitation);
+        var organization = await db.Organizations.SingleAsync(x => x.Id == id, ct);
+        await ActivityRecorder.RecordAsync(db, User, Request, id, "People", "organization.invitation_revoked", "organization", id, organization.Name, $"revoked an invitation to organization \"{organization.Name}\"", ct);
+        await db.SaveChangesAsync(ct);
         return NoContent();
     }
     [HttpPost("invitations/accept")]
@@ -98,7 +119,10 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
             else { membership.Status = "active"; membership.Role = invitation.Role; }
             await db.ProjectMembers.Where(x => x.UserId == user.Id && x.Status == "inactive" && db.Projects.Any(project => project.Id == x.ProjectId && project.OrganizationId == invitation.OrganizationId))
                 .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, "active"), ct);
-            invitation.AcceptedAt = DateTime.UtcNow; await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
+            invitation.AcceptedAt = DateTime.UtcNow;
+            var organization = await db.Organizations.SingleAsync(x => x.Id == invitation.OrganizationId, ct);
+            await ActivityRecorder.RecordAsync(db, User, Request, invitation.OrganizationId, "People", "organization.invitation_accepted", "organization", organization.Id, organization.Name, $"joined organization \"{organization.Name}\"", ct);
+            await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
             return Ok(new { invitation.OrganizationId });
         });
     }

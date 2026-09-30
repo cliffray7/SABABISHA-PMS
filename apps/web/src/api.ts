@@ -3,7 +3,7 @@ import { ApolloClient, HttpLink, InMemoryCache } from '@apollo/client';
 import { QueryClient } from '@tanstack/react-query';
 
 export const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:5141/api/v1' });
-export const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
+export const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: 'always', refetchOnReconnect: 'always', refetchIntervalInBackground: false } } });
 export const graphqlClient = new ApolloClient({
   link: new HttpLink({
     uri: import.meta.env.VITE_GRAPHQL_URL ?? 'http://localhost:5141/graphql',
@@ -20,13 +20,49 @@ export type AuthResponse = { userId: string; accessToken: string; refreshToken: 
 export const signedIn = () => Boolean(localStorage.getItem('taskflow.accessToken'));
 export function saveAuth(auth: AuthResponse) { localStorage.setItem('taskflow.accessToken', auth.accessToken); localStorage.setItem('taskflow.refreshToken', auth.refreshToken); localStorage.setItem('taskflow.userId', auth.userId); }
 export function clearAuth() { ['accessToken','refreshToken','userId','organizationId','projectId'].forEach(k => localStorage.removeItem('taskflow.' + k)); }
-api.interceptors.request.use(config => { const token = localStorage.getItem('taskflow.accessToken'); if (token) config.headers.Authorization = `Bearer ${token}`; return config; });
+type RetriableRequestConfig = InternalAxiosRequestConfig & { retried?: boolean; accessTokenAtRequest?: string };
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem('taskflow.accessToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+    (config as RetriableRequestConfig).accessTokenAtRequest = token;
+  }
+  return config;
+});
 let renewal: Promise<void> | null = null;
 api.interceptors.response.use(r => r, async (error: AxiosError) => {
-  const config = error.config as InternalAxiosRequestConfig & { retried?: boolean };
+  const config = error.config as RetriableRequestConfig;
   if (error.response?.status === 401 && config && !config.retried && !config.url?.startsWith('/auth/')) {
     config.retried = true;
-    if (!renewal) renewal = axios.post<AuthResponse>(`${api.defaults.baseURL}/auth/refresh`, { refreshToken: localStorage.getItem('taskflow.refreshToken') }).then(r => saveAuth(r.data)).catch(e => { clearAuth(); window.dispatchEvent(new Event('session-expired')); throw e; }).finally(() => { renewal = null; });
+    if (!renewal) {
+      const renew = async () => {
+        // Another tab may already have rotated the single-use refresh token.
+        const currentAccessToken = localStorage.getItem('taskflow.accessToken');
+        if (config.accessTokenAtRequest && currentAccessToken && currentAccessToken !== config.accessTokenAtRequest) return;
+        const refreshToken = localStorage.getItem('taskflow.refreshToken');
+        if (!refreshToken) {
+          clearAuth();
+          window.dispatchEvent(new Event('session-expired'));
+          throw new Error('No refresh token is available.');
+        }
+        try {
+          const response = await axios.post<AuthResponse>(`${api.defaults.baseURL}/auth/refresh`, { refreshToken });
+          saveAuth(response.data);
+        } catch (refreshError) {
+          // A network/5xx failure may be temporary; retain the session so the
+          // next request can retry. Only a rejected refresh token ends it.
+          if (axios.isAxiosError(refreshError) && [400, 401].includes(refreshError.response?.status ?? 0)) {
+            clearAuth();
+            window.dispatchEvent(new Event('session-expired'));
+          }
+          throw refreshError;
+        }
+      };
+      const refreshWithLock = (): Promise<void> => typeof navigator !== 'undefined' && navigator.locks
+        ? navigator.locks.request<void>('taskflow-refresh-token', async () => { await renew(); })
+        : renew();
+      renewal = refreshWithLock().finally(() => { renewal = null; });
+    }
     await renewal; return api(config);
   }
   return Promise.reject(error);
@@ -51,7 +87,7 @@ export type Person = { id: string; firstName: string; lastName: string; email: s
 export type Organization = { id: string; name: string; slug: string; role: string };
 export type Project = { id: string; organizationId: string; name: string; description?: string; status: string; startDate?: string; dueDate?: string; role: string };
 export type Member = { id: string; userId: string; firstName: string; lastName: string; email: string; role: string };
-export type Task = { id: string; projectId: string; parentTaskId?: string; title: string; description?: string; status: string; priority: string; startDate?: string; dueDate?: string; completedAt?: string; assigneeIds: string[]; subtaskCount?: number; completedSubtaskCount?: number };
+export type Task = { id: string; projectId: string; parentTaskId?: string; title: string; description?: string; status: string; priority: string; startDate?: string; dueDate?: string; createdAt?: string; completedAt?: string; assigneeIds: string[]; subtaskCount?: number; completedSubtaskCount?: number };
 export type Subtask = { id: string; title: string; status: string; createdAt: string; completedAt?: string };
 export type TaskActivity = { createdAt: string; action: string; detail?: string };
 export type DashboardMetrics = { myTasks: number; overdueTasks: number; completedTasks: number; inProgressTasks: number; totalTasks: number };
@@ -66,3 +102,4 @@ export const dateInput = (value?: string) => value?.slice(0,10) ?? '';
 export const dateLabel = (value?: string) => value ? new Date(value.slice(0,10) + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date';
 export const overdue = (task: Task) => Boolean(task.dueDate && task.status !== 'DONE' && task.dueDate.slice(0,10) < new Date().toLocaleDateString('en-CA'));
 export const initials = (first: string, last: string) => (first[0] ?? '') + (last[0] ?? '');
+export const formatDisplayName = (...parts: string[]) => parts.filter(Boolean).join(' ').trim().split(/\s+/).map(part => part.charAt(0).toLocaleUpperCase() + part.slice(1).toLocaleLowerCase()).join(' ');

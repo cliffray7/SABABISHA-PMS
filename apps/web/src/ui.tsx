@@ -1,7 +1,7 @@
-﻿import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { errorMessage } from './api';
-export function Brand() { return <div className="brand"><span className="brand-mark">&#9670;</span>TaskFlow</div>; }
+export function Brand() { return <div className="brand">TaskFlow</div>; }
 export function Empty({ title, children }: { title: string; children?: ReactNode }) { return <div className="empty-state"><h2>{title}</h2>{children}</div>; }
 export function useAction() {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');

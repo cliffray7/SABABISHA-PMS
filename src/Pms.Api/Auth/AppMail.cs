@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 
@@ -41,7 +42,7 @@ public sealed class AppMail(IConfiguration config, IHttpClientFactory httpClient
             Enqueue(new LocalMail(Guid.NewGuid(), to, subject, Link("otp?email=" + Uri.EscapeDataString(to)), DateTime.UtcNow, body));
             return;
         }
-        await SendViaBrevo(to, subject, body);
+        await SendViaBrevo(to, subject, body, BuildOtpHtml(code));
     }
 
     public async Task SendTaskAssigned(string to, string assigneeName, string taskTitle, Guid projectId, Guid taskId)
@@ -58,20 +59,55 @@ public sealed class AppMail(IConfiguration config, IHttpClientFactory httpClient
         await SendViaBrevo(to, subject, body);
     }
 
-    private async Task SendViaBrevo(string to, string subject, string textBody)
+    private static string BuildOtpHtml(string code)
+    {
+        var safeCode = WebUtility.HtmlEncode(code);
+
+        return $"""
+            <!doctype html>
+            <html lang="en">
+            <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+            <body style="margin:0;padding:32px 14px;background:#f4f5f9;font-family:Arial,Helvetica,sans-serif;color:#18181b;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td align="center">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;border:1px solid #e7e8ef;border-radius:16px;background:#ffffff;overflow:hidden;">
+                  <tr><td style="height:5px;background:#4f46e5;font-size:0;line-height:0;">&nbsp;</td></tr>
+                  <tr><td style="padding:24px 30px 0;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+                      <td width="34" height="34" align="center" valign="middle" style="width:34px;height:34px;border-radius:10px;background:#eeebff;color:#5146d8;font-size:16px;font-weight:700;">T</td>
+                      <td style="padding-left:10px;color:#272637;font-size:16px;font-weight:700;letter-spacing:-.2px;">TaskFlow</td>
+                    </tr></table>
+                  </td></tr>
+                  <tr><td style="padding:31px 30px 8px;color:#6258d7;font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;">Secure sign in</td></tr>
+                  <tr><td style="padding:0 30px;color:#20202b;font-size:25px;font-weight:700;line-height:1.25;letter-spacing:-.5px;">Your verification code</td></tr>
+                  <tr><td style="padding:12px 30px 0;color:#686978;font-size:14px;line-height:1.65;">Use this one-time code to securely sign in to your TaskFlow account.</td></tr>
+                  <tr><td style="padding:23px 30px 0;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border:1px solid #e7e5fb;border-radius:12px;background:#f7f6ff;"><tr><td align="center" style="padding:19px 10px 8px;color:#77758c;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;">Verification code</td></tr><tr><td align="center" style="padding:0 10px 11px;"><span aria-label="Verification code {safeCode}" style="display:inline-block;color:#26243a;font-family:Arial,Helvetica,sans-serif;font-size:36px;font-weight:700;line-height:1.35;letter-spacing:9px;-webkit-user-select:all;user-select:all;">{safeCode}</span></td></tr><tr><td align="center" style="padding:0 10px 18px;color:#77758c;font-size:11px;line-height:1.5;">Select the code to copy it</td></tr></table>
+                  </td></tr>
+                  <tr><td style="padding:19px 30px 0;color:#555665;font-size:13px;line-height:1.65;">This code expires in <strong style="color:#292837;">10 minutes</strong>. For your security, never share it with anyone.</td></tr>
+                  <tr><td style="padding:11px 30px 27px;color:#777887;font-size:12px;line-height:1.6;">If you didn’t request a sign-in code, you can safely ignore this email. Your account remains secure.</td></tr>
+                  <tr><td style="padding:16px 30px;border-top:1px solid #ececf1;background:#fafafd;color:#898a98;font-size:11px;line-height:1.5;">TaskFlow · Projects, people, and progress</td></tr>
+                </table>
+              </td></tr></table>
+            </body>
+            </html>
+            """;
+    }
+
+    private async Task SendViaBrevo(string to, string subject, string textBody, string? htmlBody = null)
     {
         try
         {
             var from = config["Brevo:From"] ?? "noreply@taskflow.app";
             var fromName = config["Brevo:FromName"] ?? "TaskFlow";
 
-            var payload = new
+            var payload = new Dictionary<string, object?>
             {
-                sender = new { email = from, name = fromName },
-                to = new[] { new { email = to } },
-                subject,
-                textContent = textBody
+                ["sender"] = new { email = from, name = fromName },
+                ["to"] = new[] { new { email = to } },
+                ["subject"] = subject,
+                ["textContent"] = textBody
             };
+            if (htmlBody is not null) payload["htmlContent"] = htmlBody;
 
             var json = JsonSerializer.Serialize(payload);
             var request = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email")

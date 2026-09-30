@@ -5,6 +5,10 @@ using Microsoft.EntityFrameworkCore;
 using Pms.Infrastructure.Persistence.EfCore;
 using System.Globalization;
 using CsvHelper;
+using System.Security.Claims;
+using System.Text;
+using System.Security.Cryptography;
+using Microsoft.Data.SqlClient;
 
 namespace Pms.Api.Controllers.Rest.V1;
 
@@ -55,8 +59,17 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
         };
 
         user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
-        db.Users.Add(user);
-        await db.SaveChangesAsync(cancellationToken);
+        var createStrategy = db.Database.CreateExecutionStrategy();
+        await createStrategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            db.Users.Add(user);
+            await db.SaveChangesAsync(cancellationToken);
+            await AddAuditEventAsync("user.create", "user", user.Id, $"{user.FirstName} {user.LastName}", cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
 
         return CreatedAtAction(nameof(GetUsers), new { },
             new { user.Id, user.FirstName, user.LastName, user.Email, user.Status, user.CreatedAt });
@@ -74,26 +87,94 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
         [FromQuery] bool permanent,
         CancellationToken cancellationToken)
     {
-        var user = await db.Users.FindAsync([id], cancellationToken);
-        if (user is null) return NotFound(new { message = "User not found." });
-
-        // Prevent the super admin from removing themselves.
-        var callerId = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-        if (Guid.TryParse(callerId, out var callerGuid) && callerGuid == id)
-            return BadRequest(new { message = "You cannot remove your own account." });
-
         if (permanent)
         {
-            db.Users.Remove(user);
-            await db.SaveChangesAsync(cancellationToken);
+            var user = await db.Users.FindAsync([id], cancellationToken);
+            if (user is null) return NotFound(new { message = "User not found." });
+
+            // Prevent the super admin from removing themselves.
+            var callerId = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (Guid.TryParse(callerId, out var callerGuid) && callerGuid == id)
+                return BadRequest(new { message = "You cannot remove your own account." });
+
+            var deleteStrategy = db.Database.CreateExecutionStrategy();
+            try
+            {
+                await deleteStrategy.ExecuteAsync(async () =>
+                {
+                    db.ChangeTracker.Clear();
+                    await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+                    var currentUser = await db.Users.FindAsync([id], cancellationToken);
+                    if (currentUser is null) return;
+
+                    // Credential artifacts may be discarded; workspace records must not be cascade-deleted here.
+                    await db.LoginOtpCodes.Where(code => code.UserId == id).ExecuteDeleteAsync(cancellationToken);
+                    await db.RefreshTokens.Where(token => token.UserId == id).ExecuteDeleteAsync(cancellationToken);
+                    await db.PasswordResetTokens.Where(token => token.UserId == id).ExecuteDeleteAsync(cancellationToken);
+
+                    db.Users.Remove(currentUser);
+                    await AddAuditEventAsync("user.delete.permanent", "user", currentUser.Id, $"{currentUser.FirstName} {currentUser.LastName}", cancellationToken);
+                    await db.SaveChangesAsync(cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+                });
+            }
+            catch (DbUpdateException exception) when (HasForeignKeyConflict(exception))
+            {
+                return Conflict(new
+                {
+                    code = "USER_HAS_LINKED_DATA",
+                    message = "This account is still linked to workspace or project records. No data was deleted; suspend the account to block access while preserving its records."
+                });
+            }
             return NoContent();
         }
 
-        // Soft suspend — preserves all tasks, comments, and org memberships.
-        user.Status    = "suspended";
-        user.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
-        return Ok(new { user.Id, user.Status });
+        // Soft suspension preserves workspace data and atomically blocks new authentication.
+        var strategy = db.Database.CreateExecutionStrategy();
+        var result = await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+
+            var user = await db.Users.SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+            if (user is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return (Found: false, Id: id, Status: (string?)null);
+            }
+
+            // Prevent the super admin from removing themselves.
+            var callerId = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (Guid.TryParse(callerId, out var callerGuid) && callerGuid == id)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return (Found: true, Id: user.Id, Status: "self");
+            }
+
+            var now = DateTime.UtcNow;
+            if (!string.Equals(user.Status, "suspended", StringComparison.OrdinalIgnoreCase))
+            {
+                user.Status = "suspended";
+                user.UpdatedAt = now;
+            }
+
+            await db.RefreshTokens
+                .Where(token => token.UserId == id && token.RevokedAt == null)
+                .ExecuteUpdateAsync(update => update.SetProperty(token => token.RevokedAt, now), cancellationToken);
+
+            await db.LoginOtpCodes
+                .Where(code => code.UserId == id && code.UsedAt == null)
+                .ExecuteUpdateAsync(update => update.SetProperty(code => code.UsedAt, now), cancellationToken);
+
+            await AddAuditEventAsync("user.suspend", "user", user.Id, $"{user.FirstName} {user.LastName}", cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return (Found: true, Id: user.Id, Status: user.Status);
+        });
+
+        if (!result.Found) return NotFound(new { message = "User not found." });
+        if (result.Status == "self") return BadRequest(new { message = "You cannot remove your own account." });
+        return Ok(new { result.Id, Status = result.Status });
     }
 
     // =====================================================
@@ -110,6 +191,220 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
             user.Id, user.FirstName, user.LastName, user.Email, user.Status, user.CreatedAt,
             OrganizationCount = db.OrganizationMembers.Count(member => member.UserId == user.Id && member.Status == "active")
         }).ToListAsync(cancellationToken));
+
+    [HttpGet("audit-events")]
+    public async Task<IActionResult> GetAuditEvents(
+        [FromQuery] DateTimeOffset? from,
+        [FromQuery] DateTimeOffset? to,
+        [FromQuery] Guid? actorId,
+        [FromQuery] string? action,
+        [FromQuery] string? targetType,
+        [FromQuery] Guid? targetId,
+        [FromQuery] string? outcome,
+        [FromQuery] string? cursor,
+        [FromQuery] int? pageSize,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if ((from is null) != (to is null) || (from is not null && to is not null && from >= to))
+            return BadRequest(new { code = "INVALID_DATE_RANGE", message = "Provide both from and to, with from earlier than to." });
+        if (from > now || to > now)
+            return BadRequest(new { code = "INVALID_DATE_RANGE", message = "Audit date ranges cannot be in the future." });
+        if (from is not null && to is not null && to.Value - from.Value > TimeSpan.FromDays(366))
+            return BadRequest(new { code = "INVALID_DATE_RANGE", message = "The maximum audit date range is 366 days." });
+        if (pageSize is < 1 or > 100)
+            return BadRequest(new { code = "INVALID_PAGE_SIZE", message = "pageSize must be between 1 and 100." });
+        if (action?.Length > 80 || targetType?.Length > 80)
+            return BadRequest(new { code = "INVALID_FILTER", message = "Action and targetType filters are too long." });
+        if (cursor?.Length > 1024)
+            return BadRequest(new { code = "INVALID_CURSOR", message = "The cursor is invalid or does not match these filters." });
+
+        action = string.IsNullOrWhiteSpace(action) ? null : action.Trim().ToLowerInvariant();
+        targetType = string.IsNullOrWhiteSpace(targetType) ? null : targetType.Trim().ToLowerInvariant();
+        outcome = string.IsNullOrWhiteSpace(outcome) ? null : outcome.Trim().ToLowerInvariant();
+        if (outcome is not null && outcome is not ("succeeded" or "failed" or "denied"))
+            return BadRequest(new { code = "INVALID_OUTCOME", message = "outcome must be succeeded, failed, or denied." });
+
+        var start = from ?? now.AddDays(-30);
+        var end = to ?? now;
+        var filtersKey = AuditFiltersKey(from, to, actorId, action, targetType, targetId, outcome);
+        (DateTimeOffset OccurredAt, Guid Id)? position = null;
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            try
+            {
+                var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(cursor.Replace('-', '+').Replace('_', '/') + new string('=', (4 - cursor.Length % 4) % 4)));
+                var parts = decoded.Split('|');
+                if (parts.Length != 3 || parts[2] != filtersKey || !long.TryParse(parts[0], out var ticks) || !Guid.TryParseExact(parts[1], "N", out var eventId))
+                    throw new FormatException();
+                position = (new DateTimeOffset(ticks, TimeSpan.Zero), eventId);
+            }
+            catch (Exception exception) when (exception is FormatException or ArgumentOutOfRangeException)
+            {
+                return BadRequest(new { code = "INVALID_CURSOR", message = "The cursor is invalid or does not match these filters." });
+            }
+        }
+
+        var query = db.AdminAuditEvents.AsNoTracking()
+            .Where(item => item.OccurredAt >= start && item.OccurredAt < end);
+        if (actorId is not null) query = query.Where(item => item.ActorId == actorId.Value);
+        if (action is not null) query = query.Where(item => item.Action == action);
+        if (targetType is not null) query = query.Where(item => item.TargetType == targetType);
+        if (targetId is not null) query = query.Where(item => item.TargetId == targetId.Value);
+        if (outcome is not null) query = query.Where(item => item.Outcome == outcome);
+        if (position is not null)
+            query = query.Where(item => item.OccurredAt < position.Value.OccurredAt ||
+                (item.OccurredAt == position.Value.OccurredAt && item.Id.CompareTo(position.Value.Id) < 0));
+
+        var size = pageSize ?? 50;
+        var page = await query.OrderByDescending(item => item.OccurredAt).ThenByDescending(item => item.Id)
+            .Take(size + 1).ToListAsync(cancellationToken);
+        var hasMore = page.Count > size;
+        if (hasMore) page.RemoveAt(size);
+        var nextCursor = hasMore && page.Count > 0
+            ? Convert.ToBase64String(Encoding.UTF8.GetBytes($"{page[^1].OccurredAt.UtcTicks}|{page[^1].Id:N}|{filtersKey}"))
+                .TrimEnd('=').Replace('+', '-').Replace('/', '_')
+            : null;
+
+        return Ok(new
+        {
+            items = page.Select(item => new
+            {
+                eventId = item.Id,
+                occurredAt = item.OccurredAt,
+                actor = new { id = item.ActorId, displayName = item.ActorDisplayName },
+                action = item.Action,
+                target = new { type = item.TargetType, id = item.TargetId, displayName = item.TargetDisplayName },
+                outcome = item.Outcome,
+                reason = item.Reason,
+                correlationId = item.CorrelationId
+            }),
+            nextCursor
+        });
+    }
+
+    [HttpGet("activity-events")]
+    public async Task<IActionResult> GetActivityEvents(
+        [FromQuery] Guid? organizationId,
+        [FromQuery] string? category,
+        [FromQuery] string? search,
+        [FromQuery] DateTimeOffset? from,
+        [FromQuery] DateTimeOffset? to,
+        [FromQuery] string? cursor,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (from is not null && to is not null && from >= to)
+            return BadRequest(new { code = "INVALID_DATE_RANGE", message = "The start date must be earlier than the end date." });
+        if (from > now || to > now || (from is not null && to is not null && to.Value - from.Value > TimeSpan.FromDays(366)))
+            return BadRequest(new { code = "INVALID_DATE_RANGE", message = "Activity date range must be within the last 366 days and cannot be in the future." });
+        if (pageSize is < 1 or > 100 || category?.Length > 40 || search?.Length > 100 || cursor?.Length > 1024)
+            return BadRequest(new { code = "INVALID_FILTER", message = "An activity filter is invalid or too long." });
+
+        category = string.IsNullOrWhiteSpace(category) ? null : category.Trim();
+        search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+        Guid? idTerm = search is not null && Guid.TryParse(search, out var parsedId) ? parsedId : null;
+        var query = from activity in db.ActivityEvents.AsNoTracking()
+                    join organization in db.Organizations.AsNoTracking() on activity.OrganizationId equals organization.Id
+                    join projectRow in db.Projects.AsNoTracking() on activity.ProjectId equals (Guid?)projectRow.Id into projectRows
+                    from project in projectRows.DefaultIfEmpty()
+                    select new { Event = activity, OrganizationName = organization.Name, ProjectName = project == null ? null : project.Name };
+        if (organizationId is not null) query = query.Where(item => item.Event.OrganizationId == organizationId.Value);
+        if (category is not null) query = query.Where(item => item.Event.Category == category);
+        if (search is not null)
+            query = query.Where(item => item.Event.ActorName.Contains(search) || item.Event.EntityName.Contains(search)
+                || item.Event.EntityType.Contains(search) || item.Event.Action.Contains(search)
+                || item.Event.Status.Contains(search) || item.Event.Description.Contains(search)
+                || item.Event.CorrelationId.Contains(search) || item.OrganizationName.Contains(search)
+                || (item.ProjectName != null && item.ProjectName.Contains(search))
+                || (idTerm != null && (item.Event.Id == idTerm.Value || item.Event.ActorUserId == idTerm.Value
+                    || item.Event.EntityId == idTerm.Value || item.Event.OrganizationId == idTerm.Value
+                    || item.Event.ProjectId == idTerm.Value)));
+        if (from is not null) query = query.Where(item => item.Event.CreatedAtUtc >= from.Value.UtcDateTime);
+        if (to is not null) query = query.Where(item => item.Event.CreatedAtUtc < to.Value.UtcDateTime);
+
+        (DateTime CreatedAt, Guid Id)? position = null;
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            try
+            {
+                var parts = Encoding.UTF8.GetString(Convert.FromBase64String(cursor)).Split('|');
+                if (parts.Length != 2 || !long.TryParse(parts[0], out var ticks) || !Guid.TryParseExact(parts[1], "N", out var id)) throw new FormatException();
+                position = (new DateTime(ticks, DateTimeKind.Utc), id);
+            }
+            catch (Exception exception) when (exception is FormatException or ArgumentOutOfRangeException)
+            {
+                return BadRequest(new { code = "INVALID_CURSOR", message = "The activity cursor is invalid." });
+            }
+        }
+        if (position is not null)
+            query = query.Where(item => item.Event.CreatedAtUtc < position.Value.CreatedAt
+                || (item.Event.CreatedAtUtc == position.Value.CreatedAt && item.Event.Id.CompareTo(position.Value.Id) < 0));
+
+        var page = await query.OrderByDescending(item => item.Event.CreatedAtUtc).ThenByDescending(item => item.Event.Id)
+            .Take(pageSize + 1).ToListAsync(cancellationToken);
+        var hasMore = page.Count > pageSize;
+        if (hasMore) page.RemoveAt(pageSize);
+        var nextCursor = hasMore && page.Count > 0
+            ? Convert.ToBase64String(Encoding.UTF8.GetBytes($"{page[^1].Event.CreatedAtUtc.Ticks}|{page[^1].Event.Id:N}"))
+            : null;
+
+        return Ok(new
+        {
+            items = page.Select(item => new
+            {
+                eventId = item.Event.Id, item.Event.OrganizationId, organizationName = item.OrganizationName,
+                item.Event.ProjectId, projectName = item.ProjectName, actorUserId = item.Event.ActorUserId, actorName = item.Event.ActorName,
+                item.Event.Category, item.Event.Action, item.Event.EntityType, item.Event.EntityId, item.Event.EntityName,
+                item.Event.Description, item.Event.Status, item.Event.CorrelationId, createdAt = item.Event.CreatedAtUtc
+            }),
+            nextCursor
+        });
+    }
+
+    private async Task AddAuditEventAsync(string action, string targetType, Guid targetId, string targetDisplayName, CancellationToken cancellationToken)
+    {
+        var actorIdValue = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(actorIdValue, out var actorId))
+            throw new InvalidOperationException("An authenticated administrator ID is required for audit events.");
+
+        var actorDisplayName = await db.Users.AsNoTracking()
+            .Where(user => user.Id == actorId)
+            .Select(user => user.FirstName + " " + user.LastName)
+            .SingleOrDefaultAsync(cancellationToken) ?? "Administrator";
+        var correlationId = Request.Headers["X-Correlation-ID"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(correlationId) || correlationId.Length > 128)
+            correlationId = HttpContext.TraceIdentifier;
+
+        db.AdminAuditEvents.Add(new Pms.Domain.Entities.AdminAuditEvent
+        {
+            Id = Guid.NewGuid(),
+            ActorId = actorId,
+            ActorDisplayName = actorDisplayName,
+            Action = action,
+            TargetType = targetType,
+            TargetId = targetId,
+            TargetDisplayName = targetDisplayName,
+            Outcome = "succeeded",
+            CorrelationId = correlationId,
+            OccurredAt = DateTimeOffset.UtcNow
+        });
+    }
+
+    private static string AuditFiltersKey(DateTimeOffset? from, DateTimeOffset? to, Guid? actorId, string? action, string? targetType, Guid? targetId, string? outcome)
+    {
+        var normalized = $"{from?.UtcTicks}|{to?.UtcTicks}|{actorId}|{action}|{targetType}|{targetId}|{outcome}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
+    }
+
+    private static bool HasForeignKeyConflict(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+            if (current is SqlException { Number: 547 }) return true;
+        return false;
+    }
 
     [HttpGet("organizations")]
     public async Task<IActionResult> GetOrganizations(CancellationToken cancellationToken) => Ok(await db.Organizations

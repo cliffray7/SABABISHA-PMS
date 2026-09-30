@@ -20,9 +20,47 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
     public DbSet<CommentMention> CommentMentions => Set<CommentMention>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<AdminAuditEvent> AdminAuditEvents => Set<AdminAuditEvent>();
+    public DbSet<ActivityEvent> ActivityEvents => Set<ActivityEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ActivityEvent>(entity =>
+        {
+            entity.ToTable("activity_events");
+            entity.HasKey(activity => activity.Id);
+            entity.Property(activity => activity.ActorName).HasMaxLength(201).IsRequired();
+            entity.Property(activity => activity.Category).HasMaxLength(40).IsRequired();
+            entity.Property(activity => activity.Action).HasMaxLength(80).IsRequired();
+            entity.Property(activity => activity.EntityType).HasMaxLength(40).IsRequired();
+            entity.Property(activity => activity.EntityName).HasMaxLength(300).IsRequired();
+            entity.Property(activity => activity.Description).HasMaxLength(500).IsRequired();
+            entity.Property(activity => activity.Status).HasMaxLength(20).IsRequired();
+            entity.Property(activity => activity.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.HasIndex(activity => new { activity.OrganizationId, activity.CreatedAtUtc, activity.Id });
+            entity.HasIndex(activity => new { activity.OrganizationId, activity.ProjectId, activity.CreatedAtUtc });
+            entity.HasIndex(activity => new { activity.OrganizationId, activity.Category, activity.CreatedAtUtc });
+            entity.HasIndex(activity => new { activity.OrganizationId, activity.ActorUserId, activity.CreatedAtUtc });
+            entity.HasIndex(activity => new { activity.OrganizationId, activity.EntityType, activity.EntityId });
+        });
+
+        modelBuilder.Entity<AdminAuditEvent>(entity =>
+        {
+            entity.ToTable("admin_audit_events");
+            entity.HasKey(auditEvent => auditEvent.Id);
+            entity.Property(auditEvent => auditEvent.ActorDisplayName).HasMaxLength(201).IsRequired();
+            entity.Property(auditEvent => auditEvent.Action).HasMaxLength(80).IsRequired();
+            entity.Property(auditEvent => auditEvent.TargetType).HasMaxLength(80).IsRequired();
+            entity.Property(auditEvent => auditEvent.TargetDisplayName).HasMaxLength(300).IsRequired();
+            entity.Property(auditEvent => auditEvent.Outcome).HasMaxLength(20).IsRequired();
+            entity.Property(auditEvent => auditEvent.Reason).HasMaxLength(500);
+            entity.Property(auditEvent => auditEvent.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.HasIndex(auditEvent => new { auditEvent.OccurredAt, auditEvent.Id });
+            entity.HasIndex(auditEvent => new { auditEvent.ActorId, auditEvent.OccurredAt });
+            entity.HasIndex(auditEvent => new { auditEvent.Action, auditEvent.OccurredAt });
+            entity.HasIndex(auditEvent => new { auditEvent.TargetType, auditEvent.TargetId, auditEvent.OccurredAt });
+        });
+
         modelBuilder.Entity<PasswordResetToken>(entity =>
         {
             entity.ToTable("password_reset_tokens");

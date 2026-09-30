@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Pms.Api.Auth;
+using Pms.Api.Activity;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 namespace Pms.Api.Controllers.Rest.V1;
@@ -51,6 +52,9 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         foreach (var uid in mentions) db.CommentMentions.Add(new CommentMention { Id = Guid.NewGuid(), CommentId = c.Id, UserId = uid });
         var recipients = (await db.TaskAssignees.Where(x => x.TaskId == id).Select(x => x.UserId).ToListAsync(ct)).Concat(mentions).Append(task.CreatedBy).Distinct().Where(x => x != CurrentUser.Id(User));
         foreach (var uid in recipients) db.Notifications.Add(new Notification { Id = Guid.NewGuid(), UserId = uid, Type = "COMMENT", Message = $"New comment on {task.Title}.", EntityType = "TASK", RelatedId = id });
+        var project = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
+        await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Collaboration", mentions.Length > 0 ? "comment.mentioned" : "comment.created", "task", task.Id, task.Title,
+            mentions.Length > 0 ? $"commented on task \"{task.Title}\" and mentioned teammates in project \"{project.Name}\"" : $"commented on task \"{task.Title}\" in project \"{project.Name}\"", ct, task.ProjectId);
         await db.SaveChangesAsync(ct); return Ok(new { c.Id });
     }
     [HttpDelete("/api/v1/tasks/{taskId:guid}/comments/{commentId:guid}")]
@@ -63,6 +67,8 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         var canDelete = comment.UserId == userId || await IsManager(task.ProjectId, userId, ct);
         if (!canDelete) return Forbid();
         comment.DeletedAt = DateTime.UtcNow; comment.UpdatedAt = DateTime.UtcNow;
+        var project = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
+        await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Collaboration", "comment.deleted", "task", task.Id, task.Title, $"deleted a comment on task \"{task.Title}\" in project \"{project.Name}\"", ct, task.ProjectId);
         await db.SaveChangesAsync(ct); return NoContent();
     }
     [HttpGet("/api/v1/tasks/{id:guid}/attachments")]
@@ -98,6 +104,8 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
                     Message = $"A file was attached to {task.Title}.",
                     EntityType = "TASK", RelatedId = task.Id
                 });
+            var project = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
+            await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Collaboration", "attachment.uploaded", "task", task.Id, task.Title, $"attached a file to task \"{task.Title}\" in project \"{project.Name}\"", ct, task.ProjectId);
             // File metadata and notifications commit together. Failed uploads notify nobody.
             await db.SaveChangesAsync(ct);
         }
@@ -122,6 +130,8 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         var userId = CurrentUser.Id(User);
         if (attachment.UploadedBy != userId && !await IsManager(task.ProjectId, userId, ct)) return Forbid();
         attachment.DeletedAt = DateTime.UtcNow;
+        var projectInfo = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
+        await ActivityRecorder.RecordAsync(db, User, Request, projectInfo.OrganizationId, "Collaboration", "attachment.deleted", "task", task.Id, task.Title, $"removed a file from task \"{task.Title}\" in project \"{projectInfo.Name}\"", ct, task.ProjectId);
         await db.SaveChangesAsync(ct);
         var path = Path.Combine(UploadFolder, id.ToString());
         if (System.IO.File.Exists(path)) System.IO.File.Delete(path);

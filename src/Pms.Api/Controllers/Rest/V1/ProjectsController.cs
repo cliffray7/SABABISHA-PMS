@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Pms.Api.Auth;
+using Pms.Api.Activity;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 namespace Pms.Api.Controllers.Rest.V1;
@@ -18,6 +19,7 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         if (!Valid(request.Name, request.Status, request.StartDate, request.DueDate)) return BadRequest(new { message = "Enter a project name, valid status, and due date on or after the start date." });
         var p = new Project { Id = Guid.NewGuid(), OrganizationId = request.OrganizationId, OwnerId = CurrentUser.Id(User), Name = request.Name.Trim(), Description = request.Description, Status = request.Status, StartDate = request.StartDate, DueDate = request.DueDate };
         db.Projects.Add(p); db.ProjectMembers.Add(new ProjectMember { Id = Guid.NewGuid(), ProjectId = p.Id, UserId = CurrentUser.Id(User), Role = "PROJECT_MANAGER" });
+        await ActivityRecorder.RecordAsync(db, User, Request, p.OrganizationId, "Projects", "project.created", "project", p.Id, p.Name, $"created project \"{p.Name}\"", ct, p.Id);
         await db.SaveChangesAsync(ct); return Ok(p);
     }
     [HttpGet("{id:guid}")]
@@ -29,22 +31,30 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         if (!await Manager(id, ct)) return Forbid();
         if (!Valid(request.Name, request.Status, request.StartDate, request.DueDate)) return BadRequest(new { message = "Check the name, status, and date range." });
         var p = await db.Projects.SingleAsync(x => x.Id == id, ct);
+        var previousStatus = p.Status;
         p.Name = request.Name.Trim(); p.Description = request.Description; p.Status = request.Status; p.StartDate = request.StartDate; p.DueDate = request.DueDate; p.UpdatedAt = DateTime.UtcNow;
+        var action = previousStatus == p.Status ? "project.updated" : "project.status_changed";
+        await ActivityRecorder.RecordAsync(db, User, Request, p.OrganizationId, "Projects", action, "project", p.Id, p.Name, action == "project.status_changed" ? $"changed project \"{p.Name}\" status from {previousStatus} to {p.Status}" : $"updated project \"{p.Name}\"", ct, p.Id);
         await db.SaveChangesAsync(ct); return Ok(p);
     }
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Archive(Guid id, CancellationToken ct)
     {
         if (!await Manager(id, ct)) return Forbid();
-        await db.Projects.Where(x => x.Id == id).ExecuteUpdateAsync(s => s.SetProperty(x => x.ArchivedAt, DateTime.UtcNow), ct); return NoContent();
+        var project = await db.Projects.SingleAsync(x => x.Id == id, ct);
+        project.ArchivedAt = DateTime.UtcNow;
+        await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Projects", "project.archived", "project", project.Id, project.Name, $"archived project \"{project.Name}\"", ct, project.Id);
+        await db.SaveChangesAsync(ct); return NoContent();
     }
     [HttpPost("{id:guid}/restore")]
     public async Task<IActionResult> Restore(Guid id, CancellationToken ct)
     {
         if (!await Manager(id, ct)) return Forbid();
-        var changed = await db.Projects.Where(x => x.Id == id && x.ArchivedAt != null)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ArchivedAt, (DateTime?)null).SetProperty(x => x.UpdatedAt, DateTime.UtcNow), ct);
-        return changed == 0 ? NotFound() : NoContent();
+        var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id && x.ArchivedAt != null, ct);
+        if (project is null) return NotFound();
+        project.ArchivedAt = null; project.UpdatedAt = DateTime.UtcNow;
+        await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Projects", "project.restored", "project", project.Id, project.Name, $"restored project \"{project.Name}\"", ct, project.Id);
+        await db.SaveChangesAsync(ct); return NoContent();
     }
     [HttpGet("{id:guid}/members")]
     public async Task<IActionResult> Members(Guid id, CancellationToken ct)
@@ -64,6 +74,9 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         if (existing?.Status == "active") return Conflict(new { message = "Already a project member." });
         if (existing is null) db.ProjectMembers.Add(new ProjectMember { Id = Guid.NewGuid(), ProjectId = id, UserId = request.UserId, Role = request.Role });
         else { existing.Status = "active"; existing.Role = request.Role; }
+        var addedUser = await db.Users.AsNoTracking().Where(x => x.Id == request.UserId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
+        var addedName = $"{addedUser.FirstName} {addedUser.LastName}";
+        await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "People", "project.member_added", "user", request.UserId, addedName, $"added {addedName} to project \"{project.Name}\"", ct, project.Id);
         await db.SaveChangesAsync(ct); return NoContent();
     }
     [HttpDelete("{id:guid}/members/{userId:guid}")]
@@ -74,6 +87,10 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         var member = await db.ProjectMembers.SingleOrDefaultAsync(x => x.ProjectId == id && x.UserId == userId && x.Status == "active", ct);
         if (member is null) return NotFound();
         member.Status = "inactive";
+        var project = await db.Projects.SingleAsync(x => x.Id == id, ct);
+        var removedUser = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
+        var removedName = $"{removedUser.FirstName} {removedUser.LastName}";
+        await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "People", "project.member_removed", "user", userId, removedName, $"removed {removedName} from project \"{project.Name}\"", ct, project.Id);
         await db.SaveChangesAsync(ct); return NoContent();
     }
     private Task<bool> Member(Guid id, CancellationToken ct) => (from projectMember in db.ProjectMembers

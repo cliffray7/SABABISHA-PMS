@@ -1,195 +1,97 @@
 # Sababisha PMS
 
-Project management system organized for the GTP 2026 Bootcamp. This repository is currently structured for the backend, web, QA, and DevOps portions of the programme. The Flutter mobile application is intentionally deferred.
+Sababisha PMS is a project management system with an ASP.NET Core API, a React web client, and a Flutter mobile client. The main workflows cover account access, organizations and teams, projects, tasks, collaboration, notifications, and platform administration.
 
-## Week 2 technology decisions
+## Current implementation
 
-- Backend: .NET 8 LTS and ASP.NET Core Web API.
-- ORM and data access: Entity Framework Core 8 for schema/migrations and Dapper 2.x for optimized reads and stored procedures
-- Primary database: SQL Server 2022
-- API styles: versioned REST under `/api/v1` and HotChocolate GraphQL 14+
-- Testing: xUnit-ready test projects, Postman collection, Newman-compatible environment, and CI coverage collection
+- **API:** .NET 8 / ASP.NET Core, EF Core and SQL Server. REST endpoints are under `/api/v1`; GraphQL is exposed at `/graphql`.
+- **Web:** React and Vite client in `apps/web`. It includes sign-in and registration with email OTP, organization and invitation management, project and member management, board/list/timeline task views, comments, mentions, attachments, notifications, account settings, and admin pages.
+- **Mobile:** Flutter client in `apps/mobile`. It includes authentication, OTP verification, secure session storage and refresh, organization/project/task workflows, comments, subtasks, attachments, notifications, account settings, and admin screens. The mobile README has setup details.
+- **Tests:** Web API/browser/team/notification/attachment smoke scripts, Flutter widget and API-client tests, .NET test projects, and Postman API requests are present. The .NET unit and integration test projects currently contain starter tests; the presence of test projects does not imply broad automated coverage.
 
-See [docs/implementation-status.md](docs/implementation-status.md) for the current recommendation alignment and deliberate technology decisions.
+The web and mobile clients use the same API. External services such as Brevo email and Gemini task drafting require API-side configuration. Local development can use the Development inbox for reset and invitation messages when real email is not configured.
 
-The original sequence diagram labels PostgreSQL. The bootcamp addendum requires SQL Server implementation in Week 2, so SQL Server is the primary database here. PostgreSQL can be added later as an explicit alternative; it is not silently mixed into the Week 2 implementation.
-
-## Repository structure
+## Repository layout
 
 ```text
-SABABISHA-PMS/
-├── src/
-│   ├── Pms.Api/                         # ASP.NET Core entry point
-│   │   ├── Controllers/Rest/V1/         # REST endpoints: auth, orgs, projects, tasks
-│   │   ├── GraphQL/Queries/              # Read operations
-│   │   ├── GraphQL/Mutations/            # Write operations
-│   │   └── GraphQL/Types/                # HotChocolate schema types
-│   ├── Pms.Application/                  # Use cases, commands, queries, DTOs, validators
-│   │   └── Features/                     # Auth, organizations, projects, tasks, collaboration
-│   ├── Pms.Domain/                       # Business model independent of infrastructure
-│   │   ├── Entities/                     # ERD entities
-│   │   ├── Enums/                        # Roles, statuses, priorities, notification types
-│   │   └── Interfaces/                   # Repository and service contracts
-│   └── Pms.Infrastructure/               # External systems and persistence
-│       ├── Persistence/EfCore/           # DbContext, configurations, migrations
-│       ├── Persistence/Dapper/           # Repositories and optimized SQL queries
-│       └── Services/                     # Authentication, files, notifications
-├── database/
-│   └── sqlserver/
-│       ├── schema/                       # SQL Server tables and constraints
-│       ├── stored-procedures/            # Task creation, dashboard, bulk operations
-│       ├── indexes/                      # Query-performance indexes
-│       └── seed/                         # Development/reference data
-├── tests/
-│   ├── Pms.UnitTests/                    # Domain and application business rules
-│   ├── Pms.IntegrationTests/             # EF Core, Dapper, and SQL Server integration
-│   └── Pms.ApiTests/                     # Contract/API tests
-│       ├── postman/                      # Collections and environments
-│       └── newman/                       # CLI execution scripts and reports
-├── apps/
-│   ├── web/                              # Week 3 React + Vite frontend
-│   └── mobile/                           # Week 4 Flutter application
-├── infrastructure/
-│   ├── docker/                           # SQL Server and API containers
-│   ├── ci/                               # GitHub Actions workflows
-│   └── deployment/                       # Vercel/Azure/Railway/Render configuration
-├── docs/week-2/                          # API, database, and implementation notes
-└── scripts/                              # Database and local development scripts
+src/                         .NET API, application, domain, infrastructure
+apps/web/                    React + Vite web client and smoke scripts
+apps/mobile/                 Flutter mobile client
+database/sqlserver/          SQL Server schema, seed data, procedures, indexes
+tests/                       .NET and Postman test projects
+infrastructure/docker/       Docker Compose and container definitions
+scripts/                     Local database setup helpers
+docs/                        Implementation and deployment notes
 ```
 
-## ERD ownership
+## Run locally
 
-| ERD entities | Owning area |
-|---|---|
-| `users`, `refresh_tokens` | `Pms.Domain/Entities`, `Pms.Application/Features/Auth` |
-| `organizations`, `organization_members`, `organization_invitations` | `Pms.Application/Features/Organizations` |
-| `projects`, `project_members` | `Pms.Application/Features/Projects` |
-| `task_statuses`, `tasks`, `task_assignees` | `Pms.Application/Features/Tasks` |
-| `comments`, `comment_mentions`, `attachments` | `Pms.Application/Features/Collaboration` |
-| `notifications` | `Pms.Application/Features/Notifications` |
-| Tables, keys, indexes, and procedures | `database/sqlserver` and `Pms.Infrastructure/Persistence` |
+### Prerequisites
 
-## Week 2 implementation order
+- .NET 8 SDK
+- Docker Desktop with Compose, or a reachable SQL Server 2022 instance
+- Node.js 20 and npm 10 for the web client
+- Flutter SDK 3.x for the mobile client
 
-1. Create the .NET solution and projects under `src/` and `tests/`.
-2. Model the MVP ERD in `Pms.Domain/Entities` and configure EF Core mappings.
-3. Implement SQL Server schema, foreign keys, constraints, indexes, and seed data.
-4. Add stored procedures for task creation with multiple assignees, dashboard metrics, and high-value queries.
-5. Add Dapper repositories for optimized reads and bulk operations.
-6. Expose `/api/v1` REST controllers and the HotChocolate GraphQL schema.
-7. Add Postman/Newman coverage for authentication, authorization, task assignment, validation, and error responses.
+### Start API and SQL Server
 
-## API boundary
-
-REST controllers belong in `src/Pms.Api/Controllers/Rest/V1`, while GraphQL resolvers belong in `src/Pms.Api/GraphQL`. Business rules stay in `Pms.Application`; neither transport layer should access SQL Server directly. EF Core and Dapper access is isolated in `Pms.Infrastructure`.
-
-## Implemented backend endpoints
-
-- `POST /api/v1/auth/register`, `/login`, and `/refresh`
-- `POST /api/v1/organizations`, organization member listing, and role updates
-- `POST /api/v1/projects`, project member management, and project lookup
-- `POST /api/v1/projects/{projectId}/tasks`
-- `GET /api/v1/tasks?projectId={projectId}`
-- `PATCH` and `DELETE /api/v1/tasks/{taskId}`
-- `POST` and `GET /api/v1/tasks/{taskId}/comments`, including replies and mentions
-- `POST /api/v1/tasks/{taskId}/attachments`
-- `GET /api/v1/notifications` and `PATCH /api/v1/notifications/{notificationId}/read`
-- `GET /api/v1/health`, `/live`, and `/ready`; and `POST /graphql`
-
-All non-authentication routes require a bearer access token and enforce organization/project membership. Replace the development JWT signing key and SQL Server password in environment-specific configuration before deployment.
-
-## Operational checks and request tracing
-
-- `GET /api/v1/live` confirms that the API process is running.
-- `GET /api/v1/ready` confirms that the API can reach SQL Server.
-- `GET /api/v1/health` retains the simple application status response used by local tooling.
-- API logs are emitted as structured JSON. Every response includes an `X-Correlation-ID`; clients may send one to trace a request across their own logs.
-- Authentication endpoints use a per-IP sliding-window limit of 30 requests per minute. A `429` response means the caller should wait and retry.
-
-## Start SQL Server locally
-
-Docker Desktop is required. From the repository root:
+From the repository root, create the Docker environment file and set a strong local SQL Server password:
 
 ```powershell
 Copy-Item infrastructure/docker/.env.example infrastructure/docker/.env
-# Edit infrastructure/docker/.env and set a strong MSSQL_SA_PASSWORD
-./scripts/setup-sqlserver.ps1
+# Edit infrastructure/docker/.env and set MSSQL_SA_PASSWORD
+docker compose --env-file infrastructure/docker/.env -f infrastructure/docker/docker-compose.yml up --build
 ```
 
-Then start the API:
+Compose publishes the API at `http://localhost:5141` and SQL Server at port `1433`. The API readiness endpoint is `http://localhost:5141/api/v1/ready`.
+
+To run only the API outside Docker, start SQL Server first and run:
 
 ```powershell
 dotnet run --project src/Pms.Api/Pms.Api.csproj --urls http://localhost:5141
 ```
 
-The API reads the `ConnectionStrings__PmsDatabase` environment variable when supplied, so local or deployment secrets can override `appsettings.json` without editing committed files.
+Set `ConnectionStrings__PmsDatabase` in the API environment to override the configured database connection string. Configure secrets such as JWT signing key and email credentials through the API host environment rather than committing production values.
 
-## Functional web application
+Database changes are applied explicitly; the API does not auto-run SQL scripts. Before deploying this revision, apply `database/sqlserver/migrations/003_activity_events.sql` to the database used by the API. This creates the tenant-scoped workspace Activity Center store; it is separate from `002_admin_audit_events.sql` and does not backfill historical events.
 
-The React app now uses saved API data for organizations, projects, tasks, members,
-notifications, and account settings. The supplied remaining-screen reference is
-implemented as the reset-password screen and the create-project dialog, with shared
-form, button, badge, and task-card styling.
+### Start the web client
 
-Start the database and API from the repository root:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-sqlserver.ps1
-dotnet run --project src/Pms.Api/Pms.Api.csproj --urls http://localhost:5141
-```
-
-Start the frontend in another terminal:
+If using the Docker Compose web service, open `http://localhost:5173`. To run Vite directly:
 
 ```powershell
 cd apps/web
+npm ci
 npm run dev -- --host 127.0.0.1
 ```
 
-Open http://127.0.0.1:5173. Register an account, create an organization, then create
-a project. Add teammates using organization invitations and project membership.
-Projects have board, list, and dated timeline views. Tasks support status changes
-by dragging or editing, multiple assignees, comments, mentions, and file uploads
-up to 10 MB. Project deletion in the UI archives the project and preserves data.
-Successful file uploads notify the task creator and active assignees who remain
-active project members, excluding the uploader. Attachment notifications open the
-task so recipients can download the file. Rejected uploads create no notifications.
+Open `http://127.0.0.1:5173`. Register and verify an account, create an organization, then create a project and tasks. Local reset and invitation email can be viewed in the Development inbox when the API is running in Development without an email provider configured.
 
-### Local email and password reset
+### Run the mobile client
 
-Registration and login both require email OTP verification before issuing access
-and refresh tokens. Submit the six-digit code to `POST /api/v1/auth/verify-otp`.
-Codes expire after 10 minutes, are single-use, and are invalidated after five
-incorrect attempts. If registration verification is interrupted or email delivery
-fails, log in with the registered credentials to request a fresh code.
+```powershell
+cd apps/mobile
+flutter pub get
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:5141/api/v1
+```
 
-When the API runs in Development without `Smtp:Host`, reset links and invitations
-appear in **Development inbox**. This inbox is only served to loopback requests;
-it is not real email delivery. Its messages are held in memory until API restart.
-Reset tokens are stored hashed in SQL Server, expire after 30 minutes, and can be
-used once. Invitation links expire after seven days and require the invited email
-address to accept them. Resetting a password revokes refresh tokens; existing
-access tokens expire according to the configured JWT lifetime.
+The URL above is for an Android emulator. For an iOS simulator use `http://127.0.0.1:5141/api/v1`; for a physical device use the development machine's LAN address. See [mobile setup and feature notes](apps/mobile/README.md).
 
-To use SMTP, configure `Smtp__Host`, `Smtp__Port` (default 587),
-`Smtp__EnableSsl` (default true), `Smtp__From`, `Smtp__Username`, and
-`Smtp__Password` in the API environment. Set `FrontendUrl` to the frontend origin
-used for email links. The development inbox is disabled when SMTP is configured.
-Uploaded files are stored under `src/Pms.Api/.data/uploads` and downloaded through
-an authenticated endpoint that checks project membership.
+## API and application behavior
 
-### Frontend state and routing
+- Protected API endpoints use bearer access tokens. The clients refresh a session after an authorization failure and retry the request once.
+- Organization and project routes enforce membership and role checks.
+- Tasks support multiple assignees, dates, priorities, status changes, comments, mentions, subtasks, and attachments. Web uploads are limited to 10 MB; files are stored by the API and downloaded through authenticated routes.
+- Organization invitations require the invited email to accept and expire after seven days. OTP codes expire after ten minutes and are single-use.
+- `GET /api/v1/live` checks that the API process is running; `GET /api/v1/ready` checks database readiness; `GET /api/v1/health` returns application health.
+- Optional AI task suggestions use `POST /api/v1/ai/tasks/suggest`; suggestions are reviewed by the user and are not saved as tasks automatically. Configure `Gemini__ApiKey` on the API host to enable this feature.
+- Email delivery can be configured with Brevo API settings on the API host. Without delivery settings in Development, supported messages are placed in the loopback-only in-memory Development inbox.
 
-The web app uses hash routes so it can be deployed as a static Vite build without server rewrite rules. Routes are checked before rendering: unauthenticated users see the sign-in flow, while expired sessions are cleared and returned to sign-in. Access tokens and refresh tokens are stored locally for the current browser and Axios attaches the access token automatically. On one `401` for a protected request, Axios refreshes the token, retries the request once, and signs out if refresh fails.
+For deployment configuration see [deployment notes](docs/deployment-vercel-railway-render.md). The API exposes `/graphql` for GraphQL clients; the web and mobile workflows primarily use REST.
 
-Local component state owns transient UI such as dialogs, selection, and the mobile menu. TanStack Query owns notification server state; the URL hash owns the current screen; and browser storage preserves the selected organization and project between reloads.
+## Verification
 
-### Optional AI task drafting
-
-`POST /api/v1/ai/tasks/suggest` returns a suggested title, description, priority, and subtasks for an authorized project. It never writes a task; the user must review and submit the normal task form. To enable it, set `Gemini__ApiKey` and `Gemini__Model` (recommended: `gemini-3.5-flash`) only in the API environment. Do not place an AI key in frontend variables or source control. If these settings are absent, the endpoint returns `503` and the normal task workflow remains available.
-
-### Verification
-
-With the API, SQL Server, and frontend running, execute from `apps/web`:
+Run the web build and configured smoke checks from `apps/web`:
 
 ```powershell
 npm run build
@@ -200,9 +102,24 @@ npm run test:notifications
 npm run test:attachments
 ```
 
-The browser test uses installed Microsoft Edge through `playwright-core`; it does
-not download another browser. Tests create uniquely named local accounts and
-organizations and clean up their records and attachments afterward. The cleanup
-script uses the local API connection in `appsettings.json`, so run these tests only
-against this local development database. Screenshots are saved to
-`apps/web/test-results`.
+The smoke checks require a running API and local development database. The browser check uses installed Microsoft Edge through `playwright-core`. Review the scripts before running them against any database containing data you need to keep; cleanup is intended for the local development database.
+
+Run Flutter checks from `apps/mobile`:
+
+```powershell
+flutter analyze
+flutter test
+```
+
+Run the .NET solution checks from the repository root:
+
+```powershell
+dotnet build Sababisha.Pms.slnx
+dotnet test Sababisha.Pms.slnx
+```
+
+## Further documentation
+
+- [Implementation status and technology decisions](docs/implementation-status.md)
+- [Deployment notes](docs/deployment-vercel-railway-render.md)
+- [Mobile development](docs/mobile-development.md)

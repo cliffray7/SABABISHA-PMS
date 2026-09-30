@@ -15,7 +15,9 @@ Set these variables at the API host:
 | `Cors__AllowedOrigins__0` | `https://your-project.vercel.app` or custom frontend domain |
 | `FrontendUrl` | Same frontend origin, without a trailing slash |
 | `Uploads__Path` | Persistent mounted upload directory |
-| `Smtp__Host`, `Smtp__From`, etc. | Production mail provider settings, if used |
+| `Brevo__ApiKey` | Brevo API key (keep secret; set on the API host, never Vercel) |
+| `Brevo__From` | Sender address verified in Brevo |
+| `Brevo__FromName` | Optional sender display name, such as `TaskFlow` |
 
 Render's Blueprint mounts an upload disk at `/app/data`, using `/app/data/uploads`. A persistent disk limits an API to one instance; use object storage before scaling horizontally. On Railway, configure a volume and set `Uploads__Path` within its mount.
 
@@ -43,4 +45,4 @@ Set these Vercel Production and Preview variables:
 
 ## Verification
 
-Open `/api/v1/live`, then `/api/v1/ready` to confirm the API and SQL Server connection. Open the Vercel site, register an account, create a project, and upload a file. Confirm email links return to the Vercel domain.
+Open `/api/v1/live`, then `/api/v1/ready` to confirm the API and SQL Server connection. Open the Vercel site, register an account, create a project, and upload a file. Confirm email links return to the Vercel domain. For email delivery, verify the sender in Brevo, trigger a login OTP, then check Brevo's transactional email logs for `Delivered`, `Deferred`, `Blocked`, or `Bounced`; an API `201` means Brevo accepted the send request, not that the recipient mailbox delivered it.

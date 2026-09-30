@@ -1,4 +1,4 @@
-﻿**/node_modules/
+**/node_modules/
 **/bin/
 **/obj/
 **/dist/
@@ -8,6 +8,7 @@
 **/.env
 artifacts/
 
-# Local development secrets — never commit real credentials
+# Local development secrets - never commit real credentials
 **/appsettings.Development.json
 **/appsettings.Production.json
+.build-delete-fix/

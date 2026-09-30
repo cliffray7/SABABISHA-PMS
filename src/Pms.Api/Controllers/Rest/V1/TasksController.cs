@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Pms.Api.Auth;
+using Pms.Api.Activity;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 namespace Pms.Api.Controllers.Rest.V1;
@@ -34,7 +35,14 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
         if (r.ParentTaskId is not null && !await db.Tasks.AnyAsync(x => x.Id == r.ParentTaskId && x.ProjectId == projectId && x.ParentTaskId == null && x.DeletedAt == null, ct)) return BadRequest(new { message = "The parent task is invalid." });
         var task = new WorkTask { Id = Guid.NewGuid(), ProjectId = projectId, ParentTaskId = r.ParentTaskId, Title = r.Title.Trim(), Description = r.Description, Status = r.Status ?? "TO DO", Priority = r.Priority ?? "MEDIUM", StartDate = r.StartDate, DueDate = r.DueDate, CreatedBy = CurrentUser.Id(User), CompletedAt = r.Status == "DONE" ? DateTime.UtcNow : null };
         foreach (var id in ids) { task.Assignees.Add(new TaskAssignee { Id = Guid.NewGuid(), UserId = id }); Notify(id, task); }
-        db.Tasks.Add(task); await db.SaveChangesAsync(ct); return Ok(new { task.Id });
+        db.Tasks.Add(task);
+        await RecordActivityAsync(task, "Tasks", task.ParentTaskId is null ? "task.created" : "subtask.created", task.ParentTaskId is null ? $"created task \"{task.Title}\"" : $"added subtask \"{task.Title}\"", ct);
+        foreach (var userId in ids)
+        {
+            var name = await db.Users.AsNoTracking().Where(user => user.Id == userId).Select(user => user.FirstName + " " + user.LastName).SingleAsync(ct);
+            await RecordActivityAsync(task, "Tasks", "task.assigned", $"assigned task \"{task.Title}\" to {name}", ct);
+        }
+        await db.SaveChangesAsync(ct); return Ok(new { task.Id });
     }
     [HttpGet("{id:guid}/subtasks")]
     public async Task<IActionResult> Subtasks(Guid id, CancellationToken ct)
@@ -66,6 +74,7 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
         if (string.IsNullOrWhiteSpace(request.Title)) return BadRequest(new { message = "Enter a subtask title." });
         var subtask = new WorkTask { Id = Guid.NewGuid(), ProjectId = parent.ProjectId, ParentTaskId = parent.Id, Title = request.Title.Trim(), Status = "TO DO", Priority = parent.Priority, CreatedBy = CurrentUser.Id(User) };
         db.Tasks.Add(subtask); parent.UpdatedAt = DateTime.UtcNow;
+        await RecordActivityAsync(subtask, "Tasks", "subtask.created", $"added subtask \"{subtask.Title}\"", ct);
         await db.SaveChangesAsync(ct); return Ok(new { subtask.Id });
     }
     [HttpPatch("{id:guid}/subtasks/{subtaskId:guid}")]
@@ -76,6 +85,7 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
         if (!await Access(subtask.ProjectId, true, ct)) return Forbid();
         subtask.Status = request.Done ? "DONE" : "TO DO"; subtask.CompletedAt = request.Done ? DateTime.UtcNow : null; subtask.UpdatedAt = DateTime.UtcNow;
         var parent = await db.Tasks.SingleAsync(x => x.Id == id, ct); parent.UpdatedAt = DateTime.UtcNow;
+        await RecordActivityAsync(subtask, "Tasks", request.Done ? "subtask.completed" : "subtask.reopened", request.Done ? $"completed subtask \"{subtask.Title}\"" : $"reopened subtask \"{subtask.Title}\"", ct);
         await db.SaveChangesAsync(ct); return NoContent();
     }
     [HttpPatch("{id:guid}")]
@@ -85,6 +95,8 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
         if (task is null) return NotFound();
         if (!await Access(task.ProjectId, true, ct)) return Forbid();
         if (r.Title is not null && string.IsNullOrWhiteSpace(r.Title) || r.Status is not null && !Statuses.Contains(r.Status) || r.Priority is not null && !Priorities.Contains(r.Priority)) return BadRequest(new { message = "Check the title, status, and priority." });
+        var oldTitle = task.Title; var oldStatus = task.Status; var oldPriority = task.Priority; var oldDueDate = task.DueDate;
+        var oldAssigneeIds = task.Assignees.Select(x => x.UserId).ToHashSet();
         task.Title = r.Title?.Trim() ?? task.Title; task.Description = r.Description ?? task.Description; task.Status = r.Status ?? task.Status; task.Priority = r.Priority ?? task.Priority;
         task.DueDate = r.ClearDueDate ? null : r.DueDate ?? task.DueDate; task.StartDate = r.ClearStartDate ? null : r.StartDate ?? task.StartDate;
         if (task.DueDate < task.StartDate) return BadRequest(new { message = "Due date must be on or after the start date." });
@@ -95,6 +107,24 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
             if (await db.ProjectMembers.CountAsync(x => x.ProjectId == task.ProjectId && ids.Contains(x.UserId) && x.Status == "active", ct) != ids.Length) return BadRequest(new { message = "Assignees must be project members." });
             foreach (var old in task.Assignees.Where(x => !ids.Contains(x.UserId)).ToArray()) db.TaskAssignees.Remove(old);
             foreach (var uid in ids.Where(uid => !task.Assignees.Any(a => a.UserId == uid))) { task.Assignees.Add(new TaskAssignee { Id = Guid.NewGuid(), UserId = uid }); Notify(uid, task); }
+        }
+        if (oldStatus != task.Status) await RecordActivityAsync(task, "Tasks", task.Status == "DONE" ? "task.completed" : task.Status == "TO DO" && oldStatus == "DONE" ? "task.reopened" : "task.status_changed", $"changed task \"{task.Title}\" status from {oldStatus} to {task.Status}", ct);
+        if (oldPriority != task.Priority) await RecordActivityAsync(task, "Tasks", "task.priority_changed", $"changed task \"{task.Title}\" priority from {oldPriority} to {task.Priority}", ct);
+        if (oldDueDate != task.DueDate) await RecordActivityAsync(task, "Tasks", "task.due_date_changed", $"changed the due date for task \"{task.Title}\"", ct);
+        if (oldTitle != task.Title || r.Description is not null) await RecordActivityAsync(task, "Tasks", "task.updated", $"updated task \"{task.Title}\"", ct);
+        if (r.AssigneeIds is not null)
+        {
+            var newIds = r.AssigneeIds.ToHashSet();
+            foreach (var userId in oldAssigneeIds.Except(newIds))
+            {
+                var name = await db.Users.AsNoTracking().Where(user => user.Id == userId).Select(user => user.FirstName + " " + user.LastName).SingleAsync(ct);
+                await RecordActivityAsync(task, "Tasks", "task.assignee_removed", $"removed {name} from task \"{task.Title}\"", ct);
+            }
+            foreach (var userId in newIds.Except(oldAssigneeIds))
+            {
+                var name = await db.Users.AsNoTracking().Where(user => user.Id == userId).Select(user => user.FirstName + " " + user.LastName).SingleAsync(ct);
+                await RecordActivityAsync(task, "Tasks", "task.assigned", $"assigned task \"{task.Title}\" to {name}", ct);
+            }
         }
         await db.SaveChangesAsync(ct); return Ok(new { task.Id });
     }
@@ -109,7 +139,9 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
                 && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active" && organizationMember.Role != "GUEST"
                 && (projectMember.Role == "PROJECT_MANAGER" || projectMember.Role == "TEAM_LEAD")
             select projectMember).AnyAsync(ct)) return Forbid();
-        task.DeletedAt = DateTime.UtcNow; await db.SaveChangesAsync(ct); return NoContent();
+        task.DeletedAt = DateTime.UtcNow;
+        await RecordActivityAsync(task, "Tasks", "task.deleted", $"deleted task \"{task.Title}\"", ct);
+        await db.SaveChangesAsync(ct); return NoContent();
     }
     [HttpPost("{id:guid}/restore")]
     public async Task<IActionResult> Restore(Guid id, CancellationToken ct)
@@ -124,7 +156,16 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
                 && project.ArchivedAt == null && (projectMember.Role == "PROJECT_MANAGER" || projectMember.Role == "TEAM_LEAD")
             select projectMember).AnyAsync(ct)) return Forbid();
         task.DeletedAt = null; task.UpdatedAt = DateTime.UtcNow;
+        await RecordActivityAsync(task, "Tasks", "task.restored", $"restored task \"{task.Title}\"", ct);
         await db.SaveChangesAsync(ct); return NoContent();
+    }
+    private async Task RecordActivityAsync(WorkTask task, string category, string action, string description, CancellationToken ct)
+    {
+        var project = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId)
+            .Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
+        await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, category, action,
+            task.ParentTaskId is null ? "task" : "subtask", task.Id, task.Title,
+            $"{description} in project \"{project.Name}\"", ct, task.ProjectId);
     }
     // Queues an in-app notification and fires a task-assigned email.
     // The user's email is looked up synchronously on the same DbContext call

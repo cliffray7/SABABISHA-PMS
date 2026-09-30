@@ -148,9 +148,24 @@ export function Auth({ route, navigate, onLogin, localMail }: { route: string; n
 }
 export function Inbox({ navigate }: { navigate: (route: string) => void }) {
   const [messages, setMessages] = useState<Mail[]>([]); const action = useAction();
+  const [copiedCode, setCopiedCode] = useState('');
   const refresh = () => void action.run(async () => { setMessages((await api.get<Mail[]>('/dev/inbox')).data); });
   useEffect(refresh, []);
-  return <main className="inbox-page"><Brand/><div className="page-heading"><div><h1>Development inbox</h1><p className="muted">Local preview of password-reset, invitation, and verification emails. These messages are not sent externally.</p></div><button className="secondary" onClick={refresh} disabled={action.busy}>Refresh</button></div><Feedback error={action.error}/>{messages.length === 0 && <p>No messages yet. Request a password reset, invitation, or verification code.</p>}{messages.map(m => <article className="list-panel" key={m.id}><small>To: {m.to} · {new Date(m.createdAt).toLocaleString()}</small><h2>{m.subject}</h2>{m.body && <p>{m.body}</p>}<button className="primary" onClick={() => { const hash = new URL(m.link).hash.slice(1); navigate(hash); }}>Open {m.subject.startsWith('Reset') ? 'reset' : m.subject.includes('verification code') ? 'verification' : 'invitation'} link</button></article>)}<button className="text-button" onClick={() => navigate('dashboard')}>Back to TaskFlow</button></main>;
+  return <main className="inbox-page"><div className="inbox-brand"><Brand/><span>EMAIL PREVIEW</span></div><div className="page-heading"><div><h1>Development inbox</h1><p className="muted">Preview TaskFlow messages sent during local development. Messages remain private to this environment.</p></div><button className="secondary" onClick={refresh} disabled={action.busy}>Refresh</button></div><Feedback error={action.error}/>{messages.length === 0 && <section className="inbox-empty"><h2>Your inbox is clear</h2><p>Request a password reset, sign-in code, or invitation to preview an email here.</p></section>}{messages.map(m => {
+    const actionLabel = m.subject.startsWith('Reset') ? 'Reset password' : m.subject.includes('verification code') ? 'Verify sign in' : 'View invitation';
+    const verificationCode = m.body?.match(/\b\d{6}\b/)?.[0];
+    if (verificationCode && m.subject.toLowerCase().includes('verification')) return <article className="email-preview email-preview-otp" key={m.id}>
+      <header className="email-preview-otp-subject"><span>{m.subject}</span><b>Inbox</b></header>
+      <section className="email-preview-otp-card"><h2>Code requested</h2><div className="email-preview-code" aria-label={`Verification code ${verificationCode}`}>{verificationCode.split('').map((digit, index) => <span key={`${index}-${digit}`}>{digit}</span>)}</div><button type="button" className="email-preview-copy" onClick={() => void navigator.clipboard.writeText(verificationCode).then(() => { setCopiedCode(m.id); window.setTimeout(() => setCopiedCode(''), 1800); }).catch(() => action.setError('Clipboard access is unavailable in this browser.'))}>{copiedCode === m.id ? 'Copied' : 'Copy code'}</button><p>This code expires in 10 minutes. If you did not request it, you can ignore this message.</p></section>
+      <footer className="email-preview-otp-footer"><span>Sent to {m.to}</span><time>{new Date(m.createdAt).toLocaleString()}</time><button onClick={() => { const hash = new URL(m.link).hash.slice(1); navigate(hash); }}>Open verification</button></footer>
+    </article>;
+    return <article className="email-preview" key={m.id}>
+      <header className="email-preview-brand"><span className="email-preview-mark">T</span><span>TaskFlow</span><small>PROJECTS · PEOPLE · PROGRESS</small></header>
+      <div className="email-preview-meta"><span>TO</span><strong>{m.to}</strong><time>{new Date(m.createdAt).toLocaleString()}</time></div>
+      <section className="email-preview-content"><p className="email-preview-eyebrow">TASKFLOW ACCOUNT</p><h2>{m.subject}</h2>{m.body && <p className="email-preview-message">{m.body}</p>}<button className="primary" onClick={() => { const hash = new URL(m.link).hash.slice(1); navigate(hash); }}>{actionLabel}</button><p className="email-preview-footnote">If you weren’t expecting this message, you can safely ignore it.</p></section>
+      <footer className="email-preview-footer">TaskFlow · A clearer way to manage team work</footer>
+    </article>;
+  })}<button className="text-button inbox-back" onClick={() => navigate('dashboard')}>Back to TaskFlow</button></main>;
 }
 
 
