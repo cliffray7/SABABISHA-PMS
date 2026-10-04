@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -635,22 +636,62 @@ class _AdminOverviewState extends State<_AdminOverview> {
   bool _downloading = false;
   String? _downloadMsg;
   bool _downloadSuccess = false;
+  bool _refreshingLiveMetrics = false;
+  Timer? _liveMetricsTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadOverview());
+    _liveMetricsTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _refreshLiveMetrics(),
+    );
   }
 
   void _loadOverview() {
     final state = context.read<AppState>();
-    final now = DateTime.now();
-    final from = now.subtract(const Duration(days: 29));
-    String date(DateTime value) =>
-        '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+    final now = DateTime.now().toUtc();
+    final todayUtc = DateTime.utc(now.year, now.month, now.day);
+    final from = todayUtc.subtract(const Duration(days: 29));
     state.loadAdminDashboard();
     state.loadAdminProjects();
-    state.loadAdminAnalytics(from: date(from), to: date(now));
+    state.loadAdminAnalytics(
+      from: from.toIso8601String(),
+      to: now.toIso8601String(),
+    );
+  }
+
+  void _refreshLiveMetrics() {
+    if (!mounted || _refreshingLiveMetrics) return;
+    _refreshingLiveMetrics = true;
+    final state = context.read<AppState>();
+    final now = DateTime.now().toUtc();
+    final todayUtc = DateTime.utc(now.year, now.month, now.day);
+    final from = todayUtc.subtract(const Duration(days: 29));
+    Future.wait([
+      state.loadAdminDashboard(),
+      state.loadAdminAnalytics(
+        from: from.toIso8601String(),
+        to: now.toIso8601String(),
+      ),
+    ]).whenComplete(() => _refreshingLiveMetrics = false);
+  }
+
+  int _createdInLastSevenDays(List<AdminGrowthPoint> points) {
+    final now = DateTime.now().toUtc();
+    final todayUtc = DateTime.utc(now.year, now.month, now.day);
+    final firstDay = todayUtc.subtract(const Duration(days: 6));
+    return points.where((point) {
+      final date = DateTime.tryParse(point.date)?.toUtc();
+      return date != null && !date.isBefore(firstDay) && !date.isAfter(now);
+    }).fold<int>(0, (sum, point) => sum + point.count);
+  }
+
+  @override
+  void dispose() {
+    _liveMetricsTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _downloadReport() async {
@@ -695,17 +736,21 @@ class _AdminOverviewState extends State<_AdminOverview> {
     final projects =
         analytics?.projectGrowth.map((point) => point.count).toList() ??
             const <int>[];
+    final usersLastSevenDays = _createdInLastSevenDays(
+      analytics?.userGrowth ?? const <AdminGrowthPoint>[],
+    );
+    final projectsLastSevenDays = _createdInLastSevenDays(
+      analytics?.projectGrowth ?? const <AdminGrowthPoint>[],
+    );
     final cards = [
       _MetricDef('Total users', Icons.people_outline, metrics?.totalUsers,
           trend: users,
-          note:
-              '+${users.fold<int>(0, (sum, value) => sum + value)} created · 30d'),
+          note: '+$usersLastSevenDays created · 7d'),
       _MetricDef('Organizations', Icons.business_outlined,
           metrics?.totalOrganizations),
       _MetricDef('Projects', Icons.folder_outlined, metrics?.totalProjects,
           trend: projects,
-          note:
-              '+${projects.fold<int>(0, (sum, value) => sum + value)} created · 30d'),
+          note: '+$projectsLastSevenDays created · 7d'),
       _MetricDef('Tasks', Icons.format_list_bulleted, metrics?.totalTasks),
       _MetricDef('Completed tasks', Icons.check_circle_outline,
           metrics?.completedTasks,

@@ -438,3 +438,7 @@
 
 - Removed the database connection string and development JWT signing key from tracked appsettings. Docker Compose now takes the JWT key from its ignored local environment file, direct-run setup documents .NET User Secrets/environment configuration, and API startup rejects a missing or shorter-than-32-byte JWT signing key.
 - Verification: appsettings JSON parses without ConnectionStrings or Jwt:SigningKey, Docker Compose wiring and example variables were inspected, and `git diff --check` passed. No tests or build were run. A push was initially blocked by automatic review for these tracked credentials; they have now been removed before retrying.
+## 2026-10-05 - Make SuperAdmin creation captions live
+
+- Replaced the mobile SuperAdmin Overview's 30-day creation captions with counts summed from the current seven UTC calendar days for users and projects. The Overview now refreshes dashboard totals and analytics every 30 seconds while open; 30-day growth charts remain on their existing period.
+- Verification: `git diff --check` passed. `dart format`/`dart analyze` were attempted but stalled without output and were stopped; no tests or device build were run.

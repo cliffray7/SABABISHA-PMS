@@ -12,6 +12,8 @@ The mobile SuperAdmin shell follows the web phone layout: a compact Platform/sec
 
 The Flutter SuperAdmin Overview and Reports pages export the existing authenticated CSV report through the platform file picker. On Android and iOS the bytes are passed to the native save flow so the user can choose a visible destination; exports are not left only in the app's private temporary directory.
 
+The Flutter SuperAdmin Overview's user and project creation captions sum the live API daily analytics for the latest seven UTC calendar days. Dashboard totals and analytics refresh on load, pull-to-refresh, and every 30 seconds while the Overview is open; its growth charts retain the 30-day range.
+
 The SuperAdmin Activity Center in `apps/web/src/AdminPlatform.tsx` reads authenticated SuperAdmin-only `GET /api/v1/admin/activity-events`. It displays tenant workspace `ActivityEvent` records across organizations, with organization/category/search/date filters, cursor pagination, polling, and event details. It exposes only the fields already stored in the human-readable activity table; it is limited to actions recorded after migration 003 and does not include platform-wide user suspension/deletion actions.
 
 Generated and custom SuperAdmin Activity date bounds are capped at the current instant and at 366 days. The UI suggests migration 003 only when the API error indicates the activity schema is missing; date validation failures retain their actual explanation.
