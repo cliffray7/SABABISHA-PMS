@@ -35,23 +35,34 @@ docs/                        Implementation and deployment notes
 
 ### Start API and SQL Server
 
-From the repository root, create the Docker environment file and set a strong local SQL Server password:
+From the repository root, create the Docker environment file and set a strong local SQL Server password and random JWT signing key:
 
 ```powershell
 Copy-Item infrastructure/docker/.env.example infrastructure/docker/.env
-# Edit infrastructure/docker/.env and set MSSQL_SA_PASSWORD
+# Edit infrastructure/docker/.env and set MSSQL_SA_PASSWORD and JWT_SIGNING_KEY
 docker compose --env-file infrastructure/docker/.env -f infrastructure/docker/docker-compose.yml up --build
 ```
 
 Compose publishes the API at `http://localhost:5141` and SQL Server at port `1433`. The API readiness endpoint is `http://localhost:5141/api/v1/ready`.
 
-To run only the API outside Docker, start SQL Server first and run:
+To run only the API outside Docker, start SQL Server first, configure its connection string and a random JWT signing key using .NET User Secrets or environment variables, then run:
 
 ```powershell
 dotnet run --project src/Pms.Api/Pms.Api.csproj --urls http://localhost:5141
 ```
 
-Set `ConnectionStrings__PmsDatabase` in the API environment to override the configured database connection string. Configure secrets such as JWT signing key and email credentials through the API host environment rather than committing production values.
+The API database connection string and JWT signing key are supplied through the API environment, not tracked settings. The Docker Compose setup reads them from the ignored `.env` file. For a direct API run, configure `ConnectionStrings:PmsDatabase` and `Jwt:SigningKey` with .NET User Secrets (`dotnet user-secrets set`) or environment variables. The signing key must contain at least 32 bytes.
+
+To send local development email to a real mailbox, copy `src/Pms.Api/.env.local.example` to an ignored local file and set `Brevo__ApiKey` to your Brevo API key and `Brevo__From` to a sender address verified in Brevo. Supply these values to the API process environment before starting it; ASP.NET Core does not load `.env` files automatically. For example, in PowerShell:
+
+```powershell
+$env:Brevo__ApiKey = 'your-brevo-api-key'
+$env:Brevo__From = 'verified-sender@example.com'
+$env:Brevo__FromName = 'TaskFlow'
+dotnet run --project src/Pms.Api/Pms.Api.csproj --urls http://localhost:5141
+```
+
+Do not commit real credentials or put them in `appsettings.json`. When these settings are absent in Development, messages are stored in the TaskFlow Development inbox instead of being sent externally.
 
 Database changes are applied explicitly; the API does not auto-run SQL scripts. Before deploying this revision, apply `database/sqlserver/migrations/003_activity_events.sql` to the database used by the API. This creates the tenant-scoped workspace Activity Center store; it is separate from `002_admin_audit_events.sql` and does not backfill historical events.
 

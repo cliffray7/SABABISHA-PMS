@@ -18,6 +18,12 @@ Set these variables at the API host:
 | `Brevo__ApiKey` | Brevo API key (keep secret; set on the API host, never Vercel) |
 | `Brevo__From` | Sender address verified in Brevo |
 | `Brevo__FromName` | Optional sender display name, such as `TaskFlow` |
+| `Gemini__ApiKey` | Gemini API key (keep secret; set on the API host, never Vercel) |
+| `Gemini__Model` | `gemini-3.8-flash` (override only with a model enabled for this key) |
+
+Do not commit Brevo credentials or sender addresses to `appsettings.json`. The API's local inbox for OTPs and reset links is Development-only. After setting the host variables, redeploy the API and verify the sender domain/address in Brevo.
+
+Gemini task drafting defaults to `gemini-3.8-flash`. If the API host already has an older `Gemini__Model` override such as `gemini-1.5-flash`, update that variable and redeploy the API; environment variables override `appsettings.json`.
 
 Render's Blueprint mounts an upload disk at `/app/data`, using `/app/data/uploads`. A persistent disk limits an API to one instance; use object storage before scaling horizontally. On Railway, configure a volume and set `Uploads__Path` within its mount.
 

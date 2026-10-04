@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import 'screens/admin_screen.dart';
 import 'screens/auth_screen.dart';
+import 'screens/workspace_shell.dart';
 import 'services/api_client.dart';
 import 'services/app_state.dart';
 import 'services/session_store.dart';
@@ -38,11 +39,13 @@ class _PmsAppState extends State<PmsApp> {
     try {
       final account = await _api.account();
       _appState.account = account;
-      await Future.wait([
-        _appState.loadOrganizations(),
-        _appState.loadNotifications(),
-        _appState.checkSuperAdmin(),
-      ]);
+      await _appState.checkSuperAdmin();
+      if (!_appState.isSuperAdmin) {
+        await Future.wait([
+          _appState.loadOrganizations(),
+          _appState.loadNotifications(),
+        ]);
+      }
       return _appState.account != null;
     } on ApiException {
       await _sessions.clear();
@@ -95,7 +98,14 @@ class _PmsAppState extends State<PmsApp> {
               );
             }
             if (snap.data == true) {
-              return AdminScreen(
+              if (_appState.isSuperAdmin) {
+                return AdminScreen(
+                  onSignedOut: _handleSignedOut,
+                  onToggleTheme: _toggleTheme,
+                  themeMode: _themeMode,
+                );
+              }
+              return WorkspaceShell(
                 onSignedOut: _handleSignedOut,
                 onToggleTheme: _toggleTheme,
                 themeMode: _themeMode,

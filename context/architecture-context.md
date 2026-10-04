@@ -14,7 +14,7 @@ Tenancy model: Multi-tenant (Organization-based logical isolation via Tenant ID 
 | Database | Microsoft SQL Server | Relational Data Persistence |
 | ORM | Entity Framework Core | Database Access and Migrations |
 | Authentication | JWT (JSON Web Tokens) | Auth & Authorization |
-| AI Integrations | Google Gemini 1.5 Flash | AI Task Assistance / Automation |
+| AI Integrations | Google Gemini 3.8 Flash | AI Task Assistance / Automation |
 | Email Service | Brevo | Transactional Emails |
 
 ## 3. System Architecture
@@ -84,6 +84,8 @@ How cross-tenant access is prevented: API routes and database queries must valid
 |---------|---------|------------------|
 | Brevo | Sending emails/OTP | Log failure, notify user |
 | Gemini API | AI capabilities | Graceful degradation if AI is down |
+
+Brevo credentials and verified sender settings must be supplied through API-host environment variables (`Brevo__ApiKey`, `Brevo__From`, and optionally `Brevo__FromName`); real credentials must never be committed in `appsettings.json`. The in-memory development email inbox is only available when the API is running in Development and has no Brevo key, since it can contain OTPs and password-reset links. A successful Brevo API response means the message was accepted for processing, not confirmed delivered to the recipient.
 
 ## 12. Security & Operational Boundaries
 - Client is untrusted.

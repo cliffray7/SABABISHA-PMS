@@ -36,7 +36,7 @@ public sealed class AppMail(IConfiguration config, IHttpClientFactory httpClient
     {
         const string subject = "Your TaskFlow verification code";
         var body = $"Your verification code is {code}. It expires in 10 minutes. If you did not try to log in, ignore this email.";
-        logger.LogInformation("TaskFlow verification OTP for {To}: {Code}", to, code);
+        logger.LogInformation("Sending TaskFlow verification OTP to {To}", to);
         if (IsLocal)
         {
             Enqueue(new LocalMail(Guid.NewGuid(), to, subject, Link("otp?email=" + Uri.EscapeDataString(to)), DateTime.UtcNow, body));
@@ -128,7 +128,7 @@ public sealed class AppMail(IConfiguration config, IHttpClientFactory httpClient
             }
             else
             {
-                logger.LogInformation("Brevo delivered email to {To}", to);
+                logger.LogInformation("Brevo accepted email for {To}", to);
             }
         }
         catch (Exception ex)

@@ -29,20 +29,24 @@ const activityCategoryIcon: Record<string, typeof Activity> = { Projects: Folder
 type ActivityRange = 'today' | '7d' | '30d' | 'all' | 'custom';
 
 function activityDateBounds(range: ActivityRange, from: string, to: string) {
+  const now = new Date();
   if (range === 'all') return { from: undefined, to: undefined };
   if (range === 'custom') {
     const start = from ? new Date(`${from}T00:00:00`) : null;
     const end = to ? new Date(`${to}T00:00:00`) : null;
     if (end) {
-      const now = new Date();
       const isToday = end.getFullYear() === now.getFullYear() && end.getMonth() === now.getMonth() && end.getDate() === now.getDate();
       if (isToday) end.setTime(now.getTime());
       else end.setDate(end.getDate() + 1);
+      if (end > now) end.setTime(now.getTime());
+    }
+    if (start && end && end.getTime() - start.getTime() > 366 * 86_400_000) {
+      start.setTime(end.getTime() - 366 * 86_400_000);
     }
     return { from: start?.toISOString(), to: end?.toISOString() };
   }
-  const end = new Date();
-  const start = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const end = now;
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (range === '7d') start.setDate(start.getDate() - 6);
   if (range === '30d') start.setDate(start.getDate() - 29);
   return { from: start.toISOString(), to: end.toISOString() };
@@ -109,6 +113,8 @@ export function AdminActivity() {
     refetchIntervalInBackground: false,
     retry: false,
   });
+  const queryErrorMessage = query.error ? errorMessage(query.error) : '';
+  const missingActivitySchema = /ActivityEvent|activity_events/i.test(queryErrorMessage);
   const resetPage = () => setCursorStack([null]);
   const hasActiveFilters = Boolean(category !== 'All' || search || organizationId || range !== 'all');
   const clearFilters = () => { setCategory('All'); setOrganizationId(''); setRange('all'); setFrom(''); setTo(''); setSearch(''); setSearchInput(''); resetPage(); };
@@ -127,7 +133,7 @@ export function AdminActivity() {
     <nav className="activity-category-tabs admin-activity-category-tabs" aria-label="Activity category filters">{activityCategories.map(item => { const Icon = activityCategoryIcon[item] ?? Activity; return <button key={item} className={category === item ? 'active' : ''} aria-pressed={category === item} onClick={() => { setCategory(item); resetPage(); }}><Icon size={15}/>{item}</button>; })}</nav>
     {validationError && <Alert severity="warning" role="alert">{validationError}</Alert>}
     {!validationError && query.isLoading && <div className="admin-health-skeletons" role="status" aria-label="Loading activity"><span/><span/></div>}
-    {!validationError && query.error && <Alert severity="error">Unable to load platform activity: {errorMessage(query.error)} Confirm migration 003 is applied to the API database.</Alert>}
+    {!validationError && query.error && <Alert severity="error">Unable to load platform activity: {queryErrorMessage}{missingActivitySchema ? ' Confirm migration 003 is applied to the API database.' : ''}</Alert>}
     {!validationError && query.data?.items.length === 0 && <section className="admin-activity-empty admin-platform-activity-empty"><span className="admin-activity-empty-icon"><Activity size={21}/></span><Typography component="h2">{hasActiveFilters ? 'No matching activity' : 'Nothing to show yet'}</Typography><p>{hasActiveFilters ? `No events were found for ${rangeLabels[range]}. Adjust your filters or view all activity.` : 'Activity will appear here as people create projects, update tasks, and collaborate.'}</p>{hasActiveFilters && <Button variant="text" onClick={clearFilters}>Clear filters</Button>}</section>}
     {!validationError && query.data && query.data.items.length > 0 && <>
       <div className="admin-activity-day-groups" aria-live="polite">{groupActivityByDay(query.data.items).map(group => <section className="admin-activity-day-group" key={group.label}><h2>{group.label}</h2><ol className="activity-timeline admin-platform-activity-timeline admin-platform-activity-day-timeline">{group.items.map(item => { const Icon = activityCategoryIcon[item.category] ?? Activity; const segments = [item.organizationName, item.projectName, item.entityType.toLowerCase() === 'project' ? null : `${item.entityType}: ${item.entityName}`].filter((value): value is string => Boolean(value)); return <li key={item.eventId}><time className="admin-activity-clock" dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time><span className={`activity-timeline-icon category-${item.category.toLowerCase()}`}><Icon size={17}/></span><details className="activity-timeline-content"><summary><strong>{item.actorName} {item.description}</strong><span className="admin-activity-event-context">{segments.map((segment, index) => <span className="admin-activity-breadcrumb" key={`${segment}-${index}`}>{index > 0 && <ChevronRight size={13}/>}<span>{segment}</span></span>)}</span><small><span className="admin-activity-actor-avatar">{item.actorName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase()}</span>{item.actorName}<i/><time dateTime={item.createdAt}>{relativeActivityTime(item.createdAt)}</time></small><span className="admin-activity-expand">Details</span></summary><div className="activity-event-details"><span>Organization: {item.organizationName} ({item.organizationId})</span>{item.projectName && <span>Project: {item.projectName}</span>}<span>Actor: {item.actorName} ({item.actorUserId})</span><span>Action: {item.action} · {item.status}</span><span>Target: {item.entityType} · {item.entityId}</span><span>Request: {item.correlationId}</span></div></details></li>; })}</ol></section>)}</div>

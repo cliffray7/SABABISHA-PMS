@@ -97,8 +97,7 @@ class Project {
   final String? dueDate;
   final String role;
 
-  bool get isManagerOrLead =>
-      role == 'PROJECT_MANAGER' || role == 'TEAM_LEAD';
+  bool get isManagerOrLead => role == 'PROJECT_MANAGER' || role == 'TEAM_LEAD';
   bool get canWrite => role != 'VIEWER';
 
   factory Project.fromJson(Map<String, dynamic> json) => Project(
@@ -126,6 +125,7 @@ class Task {
     required this.priority,
     this.startDate,
     this.dueDate,
+    this.createdAt,
     this.completedAt,
     required this.assigneeIds,
     this.subtaskCount = 0,
@@ -141,6 +141,7 @@ class Task {
   final String priority;
   final String? startDate;
   final String? dueDate;
+  final String? createdAt;
   final String? completedAt;
   final List<String> assigneeIds;
   final int subtaskCount;
@@ -162,6 +163,7 @@ class Task {
         priority: json['priority'] as String? ?? 'MEDIUM',
         startDate: json['startDate'] as String?,
         dueDate: json['dueDate'] as String?,
+        createdAt: json['createdAt'] as String?,
         completedAt: json['completedAt'] as String?,
         assigneeIds: (json['assigneeIds'] as List<dynamic>?)
                 ?.map((e) => e as String)
@@ -337,6 +339,20 @@ class Attachment {
 
 // ─── Dashboard Metrics ───────────────────────────────────────────────────────
 
+class WorkspaceActivityPage {
+  const WorkspaceActivityPage({required this.items, this.nextCursor});
+  final List<Map<String, dynamic>> items;
+  final String? nextCursor;
+
+  factory WorkspaceActivityPage.fromJson(Map<String, dynamic> json) =>
+      WorkspaceActivityPage(
+        items: (json['items'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .toList(),
+        nextCursor: json['nextCursor'] as String?,
+      );
+}
+
 class DashboardMetrics {
   const DashboardMetrics({
     required this.myTasks,
@@ -365,10 +381,34 @@ class DashboardMetrics {
 
 const taskStatuses = ['TO DO', 'IN PROGRESS', 'REVIEW', 'DONE'];
 const taskPriorities = ['URGENT', 'HIGH', 'MEDIUM', 'LOW'];
+
+class AiTaskSuggestion {
+  const AiTaskSuggestion({
+    required this.title,
+    required this.description,
+    required this.priority,
+    required this.subtasks,
+  });
+
+  final String title;
+  final String description;
+  final String priority;
+  final List<String> subtasks;
+
+  factory AiTaskSuggestion.fromJson(Map<String, dynamic> json) =>
+      AiTaskSuggestion(
+        title: json['title'] as String? ?? '',
+        description: json['description'] as String? ?? '',
+        priority: json['priority'] as String? ?? 'MEDIUM',
+        subtasks: (json['subtasks'] as List<dynamic>? ?? const [])
+            .map((value) => value.toString())
+            .toList(),
+      );
+}
+
 const orgRoles = ['ADMIN', 'MEMBER', 'GUEST'];
 const projectRoles = ['PROJECT_MANAGER', 'TEAM_LEAD', 'CONTRIBUTOR', 'VIEWER'];
 const projectStatuses = ['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED'];
-
 
 // ─── Admin Models ─────────────────────────────────────────────────────────────
 
@@ -521,27 +561,25 @@ class AdminAnalytics {
   final List<AdminStatusPoint> tasksByPriority;
 
   factory AdminAnalytics.fromJson(Map<String, dynamic> json) {
-    List<AdminGrowthPoint> parseGrowth(List<dynamic> list, String key) =>
-        list
-            .cast<Map<String, dynamic>>()
-            .map((e) => AdminGrowthPoint(
-                  date: e['date'] as String? ?? '',
-                  count: e[key] as int? ?? 0,
-                ))
-            .toList();
+    List<AdminGrowthPoint> parseGrowth(List<dynamic> list, String key) => list
+        .cast<Map<String, dynamic>>()
+        .map((e) => AdminGrowthPoint(
+              date: e['date'] as String? ?? '',
+              count: e[key] as int? ?? 0,
+            ))
+        .toList();
 
-    List<AdminStatusPoint> parseStatus(List<dynamic> list, String key) =>
-        list
-            .cast<Map<String, dynamic>>()
-            .map((e) => AdminStatusPoint(
-                  label: e[key] as String? ?? '',
-                  count: e['count'] as int? ?? 0,
-                ))
-            .toList();
+    List<AdminStatusPoint> parseStatus(List<dynamic> list, String key) => list
+        .cast<Map<String, dynamic>>()
+        .map((e) => AdminStatusPoint(
+              label: e[key] as String? ?? '',
+              count: e['count'] as int? ?? 0,
+            ))
+        .toList();
 
     return AdminAnalytics(
-      userGrowth: parseGrowth(
-          (json['userGrowth'] as List<dynamic>?) ?? [], 'users'),
+      userGrowth:
+          parseGrowth((json['userGrowth'] as List<dynamic>?) ?? [], 'users'),
       projectGrowth: parseGrowth(
           (json['projectGrowth'] as List<dynamic>?) ?? [], 'projects'),
       tasksByStatus: parseStatus(
@@ -550,6 +588,130 @@ class AdminAnalytics {
           (json['tasksByPriority'] as List<dynamic>?) ?? [], 'priority'),
     );
   }
+}
+
+class PlatformActivityItem {
+  const PlatformActivityItem({
+    required this.eventId,
+    required this.organizationId,
+    required this.organizationName,
+    required this.actorUserId,
+    required this.actorName,
+    required this.category,
+    required this.action,
+    required this.entityType,
+    required this.entityId,
+    required this.entityName,
+    required this.description,
+    required this.status,
+    required this.correlationId,
+    required this.createdAt,
+    this.projectName,
+  });
+  final String eventId;
+  final String organizationId;
+  final String organizationName;
+  final String actorUserId;
+  final String actorName;
+  final String category;
+  final String action;
+  final String entityType;
+  final String entityId;
+  final String entityName;
+  final String description;
+  final String status;
+  final String correlationId;
+  final String createdAt;
+  final String? projectName;
+
+  factory PlatformActivityItem.fromJson(Map<String, dynamic> json) =>
+      PlatformActivityItem(
+        eventId: json['eventId'] as String? ?? '',
+        organizationId: json['organizationId'] as String? ?? '',
+        organizationName: json['organizationName'] as String? ?? 'Organization',
+        actorUserId: json['actorUserId'] as String? ?? '',
+        actorName: json['actorName'] as String? ?? 'Unknown user',
+        category: json['category'] as String? ?? 'System',
+        action: json['action'] as String? ?? '',
+        entityType: json['entityType'] as String? ?? '',
+        entityId: json['entityId'] as String? ?? '',
+        entityName: json['entityName'] as String? ?? '',
+        description: json['description'] as String? ?? '',
+        status: json['status'] as String? ?? '',
+        correlationId: json['correlationId'] as String? ?? '',
+        createdAt: json['createdAt'] as String? ?? '',
+        projectName: json['projectName'] as String?,
+      );
+}
+
+class PlatformActivityPage {
+  const PlatformActivityPage({required this.items, this.nextCursor});
+  final List<PlatformActivityItem> items;
+  final String? nextCursor;
+  factory PlatformActivityPage.fromJson(Map<String, dynamic> json) =>
+      PlatformActivityPage(
+        items: ((json['items'] as List<dynamic>?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(PlatformActivityItem.fromJson)
+            .toList(),
+        nextCursor: json['nextCursor'] as String?,
+      );
+}
+
+class AdminAuditEvent {
+  const AdminAuditEvent(
+      {required this.eventId,
+      required this.occurredAt,
+      required this.actorName,
+      required this.actorId,
+      required this.action,
+      required this.targetName,
+      required this.targetType,
+      required this.targetId,
+      required this.outcome,
+      this.reason,
+      required this.correlationId});
+  final String eventId;
+  final String occurredAt;
+  final String actorName;
+  final String actorId;
+  final String action;
+  final String targetName;
+  final String targetType;
+  final String targetId;
+  final String outcome;
+  final String? reason;
+  final String correlationId;
+  factory AdminAuditEvent.fromJson(Map<String, dynamic> json) {
+    final actor = json['actor'] as Map<String, dynamic>? ?? const {};
+    final target = json['target'] as Map<String, dynamic>? ?? const {};
+    return AdminAuditEvent(
+      eventId: json['eventId'] as String? ?? '',
+      occurredAt: json['occurredAt'] as String? ?? '',
+      actorName: actor['displayName'] as String? ?? 'Unknown administrator',
+      actorId: actor['id'] as String? ?? '',
+      action: json['action'] as String? ?? '',
+      targetName: target['displayName'] as String? ?? '',
+      targetType: target['type'] as String? ?? '',
+      targetId: target['id'] as String? ?? '',
+      outcome: json['outcome'] as String? ?? '',
+      reason: json['reason'] as String?,
+      correlationId: json['correlationId'] as String? ?? '',
+    );
+  }
+}
+
+class AdminAuditPage {
+  const AdminAuditPage({required this.items, this.nextCursor});
+  final List<AdminAuditEvent> items;
+  final String? nextCursor;
+  factory AdminAuditPage.fromJson(Map<String, dynamic> json) => AdminAuditPage(
+        items: ((json['items'] as List<dynamic>?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(AdminAuditEvent.fromJson)
+            .toList(),
+        nextCursor: json['nextCursor'] as String?,
+      );
 }
 
 class AdminHealthStatus {

@@ -987,3 +987,40 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .shell.tenant-workspace-shell .filter-bar .search-field>input::placeholder { color:var(--overview-muted); opacity:.9; }
 .shell.tenant-workspace-shell .filter-bar .search-field>input:focus { border-color:#aaa2f3; outline:0; background:var(--overview-card); box-shadow:0 0 0 3px rgba(102,89,239,.09); }
 @media(max-width:620px) { .shell.tenant-workspace-shell .filter-bar .search-field { max-width:none; } }
+
+/* Tenant Activity Center: readable filters and full-width timeline cards. */
+.shell:not(.admin-platform-shell) .activity-center-controls { display:grid; grid-template-columns:minmax(220px,1fr) auto minmax(145px,170px) minmax(145px,170px); align-items:center; }
+.shell:not(.admin-platform-shell) .activity-center-controls .search-field { display:flex; position:relative; align-items:center; min-width:0; height:40px; margin:0; }
+.shell:not(.admin-platform-shell) .activity-center-controls .search-field>svg { position:absolute; top:50%; left:12px; z-index:1; transform:translateY(-50%); pointer-events:none; }
+.shell:not(.admin-platform-shell) .activity-center-controls .search-field>input { width:100%; min-width:0; height:40px; min-height:40px; padding:0 12px 0 38px; }
+.shell:not(.admin-platform-shell) .activity-date-field { display:grid; gap:3px; min-width:0; margin:0; color:var(--overview-muted); font-size:10px; font-weight:550; }
+.shell:not(.admin-platform-shell) .activity-date-field input { min-width:0; height:38px; min-height:38px; padding:0 9px; color:var(--overview-ink); font-size:12px; }
+.shell:not(.admin-platform-shell) .activity-refresh-note { grid-column:1/-1; color:var(--overview-muted); font-size:11px; }
+.shell:not(.admin-platform-shell) .activity-center-alert { margin-top:12px; }
+.shell:not(.admin-platform-shell) .activity-timeline li { align-items:stretch; gap:12px; padding:8px 4px; }
+.shell:not(.admin-platform-shell) .activity-timeline-content { display:block; flex:1 1 0; width:100%; min-width:0; padding:13px 15px; }
+.shell:not(.admin-platform-shell) .activity-timeline-content summary { display:grid; gap:5px; min-width:0; }
+.shell:not(.admin-platform-shell) .activity-timeline-content summary strong { color:var(--overview-ink); font-size:13px; font-weight:600; line-height:19px; overflow-wrap:anywhere; }
+.shell:not(.admin-platform-shell) .activity-timeline-content summary span { color:var(--overview-muted); font-size:11px; line-height:16px; overflow-wrap:anywhere; }
+.shell:not(.admin-platform-shell) .activity-timeline-content summary small { color:var(--overview-muted); font-size:11px; line-height:16px; }
+.shell:not(.admin-platform-shell) .activity-event-details { margin-top:10px; border-radius:0 8px 8px 0; background:var(--overview-page); }
+@media(max-width:760px) {
+  .shell:not(.admin-platform-shell) .activity-center-controls { grid-template-columns:minmax(0,1fr) auto; }
+  .shell:not(.admin-platform-shell) .activity-center-controls .search-field { grid-column:1/-1; }
+  .shell:not(.admin-platform-shell) .activity-date-field { grid-column:span 1; }
+}
+@media(max-width:620px) {
+  .shell:not(.admin-platform-shell) .activity-center-controls { grid-template-columns:minmax(0,1fr); }
+  .shell:not(.admin-platform-shell) .activity-center-controls .search-field,
+  .shell:not(.admin-platform-shell) .activity-center-controls .MuiButton-root,
+  .shell:not(.admin-platform-shell) .activity-date-field,
+  .shell:not(.admin-platform-shell) .activity-refresh-note { grid-column:1; }
+  .shell:not(.admin-platform-shell) .activity-center-controls .MuiButton-root { width:100%; }
+  .shell:not(.admin-platform-shell) .activity-timeline { padding-left:0; }
+  .shell:not(.admin-platform-shell) .activity-timeline li { gap:8px; padding:7px 0; }
+  .shell:not(.admin-platform-shell) .activity-timeline-icon { width:32px; height:32px; }
+  .shell:not(.admin-platform-shell) .activity-timeline:before { left:16px; }
+  .shell:not(.admin-platform-shell) .activity-timeline-content { padding:11px 12px; }
+  .shell:not(.admin-platform-shell) .activity-center-pagination { align-items:flex-start; flex-direction:column; gap:8px; }
+  .shell:not(.admin-platform-shell) .activity-center-pagination>div { width:100%; justify-content:space-between; }
+}

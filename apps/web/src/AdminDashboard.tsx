@@ -75,11 +75,11 @@ const AdminDashboard = ({ person }: { person?: Person }) => {
   const downloadReport = async () => {
     setIsDownloading(true);
     try {
-      const response = await api.get("/admin/reports", { params: { format: "csv" }, responseType: "blob" });
-      const url = URL.createObjectURL(new Blob([response.data], { type: "text/csv;charset=utf-8" }));
+      const response = await api.get("/admin/reports", { params: { format: "pdf" }, responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `taskflow-report-${format(new Date(), "yyyy-MM-dd")}.csv`;
+      link.download = `taskflow-platform-report-${format(new Date(), "yyyy-MM-dd")}.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();

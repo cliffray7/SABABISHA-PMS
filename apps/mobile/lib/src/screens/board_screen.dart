@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
+import '../services/api_client.dart';
 import '../services/app_state.dart';
 import '../widgets/common.dart';
 import 'task_detail_screen.dart';
@@ -16,7 +17,17 @@ enum _BoardView { board, list, timeline }
 /// - List: vertical task card list (.list-panel)
 /// - Timeline: date-keyed task list (.timeline-entry)
 class BoardScreen extends StatefulWidget {
-  const BoardScreen({super.key});
+  const BoardScreen(
+      {super.key,
+      this.initialDashboardFilter = '',
+      this.onOpenMembers,
+      this.onOpenSettings,
+      this.onClearDashboardFilter});
+
+  final String initialDashboardFilter;
+  final VoidCallback? onClearDashboardFilter;
+  final VoidCallback? onOpenMembers;
+  final VoidCallback? onOpenSettings;
 
   @override
   State<BoardScreen> createState() => _BoardScreenState();
@@ -28,6 +39,15 @@ class _BoardScreenState extends State<BoardScreen>
   final _searchCtrl = TextEditingController();
   String _search = '';
   String _priorityFilter = '';
+  late String _dashboardFilter = widget.initialDashboardFilter;
+
+  @override
+  void didUpdateWidget(covariant BoardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialDashboardFilter != widget.initialDashboardFilter) {
+      _dashboardFilter = widget.initialDashboardFilter;
+    }
+  }
 
   @override
   void dispose() {
@@ -62,12 +82,23 @@ class _BoardScreenState extends State<BoardScreen>
           (t.description ?? '').toLowerCase().contains(_search.toLowerCase());
       final matchPriority =
           _priorityFilter.isEmpty || t.priority == _priorityFilter;
-      return matchText && matchPriority;
+      final matchDashboard = switch (_dashboardFilter) {
+        'MINE' => t.assigneeIds.contains(state.account?.id),
+        'OPEN' => t.status != 'DONE',
+        'OVERDUE' => t.isOverdue,
+        'COMPLETED' => t.status == 'DONE',
+        _ => true,
+      };
+      return matchText && matchPriority && matchDashboard;
     }).toList();
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Column(children: [
+      _BoardPageHeading(
+          state: state,
+          onCreateTask: () => _createTask(state),
+          onCreateProject: () => _createProject(state)),
       // ── View tabs + filter bar ─────────────────────────────────────────
       // Web: .view-tabs border-bottom + .filter-bar
       Container(
@@ -108,9 +139,8 @@ class _BoardScreenState extends State<BoardScreen>
                       label,
                       style: TextStyle(
                         fontSize: 14,
-                        fontWeight: selected
-                            ? FontWeight.w700
-                            : FontWeight.normal,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.normal,
                         color: selected ? kViolet : kMuted,
                       ),
                     ),
@@ -119,13 +149,30 @@ class _BoardScreenState extends State<BoardScreen>
               }),
               const Spacer(),
               Text(
-                '${filtered.length} tasks',
+                '${filtered.length} ${filtered.length == 1 ? 'task' : 'tasks'}',
                 style: const TextStyle(fontSize: 12, color: kMuted),
               ),
             ]),
           ),
 
           // ── Filter bar (search + priority) ───────────────────────────
+          if (widget.onOpenMembers != null ||
+              (state.selectedProject?.isManagerOrLead == true &&
+                  widget.onOpenSettings != null))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+              child: Row(children: [
+                if (widget.onOpenMembers != null)
+                  TextButton(
+                      onPressed: widget.onOpenMembers,
+                      child: const Text('Members')),
+                if (state.selectedProject?.isManagerOrLead == true &&
+                    widget.onOpenSettings != null)
+                  TextButton(
+                      onPressed: widget.onOpenSettings,
+                      child: const Text('Project settings')),
+              ]),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
             child: Row(children: [
@@ -139,12 +186,9 @@ class _BoardScreenState extends State<BoardScreen>
                     style: const TextStyle(fontSize: 13),
                     decoration: const InputDecoration(
                       hintText: 'Search tasks…',
-                      hintStyle:
-                          TextStyle(fontSize: 13, color: kMuted),
-                      prefixIcon: Icon(Icons.search,
-                          size: 18, color: kMuted),
-                      contentPadding:
-                          EdgeInsets.symmetric(vertical: 0),
+                      hintStyle: TextStyle(fontSize: 13, color: kMuted),
+                      prefixIcon: Icon(Icons.search, size: 18, color: kMuted),
+                      contentPadding: EdgeInsets.symmetric(vertical: 0),
                       isDense: true,
                     ),
                   ),
@@ -162,29 +206,31 @@ class _BoardScreenState extends State<BoardScreen>
                 items: [
                   const DropdownMenuItem(
                       value: '', child: Text('All priorities')),
-                  ...taskPriorities.map((p) =>
-                      DropdownMenuItem(value: p, child: Text(p))),
+                  ...taskPriorities
+                      .map((p) => DropdownMenuItem(value: p, child: Text(p))),
                 ],
-                onChanged: (v) =>
-                    setState(() => _priorityFilter = v ?? ''),
+                onChanged: (v) => setState(() => _priorityFilter = v ?? ''),
               ),
-              if (_search.isNotEmpty || _priorityFilter.isNotEmpty)
+              if (_search.isNotEmpty ||
+                  _priorityFilter.isNotEmpty ||
+                  _dashboardFilter.isNotEmpty)
                 TextButton(
                   onPressed: () {
                     _searchCtrl.clear();
                     setState(() {
                       _search = '';
                       _priorityFilter = '';
+                      _dashboardFilter = '';
                     });
+                    widget.onClearDashboardFilter?.call();
                   },
                   style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: const Text('Clear',
-                      style: TextStyle(fontSize: 12)),
+                  child: const Text('Clear', style: TextStyle(fontSize: 12)),
                 ),
             ]),
           ),
@@ -202,8 +248,65 @@ class _BoardScreenState extends State<BoardScreen>
     ]);
   }
 
-  Widget _buildView(
-      BuildContext context, AppState state, List<Task> tasks) {
+  Future<String?> _askForName(String title, String field) async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+              title: Text(title),
+              content: TextField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: InputDecoration(labelText: field),
+                  onSubmitted: (value) => Navigator.pop(ctx, value.trim())),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cancel')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                    child: const Text('Create'))
+              ],
+            ));
+    controller.dispose();
+    return name;
+  }
+
+  Future<void> _createTask(AppState state) async {
+    final title = await _askForName('New task', 'Task title');
+    final projectId = state.selectedProject?.id;
+    if (title == null || title.isEmpty || projectId == null) return;
+    try {
+      await state.api.createTask(projectId: projectId, title: title);
+      await state.refreshTasks();
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+
+  Future<void> _createProject(AppState state) async {
+    final name = await _askForName('New project', 'Project name');
+    final organizationId = state.selectedOrg?.id;
+    if (name == null || name.isEmpty || organizationId == null) return;
+    try {
+      final project =
+          await state.api.createProject(orgId: organizationId, name: name);
+      await state.loadOrganizations();
+      final refreshed =
+          state.projects.where((item) => item.id == project.id).firstOrNull;
+      if (refreshed != null) await state.selectProject(refreshed);
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+
+  Widget _buildView(BuildContext context, AppState state, List<Task> tasks) {
     switch (_view) {
       case _BoardView.board:
         return _BoardColumns(tasks: tasks, state: state);
@@ -217,6 +320,89 @@ class _BoardScreenState extends State<BoardScreen>
 
 // ─── Board (Kanban columns) ───────────────────────────────────────────────────
 // Web .board: 4 columns, .column: #F1F1F6 bg, radius 14px, .column-title h2
+
+class _BoardPageHeading extends StatelessWidget {
+  const _BoardPageHeading(
+      {required this.state,
+      required this.onCreateTask,
+      required this.onCreateProject});
+  final AppState state;
+  final VoidCallback onCreateTask;
+  final VoidCallback onCreateProject;
+
+  @override
+  Widget build(BuildContext context) {
+    final project = state.selectedProject!;
+    final members = state.projectMembers;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+            '${state.selectedOrg?.name.toUpperCase() ?? 'WORKSPACE'} / PROJECT',
+            style: const TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+                color: kMuted)),
+        const SizedBox(height: 5),
+        Row(children: [
+          Expanded(
+              child: Text(project.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.dmSans(
+                      fontSize: 19, fontWeight: FontWeight.w700, color: kInk))),
+          if (members.isNotEmpty)
+            Row(children: [
+              for (final member in members.take(4))
+                Padding(
+                    padding: const EdgeInsets.only(left: 3),
+                    child: AvatarChip(initials: member.initials, size: 23)),
+              if (members.length > 4)
+                Padding(
+                    padding: const EdgeInsets.only(left: 3),
+                    child: Text('+${members.length - 4}',
+                        style: const TextStyle(fontSize: 9, color: kMuted))),
+            ]),
+        ]),
+        const SizedBox(height: 2),
+        Text(
+            project.description?.isNotEmpty == true
+                ? project.description!
+                : 'Plan, track, and deliver together.',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 10, color: kMuted)),
+        const SizedBox(height: 9),
+        Row(children: [
+          if (state.selectedOrg?.role != 'GUEST')
+            Expanded(
+                child: OutlinedButton(
+                    onPressed: onCreateProject,
+                    style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        side: const BorderSide(color: kLine)),
+                    child: const Text('New project',
+                        style: TextStyle(fontSize: 10)))),
+          if (state.selectedOrg?.role != 'GUEST' && project.canWrite)
+            const SizedBox(width: 8),
+          if (project.canWrite)
+            Expanded(
+                child: FilledButton.icon(
+                    onPressed: onCreateTask,
+                    style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        backgroundColor: kViolet),
+                    icon: const Icon(Icons.add, size: 15),
+                    label: const Text('New task',
+                        style: TextStyle(fontSize: 10)))),
+        ]),
+      ]),
+    );
+  }
+}
 
 class _BoardColumns extends StatelessWidget {
   const _BoardColumns({required this.tasks, required this.state});
@@ -238,11 +424,9 @@ class _BoardColumns extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       children: taskStatuses.map((status) {
         final cols = tasks.where((t) => t.status == status).toList();
-        final isDark =
-            Theme.of(context).brightness == Brightness.dark;
-        final colBg = isDark
-            ? const Color(0xFF1A1C26)
-            : const Color(0xFFF1F1F6);
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final colBg =
+            isDark ? const Color(0xFF1A1C26) : const Color(0xFFF1F1F6);
         return Container(
           width: 250,
           margin: const EdgeInsets.only(right: 12),
@@ -268,8 +452,8 @@ class _BoardColumns extends StatelessWidget {
                 const Spacer(),
                 Text(
                   '${cols.length}',
-                  style: const TextStyle(
-                      fontSize: 12, color: Color(0xFF9697A3)),
+                  style:
+                      const TextStyle(fontSize: 12, color: Color(0xFF9697A3)),
                 ),
               ]),
             ),
@@ -289,9 +473,7 @@ class _BoardColumns extends StatelessWidget {
                   : ListView.builder(
                       itemCount: cols.length,
                       itemBuilder: (ctx, i) => _TaskCard(
-                          task: cols[i],
-                          state: state,
-                          showStatus: false),
+                          task: cols[i], state: state, showStatus: false),
                     ),
             ),
           ]),
@@ -337,8 +519,7 @@ class _TimelineList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sorted = [...tasks]
-      ..sort((a, b) =>
-          (a.dueDate ?? '9999').compareTo(b.dueDate ?? '9999'));
+      ..sort((a, b) => (a.dueDate ?? '9999').compareTo(b.dueDate ?? '9999'));
 
     if (sorted.isEmpty) {
       return const EmptyState(
@@ -354,9 +535,7 @@ class _TimelineList extends StatelessWidget {
         final t = sorted[i];
         return Padding(
           padding: const EdgeInsets.only(bottom: 4),
-          child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             // Date column — web .timeline-entry > div (left border violet)
             SizedBox(
               width: 88,
@@ -371,26 +550,24 @@ class _TimelineList extends StatelessWidget {
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  Text(
-                    dateLabel(t.dueDate),
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: t.isOverdue ? kDanger : kMuted,
-                    ),
-                  ),
-                  if (t.startDate != null)
-                    Text(
-                      'Start: ${dateLabel(t.startDate)}',
-                      style: const TextStyle(
-                          fontSize: 10, color: kMuted),
-                    ),
-                ]),
+                      Text(
+                        dateLabel(t.dueDate),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: t.isOverdue ? kDanger : kMuted,
+                        ),
+                      ),
+                      if (t.startDate != null)
+                        Text(
+                          'Start: ${dateLabel(t.startDate)}',
+                          style: const TextStyle(fontSize: 10, color: kMuted),
+                        ),
+                    ]),
               ),
             ),
             Expanded(
-              child: _TaskCard(
-                  task: t, state: state, showStatus: true),
+              child: _TaskCard(task: t, state: state, showStatus: true),
             ),
           ]),
         );
@@ -446,9 +623,7 @@ class _TaskCard extends StatelessWidget {
                   )
                 ],
         ),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // ── Top row: priority + status + overdue icon ───────────────
           Row(children: [
             PriorityBadge(task.priority),
@@ -458,8 +633,7 @@ class _TaskCard extends StatelessWidget {
             ],
             const Spacer(),
             if (task.isOverdue)
-              const Icon(Icons.warning_amber,
-                  size: 14, color: kDanger),
+              const Icon(Icons.warning_amber, size: 14, color: kDanger),
           ]),
           const SizedBox(height: 10),
 
@@ -476,13 +650,11 @@ class _TaskCard extends StatelessWidget {
           ),
 
           // ── Description snippet ──────────────────────────────────────
-          if (task.description != null &&
-              task.description!.isNotEmpty) ...[
+          if (task.description != null && task.description!.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
               task.description!,
-              style: const TextStyle(
-                  fontSize: 12, color: kMuted, height: 1.4),
+              style: const TextStyle(fontSize: 12, color: kMuted, height: 1.4),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
@@ -507,13 +679,10 @@ class _TaskCard extends StatelessWidget {
                   style: TextStyle(fontSize: 11, color: kMuted))
             else
               ...task.assigneeIds.take(4).map((id) {
-                final m = members
-                    .where((x) => x.userId == id)
-                    .firstOrNull;
+                final m = members.where((x) => x.userId == id).firstOrNull;
                 return Padding(
                   padding: const EdgeInsets.only(right: 3),
-                  child: AvatarChip(
-                      initials: m?.initials ?? '?', size: 22),
+                  child: AvatarChip(initials: m?.initials ?? '?', size: 22),
                 );
               }),
             const Spacer(),
@@ -527,9 +696,7 @@ class _TaskCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 3),
                 Text(
-                  task.status == 'DONE'
-                      ? 'Completed'
-                      : dateLabel(task.dueDate),
+                  task.status == 'DONE' ? 'Completed' : dateLabel(task.dueDate),
                   style: TextStyle(
                     fontSize: 11,
                     color: task.isOverdue ? kDanger : kMuted,

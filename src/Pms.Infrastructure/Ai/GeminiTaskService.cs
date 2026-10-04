@@ -50,7 +50,7 @@ public sealed class GeminiTaskService(HttpClient httpClient, GeminiSettings sett
             throw new AiUnavailableException(response.StatusCode switch
             {
                 System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden => "Gemini credentials were rejected. Check the API key and its project access.",
-                System.Net.HttpStatusCode.NotFound => "The configured Gemini model is unavailable to this API key. Check Gemini__Model.",
+                System.Net.HttpStatusCode.NotFound => "The configured Gemini model is unavailable to this API key. Set Gemini__Model to gemini-3.8-flash on the API server and redeploy.",
                 System.Net.HttpStatusCode.TooManyRequests => "Gemini's free quota is currently exhausted. Try again later or review its usage limits.",
                 _ => "AI drafting is temporarily unavailable. Please try again later."
             });

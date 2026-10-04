@@ -143,7 +143,8 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> loadAdminAnalytics({required String from, required String to}) async {
+  Future<void> loadAdminAnalytics(
+      {required String from, required String to}) async {
     loadingAdminAnalytics = true;
     notifyListeners();
     try {
@@ -317,6 +318,7 @@ class AppState extends ChangeNotifier {
             priority: t.priority,
             startDate: t.startDate,
             dueDate: t.dueDate,
+            createdAt: t.createdAt,
             completedAt: t.completedAt,
             assigneeIds: t.assigneeIds,
             subtaskCount: t.subtaskCount,

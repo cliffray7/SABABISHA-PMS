@@ -114,14 +114,13 @@ class ApiClient {
   }
 
   Future<Organization> createOrganization({required String name}) async {
-    final response = await _authorized('POST', '/organizations',
-        body: {'name': name});
+    final response =
+        await _authorized('POST', '/organizations', body: {'name': name});
     return Organization.fromJson(_json(response));
   }
 
   Future<List<Member>> orgMembers(String orgId) async {
-    final response =
-        await _authorized('GET', '/organizations/$orgId/members');
+    final response = await _authorized('GET', '/organizations/$orgId/members');
     return _jsonList(response).map(Member.fromJson).toList();
   }
 
@@ -166,7 +165,8 @@ class ApiClient {
 
   Future<Organization> acceptInvitation(String token) async {
     final response = await _authorized(
-        'POST', '/organizations/invitations/accept', body: {'token': token});
+        'POST', '/organizations/invitations/accept',
+        body: {'token': token});
     return Organization.fromJson(_json(response));
   }
 
@@ -176,6 +176,11 @@ class ApiClient {
     final response = await _authorized('GET', '/projects',
         params: {'organizationId': orgId});
     return _jsonList(response).map(Project.fromJson).toList();
+  }
+
+  Future<Project> projectById(String projectId) async {
+    final response = await _authorized('GET', '/projects/$projectId');
+    return Project.fromJson(_json(response));
   }
 
   Future<Project> createProject({
@@ -221,8 +226,7 @@ class ApiClient {
   }
 
   Future<List<Member>> projectMembers(String projectId) async {
-    final response =
-        await _authorized('GET', '/projects/$projectId/members');
+    final response = await _authorized('GET', '/projects/$projectId/members');
     return _jsonList(response).map(Member.fromJson).toList();
   }
 
@@ -248,11 +252,9 @@ class ApiClient {
     final response =
         await _authorized('GET', '/tasks', params: {'projectId': projectId});
     final body = _json(response);
-    final list = body['data'] as List<dynamic>? ?? body['items'] as List<dynamic>? ?? [];
-    return list
-        .cast<Map<String, dynamic>>()
-        .map(Task.fromJson)
-        .toList();
+    final list =
+        body['data'] as List<dynamic>? ?? body['items'] as List<dynamic>? ?? [];
+    return list.cast<Map<String, dynamic>>().map(Task.fromJson).toList();
   }
 
   Future<Task> createTask({
@@ -277,6 +279,17 @@ class ApiClient {
       'assigneeIds': assigneeIds,
     });
     return Task.fromJson(_json(response));
+  }
+
+  Future<AiTaskSuggestion> suggestTask({
+    required String projectId,
+    required String prompt,
+  }) async {
+    final response = await _authorized('POST', '/ai/tasks/suggest', body: {
+      'projectId': projectId,
+      'prompt': prompt,
+    });
+    return AiTaskSuggestion.fromJson(_json(response));
   }
 
   Future<Task> updateTask({
@@ -350,12 +363,12 @@ class ApiClient {
     String? parentCommentId,
     List<String> mentionedUserIds = const [],
   }) async {
-    final response = await _authorized('POST', '/tasks/$taskId/comments',
-        body: {
-          'content': content,
-          'mentionedUserIds': mentionedUserIds,
-          if (parentCommentId != null) 'parentCommentId': parentCommentId,
-        });
+    final response =
+        await _authorized('POST', '/tasks/$taskId/comments', body: {
+      'content': content,
+      'mentionedUserIds': mentionedUserIds,
+      if (parentCommentId != null) 'parentCommentId': parentCommentId,
+    });
     return Comment.fromJson(_json(response));
   }
 
@@ -372,7 +385,8 @@ class ApiClient {
     required String fileName,
   }) async {
     final session = await _sessionStore.read();
-    if (session == null) throw const ApiException('Session expired.', statusCode: 401);
+    if (session == null)
+      throw const ApiException('Session expired.', statusCode: 401);
 
     final request = http.MultipartRequest(
       'POST',
@@ -383,7 +397,8 @@ class ApiClient {
         filename: fileName));
 
     try {
-      final streamed = await _http.send(request).timeout(const Duration(seconds: 60));
+      final streamed =
+          await _http.send(request).timeout(const Duration(seconds: 60));
       final response = await http.Response.fromStream(streamed);
       return Attachment.fromJson(_json(_ensureSuccess(response)));
     } on ApiException {
@@ -406,8 +421,7 @@ class ApiClient {
   }
 
   Future<void> markNotificationRead(String notificationId) async {
-    await _authorized(
-        'PATCH', '/notifications/$notificationId/read');
+    await _authorized('PATCH', '/notifications/$notificationId/read');
   }
 
   Future<void> markAllNotificationsRead() async {
@@ -422,7 +436,36 @@ class ApiClient {
     return DashboardMetrics.fromJson(_json(response));
   }
 
-  // ─── Admin ───────────────────────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> workspaceActivityEvents({
+    required String organizationId,
+    int pageSize = 30,
+  }) async =>
+      (await workspaceActivityPage(
+        organizationId: organizationId,
+        pageSize: pageSize,
+      ))
+          .items;
+
+  Future<WorkspaceActivityPage> workspaceActivityPage({
+    required String organizationId,
+    String? category,
+    String? search,
+    String? from,
+    String? to,
+    String? cursor,
+    int pageSize = 30,
+  }) async {
+    final response = await _authorized('GET', '/activity', params: {
+      'organizationId': organizationId,
+      if (category != null && category.isNotEmpty) 'category': category,
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (from != null) 'from': from,
+      if (to != null) 'to': to,
+      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      'pageSize': '$pageSize',
+    });
+    return WorkspaceActivityPage.fromJson(_json(response));
+  }
 
   Future<AdminDashboardMetrics> adminDashboard() async {
     final response = await _authorized('GET', '/admin/dashboard');
@@ -436,6 +479,46 @@ class ApiClient {
     final response = await _authorized('GET', '/admin/analytics',
         params: {'from': from, 'to': to});
     return AdminAnalytics.fromJson(_json(response));
+  }
+
+  Future<PlatformActivityPage> adminActivityEvents({
+    String? category,
+    String? search,
+    String? organizationId,
+    String? from,
+    String? to,
+    String? cursor,
+    int pageSize = 50,
+  }) async {
+    final response =
+        await _authorized('GET', '/admin/activity-events', params: {
+      if (category != null && category.isNotEmpty) 'category': category,
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (organizationId != null && organizationId.isNotEmpty)
+        'organizationId': organizationId,
+      if (from != null) 'from': from,
+      if (to != null) 'to': to,
+      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      'pageSize': '$pageSize',
+    });
+    return PlatformActivityPage.fromJson(_json(response));
+  }
+
+  Future<AdminAuditPage> adminAuditEvents({
+    String? action,
+    String? from,
+    String? to,
+    String? cursor,
+    int pageSize = 50,
+  }) async {
+    final response = await _authorized('GET', '/admin/audit-events', params: {
+      if (action != null && action.isNotEmpty) 'action': action,
+      if (from != null) 'from': from,
+      if (to != null) 'to': to,
+      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      'pageSize': '$pageSize',
+    });
+    return AdminAuditPage.fromJson(_json(response));
   }
 
   Future<List<AdminUser>> adminUsers() async {
@@ -479,25 +562,27 @@ class ApiClient {
     return _jsonList(response).map(AdminProject.fromJson).toList();
   }
 
-  /// Returns the raw CSV bytes for a system report.
-  Future<List<int>> adminReport() async {
+  /// Returns PDF, XLSX, or raw CSV bytes for a system report.
+  Future<List<int>> adminReport({String format = 'csv'}) async {
     var session = await _sessionStore.read();
     if (session == null) {
       throw const ApiException('Your session has expired.', statusCode: 401);
     }
 
-    final uri = _uri('/admin/reports', {'format': 'csv'});
+    final uri = _uri('/admin/reports', {'format': format});
     final request = http.Request('GET', uri)
       ..headers['Authorization'] = 'Bearer ${session.accessToken}';
 
     try {
-      final streamed = await _http.send(request).timeout(const Duration(seconds: 30));
+      final streamed =
+          await _http.send(request).timeout(const Duration(seconds: 30));
       final response = await http.Response.fromStream(streamed);
       if (response.statusCode == 401) {
         session = await _refresh(session.refreshToken);
         final retry = http.Request('GET', uri)
           ..headers['Authorization'] = 'Bearer ${session.accessToken}';
-        final retryStreamed = await _http.send(retry).timeout(const Duration(seconds: 30));
+        final retryStreamed =
+            await _http.send(retry).timeout(const Duration(seconds: 30));
         final retryResponse = await http.Response.fromStream(retryStreamed);
         _ensureSuccess(retryResponse);
         return retryResponse.bodyBytes.toList();
@@ -507,7 +592,8 @@ class ApiClient {
     } on ApiException {
       rethrow;
     } catch (_) {
-      throw const ApiException('Report download failed. Check your connection.');
+      throw const ApiException(
+          'Report download failed. Check your connection.');
     }
   }
 
@@ -594,7 +680,8 @@ class ApiClient {
   }
 
   http.Response _ensureSuccess(http.Response response) {
-    if (response.statusCode >= 200 && response.statusCode < 300) return response;
+    if (response.statusCode >= 200 && response.statusCode < 300)
+      return response;
     final payload = _tryJson(response.body);
     final message = payload?['message'] ??
         (payload?['error'] as Map<String, dynamic>?)?['message'];

@@ -3,12 +3,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Pms.Infrastructure.Persistence.EfCore;
-using System.Globalization;
-using CsvHelper;
 using System.Security.Claims;
 using System.Text;
 using System.Security.Cryptography;
 using Microsoft.Data.SqlClient;
+using Pms.Api.Reports;
 
 namespace Pms.Api.Controllers.Rest.V1;
 
@@ -564,7 +563,7 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
 
     // =====================================================
     // REPORT DOWNLOAD
-    // GET /api/v1/admin/reports?format=csv
+    // GET /api/v1/admin/reports?format=csv|xlsx|pdf
     // =====================================================
 
     [HttpGet("reports")]
@@ -580,14 +579,12 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
             });
         }
 
-        if (!string.Equals(
-                format,
-                "csv",
-                StringComparison.OrdinalIgnoreCase))
+        var normalizedFormat = format.Trim().ToLowerInvariant();
+        if (normalizedFormat is not ("csv" or "xlsx" or "pdf"))
         {
             return BadRequest(new
             {
-                message = "Invalid report format. Supported format: csv."
+                message = "Invalid report format. Supported formats: csv, xlsx, pdf."
             });
         }
 
@@ -596,111 +593,44 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
 
         var users = await db.Users
             .AsNoTracking()
-            .Select(u => new
-            {
+            .Select(u => new PlatformUserReport(
                 u.Id,
                 u.FirstName,
                 u.LastName,
                 u.Email,
-                u.CreatedAt
-            })
+                u.CreatedAt))
             .ToListAsync(cancellationToken);
 
         var organizations = await db.Organizations
             .AsNoTracking()
-            .Select(o => new
-            {
-                o.Id,
-                o.Name,
-                o.CreatedAt
-            })
+            .Select(o => new PlatformOrganizationReport(o.Id, o.Name, o.CreatedAt))
             .ToListAsync(cancellationToken);
 
         var projects = await db.Projects
             .AsNoTracking()
-            .Select(p => new
-            {
-                p.Id,
-                p.OrganizationId,
-                p.Name,
-                p.Status,
-                p.CreatedAt
-            })
+            .Select(p => new PlatformProjectReport(p.Id, p.OrganizationId, p.Name, p.Status, p.CreatedAt))
             .ToListAsync(cancellationToken);
 
         var tasks = await db.Tasks
             .AsNoTracking()
-            .Select(t => new
-            {
-                t.Id,
-                t.ProjectId,
-                t.Title,
-                t.Status,
-                t.Priority,
-                t.CreatedAt
-            })
+            .Select(t => new PlatformTaskReport(t.Id, t.ProjectId, t.Title, t.Status, t.Priority, t.DueDate, t.CreatedAt))
             .ToListAsync(cancellationToken);
-
-        using var memoryStream = new MemoryStream();
-
-        using (
-            var writer = new StreamWriter(
-                memoryStream,
-                leaveOpen: true))
-        using (
-            var csv = new CsvWriter(
-                writer,
-                CultureInfo.InvariantCulture))
+        var generatedAt = DateTime.UtcNow;
+        var reportId = $"RPT-{generatedAt:yyyy-MM}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+        var report = new PlatformReportData(reportId, generatedAt, users, organizations, projects, tasks);
+        var bytes = normalizedFormat switch
         {
-            // Report metadata
-            csv.WriteField("TASKFLOW SYSTEM REPORT");
-            csv.NextRecord();
-
-            csv.WriteField("Generated At");
-            csv.WriteField(
-                DateTime.UtcNow.ToString("O"));
-            csv.NextRecord();
-
-            csv.NextRecord();
-
-            // USERS
-            csv.WriteField("USERS");
-            csv.NextRecord();
-
-            csv.WriteRecords(users);
-            csv.NextRecord();
-
-            // ORGANIZATIONS
-            csv.WriteField("ORGANIZATIONS");
-            csv.NextRecord();
-
-            csv.WriteRecords(organizations);
-            csv.NextRecord();
-
-            // PROJECTS
-            csv.WriteField("PROJECTS");
-            csv.NextRecord();
-
-            csv.WriteRecords(projects);
-            csv.NextRecord();
-
-            // TASKS
-            csv.WriteField("TASKS");
-            csv.NextRecord();
-
-            csv.WriteRecords(tasks);
-
-            writer.Flush();
-        }
-
-        var bytes = memoryStream.ToArray();
-
-        var fileName =
-            $"taskflow-report-{DateTime.UtcNow:yyyy-MM-dd-HHmmss}.csv";
-
-        return File(
-            bytes,
-            "text/csv; charset=utf-8",
-            fileName);
+            "xlsx" => PlatformReportExport.Xlsx(report),
+            "pdf" => PlatformReportExport.Pdf(report),
+            _ => PlatformReportExport.Csv(report)
+        };
+        var contentType = normalizedFormat switch
+        {
+            "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "pdf" => "application/pdf",
+            _ => "text/csv; charset=utf-8"
+        };
+        var filename = $"taskflow-platform-report-{generatedAt:yyyy-MM-dd-HHmmss}-{reportId[^8..]}.{normalizedFormat}";
+        return File(bytes, contentType, filename);
     }
 }

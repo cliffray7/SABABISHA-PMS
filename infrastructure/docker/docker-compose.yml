@@ -7,6 +7,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__PmsDatabase: Server=sqlserver,1433;Database=PmsDb;User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=False;TrustServerCertificate=True
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
     ports:
       - "5141:8080"
     depends_on:

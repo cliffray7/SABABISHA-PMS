@@ -39,8 +39,10 @@ public sealed class ActivityController(PmsDbContext db) : ControllerBase
             return BadRequest(new { code = "INVALID_FILTER", message = "A filter is too long." });
 
         var query = db.ActivityEvents.AsNoTracking().Where(item => item.OrganizationId == organizationId
-            && (item.ProjectId == null || db.ProjectMembers.Any(member => member.ProjectId == item.ProjectId
-                && member.UserId == userId && member.Status == "active")));
+            && (item.ProjectId == null || db.Projects.Any(project => project.Id == item.ProjectId
+                && project.OrganizationId == organizationId
+                && db.ProjectMembers.Any(member => member.ProjectId == project.Id
+                    && member.UserId == userId && member.Status == "active"))));
         if (!string.IsNullOrWhiteSpace(category)) query = query.Where(item => item.Category == category.Trim());
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -81,12 +83,22 @@ public sealed class ActivityController(PmsDbContext db) : ControllerBase
         var nextCursor = hasMore && page.Count > 0
             ? Convert.ToBase64String(Encoding.UTF8.GetBytes($"{page[^1].CreatedAtUtc.Ticks}|{page[^1].Id:N}"))
             : null;
+        var projectIds = page.Where(item => item.ProjectId != null)
+            .Select(item => item.ProjectId!.Value).Distinct().ToArray();
+        var projectNames = projectIds.Length == 0
+            ? new Dictionary<Guid, string>()
+            : await db.Projects.AsNoTracking()
+                .Where(project => project.OrganizationId == organizationId && projectIds.Contains(project.Id))
+                .ToDictionaryAsync(project => project.Id, project => project.Name, ct);
 
         return Ok(new
         {
             items = page.Select(item => new
             {
-                eventId = item.Id, item.OrganizationId, item.ProjectId, organizationName, actorUserId = item.ActorUserId, actorName = item.ActorName,
+                eventId = item.Id, item.OrganizationId, item.ProjectId,
+                projectName = item.ProjectId is Guid projectId && projectNames.TryGetValue(projectId, out var name)
+                    ? name : null,
+                organizationName, actorUserId = item.ActorUserId, actorName = item.ActorName,
                 item.Category, item.Action, item.EntityType, item.EntityId, item.EntityName,
                 item.Description, item.Status, item.CorrelationId, createdAt = item.CreatedAtUtc
             }),

@@ -12,12 +12,12 @@ using Pms.Infrastructure.Persistence.EfCore;
 namespace Pms.Api.Controllers.Rest.V1;
 
 [ApiController, Route("api/v1")]
-public sealed class AccountController(PmsDbContext db, TokenService tokens, IPasswordHasher<User> hasher, AppMail mail) : ControllerBase
+public sealed class AccountController(PmsDbContext db, TokenService tokens, IPasswordHasher<User> hasher, AppMail mail, IWebHostEnvironment environment) : ControllerBase
 {
     [HttpGet("auth/mail-mode")]
-    public IActionResult MailMode() => Ok(new { local = mail.IsLocal });
+    public IActionResult MailMode() => Ok(new { local = environment.IsDevelopment() && mail.IsLocal });
     [HttpGet("dev/inbox")]
-    public IActionResult Inbox() => mail.IsLocal ? Ok(mail.Messages) : NotFound();
+    public IActionResult Inbox() => environment.IsDevelopment() && mail.IsLocal ? Ok(mail.Messages) : NotFound();
 
     [HttpPost("auth/forgot-password"), EnableRateLimiting("auth")]
     public async Task<IActionResult> Forgot(EmailRequest request, CancellationToken ct)
