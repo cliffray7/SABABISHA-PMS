@@ -131,10 +131,9 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .inbox-page>.page-heading .muted { max-width:560px; }
 .email-preview { overflow:hidden; margin:14px 0; border:1px solid var(--line); border-radius:14px; background:var(--panel); box-shadow:0 8px 28px rgba(35,39,68,.06); animation:page-enter .22s ease-out both; }
 .email-preview-brand { display:flex; align-items:center; gap:9px; padding:18px 24px; border-bottom:1px solid var(--line); color:var(--ink); font-size:14px; font-weight:650; }
-.email-preview-mark { display:block; width:30px; height:30px; object-fit:contain; }
-.email-preview-wordmark { display:inline-flex; gap:0; }
-.email-preview-wordmark b { color:#111827; }
-.email-preview-wordmark strong { color:#353fc4; }
+.email-preview-brand>.brand { width:230px; flex:none; }
+.email-preview-brand>.brand .brand-lockup { width:100%; }
+.email-preview-brand>.brand .brand-icon-crop { display:none; }
 .email-preview-brand small { margin-left:auto; font-size:9px; letter-spacing:.1em; }
 .email-preview-meta { display:flex; align-items:center; gap:9px; padding:14px 24px; border-bottom:1px solid var(--line); font-size:12px; }
 .email-preview-meta>span { color:var(--muted); font-size:10px; font-weight:650; letter-spacing:.08em; }
@@ -151,7 +150,6 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .inbox-empty h2 { margin:0 0 6px; color:var(--ink); font-size:17px; }
 .inbox-empty p { margin:0; color:var(--muted); font-size:13px; }
 .inbox-back { margin-top:16px; }
-:root[data-theme='dark'] .email-preview-mark { background:#302d4d; color:#c4bcff; }
 .email-preview-otp { max-width:680px; padding:0; border:0; border-radius:23px; background:#251d1e; box-shadow:0 20px 55px rgba(24,15,17,.2); color:#f5e9ec; }
 .email-preview-otp-subject { display:flex; align-items:center; gap:12px; padding:23px 26px 19px; color:#f6e9ed; font-size:clamp(17px,3vw,23px); line-height:1.35; }
 .email-preview-otp-subject>span { flex:1; }
@@ -536,16 +534,15 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .auth-card .brand-mark {
   font-size: 20px !important;
 }
-.brand { color: #111827; gap: 9px; }
-.brand-icon { display: block; width: 34px; height: 34px; flex: 0 0 34px; object-fit: contain; }
-.brand-wordmark { display: inline-flex; align-items: baseline; }
-.brand-task { color: #111827; }
-.brand-flow { color: #353fc4; }
-:root[data-theme="dark"] .brand-task { color: #eef0f8; }
-.auth-card .brand { font-size: 28px !important; letter-spacing: -1px; }
-.auth-card .brand-icon { width: 42px; height: 42px; flex-basis: 42px; }
-.shell.tenant-workspace-shell.sidebar-collapsed .tenant-sidebar-brand .brand-wordmark,
-.admin-platform-shell.sidebar-collapsed .admin-sidebar-brand-row .brand-wordmark { display: none; }
+.brand-lockup { display:block; width:min(190px, 100%); height:auto; }
+.brand-icon-crop { display:none; }
+.auth-card .brand-lockup { width:min(330px, 100%); }
+.shell.tenant-workspace-shell.sidebar-collapsed .tenant-sidebar-brand .brand-lockup,
+.admin-platform-shell.sidebar-collapsed .admin-sidebar-brand-row .brand-lockup { display:none; }
+.shell.tenant-workspace-shell.sidebar-collapsed .tenant-sidebar-brand .brand-icon-crop,
+.admin-platform-shell.sidebar-collapsed .admin-sidebar-brand-row .brand-icon-crop { display:block; }
+.brand-icon-crop { position:relative; width:34px; height:34px; flex:none; overflow:hidden; border-radius:9px; }
+.brand-icon-crop img { position:absolute; top:-14.05px; left:-15.87px; width:65.73px; height:61.2px; max-width:none; }
 .shell.tenant-workspace-shell.sidebar-collapsed .tenant-sidebar-brand .brand::after,
 .admin-platform-shell.sidebar-collapsed .admin-sidebar-brand-row .brand::after { content: none; }
 :root[data-theme="dark"] .auth-page {

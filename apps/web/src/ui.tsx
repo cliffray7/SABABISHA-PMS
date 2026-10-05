@@ -4,10 +4,9 @@ import { errorMessage } from './api';
 export function Brand() {
   return (
     <div className="brand" role="img" aria-label="TaskFlow">
-      <img className="brand-icon" src="/taskflow-mark.svg" alt="" />
-      <span className="brand-wordmark" aria-hidden="true">
-        <span className="brand-task">Task</span>
-        <span className="brand-flow">Flow</span>
+      <img className="brand-lockup" src="/Primary%20lockup.svg" alt="" />
+      <span className="brand-icon-crop" aria-hidden="true">
+        <img src="/Mobile%20launcher.svg" alt="" />
       </span>
     </div>
   );
