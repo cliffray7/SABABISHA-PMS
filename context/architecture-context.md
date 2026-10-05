@@ -58,10 +58,11 @@ Deployment: Vercel (`https://taskflow-pms.vercel.app`)
 Admin Dashboard components: `AdminDashboard.tsx`, `AdminAnalytics.tsx`, `AdminManagement.tsx`, `AdminPlatform.tsx`, `AdminReports.tsx`, `AdminNav.tsx`.
 
 ## 7. Database Architecture
-Main entities: Organization, User, Project, Task, AdminAuditEvent.
+Main entities: Organization, User, Project, Task, AdminAuditEvent, ActivityEvent.
 Relationships: Users belong to Organizations. Projects belong to Organizations. Tasks belong to Projects.
 Migration strategy: EF Core Migrations or raw SQL scripts (`database/sqlserver/migrations/`).
 Audit Trail: `002_admin_audit_events.sql` implements an append-only administrative audit log.
+Activity events are organization-scoped for workspace activity and may be platform-scoped for authentication events; platform events have no organization and are visible only in the SuperAdmin activity feed.
 
 ## 8. Authentication
 Login: Custom Credentials / OTP.

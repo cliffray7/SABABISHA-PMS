@@ -4,9 +4,9 @@ namespace Pms.Domain.Entities;
 public sealed class ActivityEvent
 {
     public Guid Id { get; set; }
-    public Guid OrganizationId { get; set; }
+    public Guid? OrganizationId { get; set; }
     public Guid? ProjectId { get; set; }
-    public Guid ActorUserId { get; set; }
+    public Guid? ActorUserId { get; set; }
     public required string ActorName { get; set; }
     public required string Category { get; set; }
     public required string Action { get; set; }

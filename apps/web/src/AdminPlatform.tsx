@@ -21,7 +21,7 @@ function auditDateBound(value: string, endOfDay = false) {
   return date.toISOString();
 }
 
-type PlatformActivityItem = { eventId: string; organizationId: string; organizationName: string; actorUserId: string; actorName: string; category: string; action: string; entityType: string; entityId: string; entityName: string; projectName: string | null; description: string; status: string; correlationId: string; createdAt: string };
+type PlatformActivityItem = { eventId: string; organizationId: string | null; organizationName: string; actorUserId: string | null; actorName: string; category: string; action: string; entityType: string; entityId: string; entityName: string; projectName: string | null; description: string; status: string; correlationId: string; createdAt: string };
 type PlatformActivityPage = { items: PlatformActivityItem[]; nextCursor: string | null };
 const activityCategories = ['All', 'Projects', 'Tasks', 'People', 'Collaboration', 'System'];
 const activityCategoryIcon: Record<string, typeof Activity> = { Projects: FolderKanban, Tasks: ListTodo, People: Users, Collaboration: MessageSquare, System: Server };
@@ -144,10 +144,40 @@ export function AdminActivity() {
     <nav className="activity-category-tabs admin-activity-category-tabs" aria-label="Activity category filters">{activityCategories.map(item => { const Icon = activityCategoryIcon[item] ?? Activity; return <button key={item} className={category === item ? 'active' : ''} aria-pressed={category === item} onClick={() => { setCategory(item); resetPage(); }}><Icon size={15}/>{item}</button>; })}</nav>
     {validationError && <Alert severity="warning" role="alert">{validationError}</Alert>}
     {!validationError && query.isLoading && <div className="admin-health-skeletons" role="status" aria-label="Loading activity"><span/><span/></div>}
-    {!validationError && query.error && <Alert severity="error">Unable to load platform activity: {queryErrorMessage}{missingActivitySchema ? ' Confirm migration 003 is applied to the API database.' : ''}</Alert>}
+    {!validationError && query.error && <Alert severity="error">Unable to load platform activity: {queryErrorMessage}{missingActivitySchema ? ' Confirm migrations 003 and 004 are applied to the API database.' : ''}</Alert>}
     {!validationError && query.data?.items.length === 0 && <section className="admin-activity-empty admin-platform-activity-empty"><span className="admin-activity-empty-icon"><Activity size={21}/></span><Typography component="h2">{hasActiveFilters ? 'No matching activity' : 'Nothing to show yet'}</Typography><p>{hasActiveFilters ? `No events were found for ${rangeLabels[range]}. Adjust your filters or view all activity.` : 'Activity will appear here as people create projects, update tasks, and collaborate.'}</p>{hasActiveFilters && <Button variant="text" onClick={clearFilters}>Clear filters</Button>}</section>}
     {!validationError && query.data && query.data.items.length > 0 && <>
-      <div className="admin-activity-day-groups" aria-live="polite">{groupActivityByDay(query.data.items).map(group => <section className="admin-activity-day-group" key={group.label}><h2>{group.label}</h2><ol className="activity-timeline admin-platform-activity-timeline admin-platform-activity-day-timeline">{group.items.map(item => { const Icon = activityCategoryIcon[item.category] ?? Activity; const segments = [item.organizationName, item.projectName, item.entityType.toLowerCase() === 'project' ? null : `${item.entityType}: ${item.entityName}`].filter((value): value is string => Boolean(value)); return <li key={item.eventId}><time className="admin-activity-clock" dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time><span className={`activity-timeline-icon category-${item.category.toLowerCase()}`}><Icon size={17}/></span><details className="activity-timeline-content"><summary><strong>{item.actorName} {item.description}</strong><span className="admin-activity-event-context">{segments.map((segment, index) => <span className="admin-activity-breadcrumb" key={`${segment}-${index}`}>{index > 0 && <ChevronRight size={13}/>}<span>{segment}</span></span>)}</span><small><span className="admin-activity-actor-avatar">{item.actorName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase()}</span>{item.actorName}<i/><time dateTime={item.createdAt}>{relativeActivityTime(item.createdAt)}</time></small><span className="admin-activity-expand">Details</span></summary><div className="activity-event-details"><span>Organization: {item.organizationName} ({item.organizationId})</span>{item.projectName && <span>Project: {item.projectName}</span>}<span>Actor: {item.actorName} ({item.actorUserId})</span><span>Action: {item.action} · {item.status}</span><span>Target: {item.entityType} · {item.entityId}</span><span>Request: {item.correlationId}</span></div></details></li>; })}</ol></section>)}</div>
+      <div className="admin-activity-day-groups" aria-live="polite">
+        {groupActivityByDay(query.data.items).map(group => <section className="admin-activity-day-group" key={group.label}>
+          <h2>{group.label}</h2>
+          <ol className="activity-timeline admin-platform-activity-timeline admin-platform-activity-day-timeline">
+            {group.items.map(item => {
+              const Icon = activityCategoryIcon[item.category] ?? Activity;
+              const segments = [item.organizationName, item.projectName, item.entityType.toLowerCase() === 'project' ? null : `${item.entityType}: ${item.entityName}`].filter((value): value is string => Boolean(value));
+              return <li key={item.eventId}>
+                <time className="admin-activity-clock" dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+                <span className={`activity-timeline-icon category-${item.category.toLowerCase()}`}><Icon size={17}/></span>
+                <details className="activity-timeline-content">
+                  <summary>
+                    <strong>{item.actorName} {item.description}</strong>
+                    <span className="admin-activity-event-context">{segments.map((segment, index) => <span className="admin-activity-breadcrumb" key={`${segment}-${index}`}>{index > 0 && <ChevronRight size={13}/>}<span>{segment}</span></span>)}</span>
+                    <small><span className="admin-activity-actor-avatar">{item.actorName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase()}</span>{item.actorName}<i/><time dateTime={item.createdAt}>{relativeActivityTime(item.createdAt)}</time></small>
+                    <span className="admin-activity-expand">Details</span>
+                  </summary>
+                  <div className="activity-event-details">
+                    <span>{item.organizationId ? `Organization: ${item.organizationName} (${item.organizationId})` : 'Scope: Platform'}</span>
+                    {item.projectName && <span>Project: {item.projectName}</span>}
+                    <span>Actor: {item.actorName}{item.actorUserId ? ` (${item.actorUserId})` : ''}</span>
+                    <span>Action: {item.action} · {item.status}</span>
+                    <span>Target: {item.entityType} · {item.entityName}{item.entityId !== '00000000-0000-0000-0000-000000000000' ? ` (${item.entityId})` : ''}</span>
+                    <span>Request: {item.correlationId}</span>
+                  </div>
+                </details>
+              </li>;
+            })}
+          </ol>
+        </section>)}
+      </div>
       <div className="admin-activity-pagination"><span>Page {cursorStack.length} · {query.data.items.length} events</span><div><Button variant="text" disabled={cursorStack.length <= 1 || query.isFetching} onClick={() => setCursorStack(stack => stack.slice(0, -1))}>Previous</Button><Button variant="outlined" disabled={!query.data.nextCursor || query.isFetching} onClick={() => { if (query.data?.nextCursor) setCursorStack(stack => [...stack, query.data.nextCursor]); }}>Next page</Button></div></div>
     </>}
   </Box>;

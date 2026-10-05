@@ -305,10 +305,11 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
         search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
         Guid? idTerm = search is not null && Guid.TryParse(search, out var parsedId) ? parsedId : null;
         var query = from activity in db.ActivityEvents.AsNoTracking()
-                    join organization in db.Organizations.AsNoTracking() on activity.OrganizationId equals organization.Id
+                    join organizationRow in db.Organizations.AsNoTracking() on activity.OrganizationId equals (Guid?)organizationRow.Id into organizationRows
+                    from organization in organizationRows.DefaultIfEmpty()
                     join projectRow in db.Projects.AsNoTracking() on activity.ProjectId equals (Guid?)projectRow.Id into projectRows
                     from project in projectRows.DefaultIfEmpty()
-                    select new { Event = activity, OrganizationName = organization.Name, ProjectName = project == null ? null : project.Name };
+                    select new { Event = activity, OrganizationName = organization == null ? "Platform" : organization.Name, ProjectName = project == null ? null : project.Name };
         if (organizationId is not null) query = query.Where(item => item.Event.OrganizationId == organizationId.Value);
         if (category is not null) query = query.Where(item => item.Event.Category == category);
         if (search is not null)
