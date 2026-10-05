@@ -266,11 +266,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('TaskFlow',
-                          style: TextStyle(
-                              color: _kViolet,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800)),
+                      const TaskFlowBrand(
+                        iconSize: 26,
+                        textSize: 15,
+                      ),
                       const SizedBox(height: 6),
                       Text(
                         _displayRole(state.selectedOrg?.role),

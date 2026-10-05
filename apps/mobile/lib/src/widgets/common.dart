@@ -1,47 +1,58 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 // ─── Web design-system tokens ─────────────────────────────────────────────────
 // --violet: #4D40ED   --ink: #1F212B   --muted: #737887
 // --line:   #D9DBDE   --soft: #F0EFF9  --page: #F7F8FC
 // --panel:  #FFFFFF   (dark: #1C1E28)
 
-const kViolet       = Color(0xFF4D40ED);
-const kVioletLight  = Color(0xFFEFEDFF); // nav active bg / avatar bg tint
-const kVioletBg     = Color(0xFFDCD5FF); // avatar circle bg
-const kInk          = Color(0xFF1F212B);
-const kMuted        = Color(0xFF737887);
-const kLine         = Color(0xFFD9DBDE);
-const kPage         = Color(0xFFF7F8FC);
-const kPanel        = Color(0xFFFFFFFF);
-const kPanelDark    = Color(0xFF1C1E28);
-const kSoftBg       = Color(0xFFF0EFF9);
-const kPageDark     = Color(0xFF12131A);
+const kViolet = Color(0xFF4D40ED);
+const kVioletLight = Color(0xFFEFEDFF); // nav active bg / avatar bg tint
+const kVioletBg = Color(0xFFDCD5FF); // avatar circle bg
+const kInk = Color(0xFF1F212B);
+const kMuted = Color(0xFF737887);
+const kLine = Color(0xFFD9DBDE);
+const kPage = Color(0xFFF7F8FC);
+const kPanel = Color(0xFFFFFFFF);
+const kPanelDark = Color(0xFF1C1E28);
+const kSoftBg = Color(0xFFF0EFF9);
+const kPageDark = Color(0xFF12131A);
 
 // Priority colors — web .priority.urgent / .high / .medium / .low
-const kUrgent  = Color(0xFFE13030);
-const kHigh    = Color(0xFFE97C21);
-const kMedium  = Color(0xFFC8A80D);
-const kLow     = Color(0xFF42986E);
-const kDanger  = Color(0xFFDA3038);
+const kUrgent = Color(0xFFE13030);
+const kHigh = Color(0xFFE97C21);
+const kMedium = Color(0xFFC8A80D);
+const kLow = Color(0xFF42986E);
+const kDanger = Color(0xFFDA3038);
 const kSuccess = Color(0xFF3F996B);
 
 Color priorityColor(String priority) {
   switch (priority.toUpperCase()) {
-    case 'URGENT': return kUrgent;
-    case 'HIGH':   return kHigh;
-    case 'MEDIUM': return kMedium;
-    case 'LOW':    return kLow;
-    default:       return kMuted;
+    case 'URGENT':
+      return kUrgent;
+    case 'HIGH':
+      return kHigh;
+    case 'MEDIUM':
+      return kMedium;
+    case 'LOW':
+      return kLow;
+    default:
+      return kMuted;
   }
 }
 
 Color statusColor(String status, BuildContext context) {
   switch (status) {
-    case 'TO DO':       return kMuted;
-    case 'IN PROGRESS': return const Color(0xFF1E6DB5);
-    case 'REVIEW':      return const Color(0xFFD07020);
-    case 'DONE':        return kSuccess;
-    default:            return kMuted;
+    case 'TO DO':
+      return kMuted;
+    case 'IN PROGRESS':
+      return const Color(0xFF1E6DB5);
+    case 'REVIEW':
+      return const Color(0xFFD07020);
+    case 'DONE':
+      return kSuccess;
+    default:
+      return kMuted;
   }
 }
 
@@ -73,6 +84,73 @@ class AvatarChip extends StatelessWidget {
           height: 1,
         ),
       ),
+    );
+  }
+}
+
+class TaskFlowBrand extends StatelessWidget {
+  const TaskFlowBrand({
+    super.key,
+    this.iconSize = 34,
+    this.textSize = 22,
+    this.showWordmark = true,
+    this.textColor = kInk,
+    this.accentColor = kViolet,
+  });
+
+  final double iconSize;
+  final double textSize;
+  final bool showWordmark;
+  final Color textColor;
+  final Color accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = Container(
+      width: iconSize,
+      height: iconSize,
+      padding: const EdgeInsets.all(7),
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E2944),
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+      ),
+      child: SvgPicture.asset(
+        'assets/logos/taskflow-mark.svg',
+        width: iconSize - 14,
+        height: iconSize - 14,
+        fit: BoxFit.contain,
+      ),
+    );
+
+    if (!showWordmark) return icon;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        icon,
+        const SizedBox(width: 10),
+        RichText(
+          text: TextSpan(
+            style: TextStyle(
+              fontSize: textSize,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.9,
+              height: 1,
+              fontFamily: 'Roboto',
+            ),
+            children: [
+              TextSpan(
+                text: 'Task',
+                style: TextStyle(color: textColor),
+              ),
+              TextSpan(
+                text: 'Flow',
+                style: TextStyle(color: accentColor),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -186,8 +264,7 @@ class ErrorBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(children: [
-        const Icon(Icons.error_outline,
-            color: Color(0xFFC93643), size: 18),
+        const Icon(Icons.error_outline, color: Color(0xFFC93643), size: 18),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -201,8 +278,7 @@ class ErrorBanner extends StatelessWidget {
         if (onDismiss != null)
           GestureDetector(
             onTap: onDismiss,
-            child: const Icon(Icons.close,
-                color: Color(0xFFC93643), size: 16),
+            child: const Icon(Icons.close, color: Color(0xFFC93643), size: 16),
           ),
       ]),
     );
@@ -228,8 +304,7 @@ class SuccessBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(children: [
-        const Icon(Icons.check_circle_outline,
-            color: kSuccess, size: 18),
+        const Icon(Icons.check_circle_outline, color: kSuccess, size: 18),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -320,8 +395,7 @@ class EmptyState extends StatelessWidget {
 // ─── LoadingOverlay ──────────────────────────────────────────────────────────
 
 class LoadingOverlay extends StatelessWidget {
-  const LoadingOverlay(
-      {super.key, required this.loading, required this.child});
+  const LoadingOverlay({super.key, required this.loading, required this.child});
   final bool loading;
   final Widget child;
 
@@ -361,8 +435,7 @@ class _PrimaryButton extends StatelessWidget {
         minimumSize: const Size(0, 36),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        textStyle: const TextStyle(
-            fontWeight: FontWeight.w700, fontSize: 14),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
       ),
       child: child,
     );
@@ -379,8 +452,7 @@ class RoleChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: const Color(0xFFF0F0F6),
         borderRadius: BorderRadius.circular(99),
@@ -416,8 +488,7 @@ Future<bool> confirmDialog(
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancel',
-              style: TextStyle(color: kMuted)),
+          child: const Text('Cancel', style: TextStyle(color: kMuted)),
         ),
         TextButton(
           onPressed: () => Navigator.pop(ctx, true),
@@ -440,8 +511,18 @@ String dateLabel(String? iso) {
   final d = DateTime.tryParse(iso);
   if (d == null) return 'No date';
   const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec'
   ];
   return '${months[d.month - 1]} ${d.day}, ${d.year}';
 }
@@ -457,8 +538,7 @@ String timeAgo(String iso) {
   return dateLabel(iso);
 }
 
-String? isoDateOnly(DateTime? dt) =>
-    dt?.toIso8601String().substring(0, 10);
+String? isoDateOnly(DateTime? dt) => dt?.toIso8601String().substring(0, 10);
 
 Future<DateTime?> pickDate(BuildContext context, {DateTime? initial}) {
   return showDatePicker(
@@ -469,9 +549,9 @@ Future<DateTime?> pickDate(BuildContext context, {DateTime? initial}) {
     builder: (ctx, child) => Theme(
       data: Theme.of(ctx).copyWith(
         colorScheme: Theme.of(ctx).colorScheme.copyWith(
-          primary: kViolet,
-          onPrimary: Colors.white,
-        ),
+              primary: kViolet,
+              onPrimary: Colors.white,
+            ),
       ),
       child: child!,
     ),

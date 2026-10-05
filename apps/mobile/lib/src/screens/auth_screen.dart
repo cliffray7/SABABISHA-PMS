@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
+import '../widgets/common.dart';
 
 const _kOtpSeconds = 600; // 10 minutes
 
@@ -67,7 +68,8 @@ class _OtpBoxesState extends State<_OtpBoxes> {
 
   void _checkComplete() {
     final code = _controllers.map((c) => c.text).join();
-    if (code.length == 6 && code.split('').every((d) => RegExp(r'\d').hasMatch(d))) {
+    if (code.length == 6 &&
+        code.split('').every((d) => RegExp(r'\d').hasMatch(d))) {
       widget.onComplete(code);
     }
   }
@@ -110,9 +112,7 @@ class _OtpBoxesState extends State<_OtpBoxes> {
                   counterText: '',
                   contentPadding: EdgeInsets.zero,
                   filled: true,
-                  fillColor: isDark
-                      ? const Color(0xFF252834)
-                      : Colors.white,
+                  fillColor: isDark ? const Color(0xFF252834) : Colors.white,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: const BorderSide(color: Color(0xFFD9DBDE)),
@@ -123,8 +123,8 @@ class _OtpBoxesState extends State<_OtpBoxes> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(
-                        color: Color(0xFF4D40ED), width: 2),
+                    borderSide:
+                        const BorderSide(color: Color(0xFF4D40ED), width: 2),
                   ),
                 ),
                 onChanged: (v) => _onChanged(i, v),
@@ -160,7 +160,9 @@ class _OtpCountdownState extends State<_OtpCountdown> {
     _seconds = _kOtpSeconds;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      setState(() { if (_seconds > 0) _seconds--; });
+      setState(() {
+        if (_seconds > 0) _seconds--;
+      });
     });
   }
 
@@ -198,7 +200,7 @@ class _OtpCountdownState extends State<_OtpCountdown> {
         ),
       const SizedBox(height: 6),
       TextButton(
-        onPressed: widget.busy ? null : widget.onResend,
+        onPressed: widget.busy || !expired ? null : widget.onResend,
         style: TextButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           minimumSize: Size.zero,
@@ -257,204 +259,194 @@ class _AuthBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Scaffold(
+      backgroundColor: kPage,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Brand
-                  Row(children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary,
-                          borderRadius: BorderRadius.circular(10)),
-                      child: const Icon(Icons.rocket_launch,
-                          color: Colors.white, size: 22),
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  border: Border.all(color: kLine),
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.045),
+                      blurRadius: 12,
+                      offset: const Offset(0, 3),
                     ),
-                    const SizedBox(width: 10),
-                    Text('Sababisha PMS',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.bold)),
-                  ]),
-                  const SizedBox(height: 32),
-
-                  // Title
-                  Text(_title,
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Text(_subtitle,
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const TaskFlowBrand(
+                      iconSize: 46,
+                      textSize: 28,
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      _title,
+                      style: TextStyle(
+                        color: colors.onSurface,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _subtitle,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.outline)),
-                  const SizedBox(height: 24),
-
-                  // Error / info
-                  if (error != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.errorContainer,
-                          borderRadius: BorderRadius.circular(8)),
-                      child: Text(error!,
-                          style: TextStyle(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onErrorContainer)),
+                            color: colors.outline,
+                            height: 1.45,
+                          ),
                     ),
-                    const SizedBox(height: 16),
-                  ],
-                  if (info != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                          color: Colors.green.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8)),
-                      child: Text(info!,
-                          style: const TextStyle(color: Colors.green)),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // Form
-                  Form(
-                    key: formKey,
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (mode == _AuthMode.otp) ...[
-                            Text(
-                                'Enter the 6-digit code sent to ${email.text.trim()}.',
-                                style: Theme.of(context).textTheme.bodySmall),
-                            const SizedBox(height: 16),
-                            _OtpBoxes(
-                              busy: busy,
-                              onComplete: onOtpComplete,
-                            ),
-                            const SizedBox(height: 12),
-                            _OtpCountdown(
-                              busy: busy,
-                              onResend: onResend,
-                            ),
-                          ] else ...[
-                            if (mode == _AuthMode.register) ...[
-                              TextFormField(
-                                controller: firstName,
-                                decoration: const InputDecoration(
-                                    labelText: 'First name',
-                                    prefixIcon: Icon(Icons.person_outline)),
-                                textInputAction: TextInputAction.next,
-                                validator: _required,
+                    const SizedBox(height: 24),
+                    if (error != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                            color: colors.errorContainer,
+                            borderRadius: BorderRadius.circular(6)),
+                        child: Text(error!,
+                            style: TextStyle(color: colors.onErrorContainer)),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    if (info != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6)),
+                        child: Text(info!,
+                            style: const TextStyle(color: Colors.green)),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    Form(
+                      key: formKey,
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (mode == _AuthMode.otp) ...[
+                              _OtpBoxes(
+                                busy: busy,
+                                onComplete: onOtpComplete,
                               ),
                               const SizedBox(height: 12),
-                              TextFormField(
-                                controller: lastName,
-                                decoration: const InputDecoration(
-                                    labelText: 'Last name',
-                                    prefixIcon: Icon(Icons.person_outline)),
-                                textInputAction: TextInputAction.next,
-                                validator: _required,
+                              _OtpCountdown(
+                                busy: busy,
+                                onResend: onResend,
                               ),
-                              const SizedBox(height: 12),
-                            ],
-                            TextFormField(
-                              controller: email,
-                              decoration: const InputDecoration(
-                                  labelText: 'Email address',
-                                  prefixIcon: Icon(Icons.email_outlined)),
-                              keyboardType: TextInputType.emailAddress,
-                              textInputAction: TextInputAction.next,
-                              validator: _emailValidator,
-                            ),
-                            if (mode != _AuthMode.forgotPassword) ...[
-                              const SizedBox(height: 12),
+                            ] else ...[
+                              if (mode == _AuthMode.register) ...[
+                                TextFormField(
+                                  controller: firstName,
+                                  decoration: const InputDecoration(
+                                      labelText: 'First name'),
+                                  textInputAction: TextInputAction.next,
+                                  validator: _required,
+                                ),
+                                const SizedBox(height: 12),
+                                TextFormField(
+                                  controller: lastName,
+                                  decoration: const InputDecoration(
+                                      labelText: 'Last name'),
+                                  textInputAction: TextInputAction.next,
+                                  validator: _required,
+                                ),
+                                const SizedBox(height: 12),
+                              ],
                               TextFormField(
-                                controller: password,
-                                decoration: InputDecoration(
-                                  labelText: 'Password',
-                                  prefixIcon: const Icon(Icons.lock_outlined),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(obscure
-                                        ? Icons.visibility_outlined
-                                        : Icons.visibility_off_outlined),
-                                    onPressed: onToggleObscure,
+                                controller: email,
+                                decoration: const InputDecoration(
+                                    labelText: 'Email address'),
+                                keyboardType: TextInputType.emailAddress,
+                                textInputAction: TextInputAction.next,
+                                validator: _emailValidator,
+                              ),
+                              if (mode != _AuthMode.forgotPassword) ...[
+                                const SizedBox(height: 12),
+                                TextFormField(
+                                  controller: password,
+                                  decoration: InputDecoration(
+                                    labelText: 'Password',
+                                    suffixIcon: IconButton(
+                                      icon: Icon(obscure
+                                          ? Icons.visibility_outlined
+                                          : Icons.visibility_off_outlined),
+                                      onPressed: onToggleObscure,
+                                    ),
                                   ),
+                                  obscureText: obscure,
+                                  validator: (v) =>
+                                      (mode == _AuthMode.register &&
+                                              (v == null || v.length < 8))
+                                          ? 'Use at least 8 characters.'
+                                          : (mode == _AuthMode.login &&
+                                                  (v == null || v.isEmpty))
+                                              ? 'Enter your password.'
+                                              : null,
                                 ),
-                                obscureText: obscure,
-                                validator: (v) => (mode == _AuthMode.register &&
-                                        (v == null || v.length < 8))
-                                    ? 'Use at least 8 characters.'
-                                    : (mode == _AuthMode.login &&
-                                            (v == null || v.isEmpty))
-                                        ? 'Enter your password.'
-                                        : null,
-                              ),
+                              ],
                             ],
-                          ],
-
-                          const SizedBox(height: 20),
-
-                          // Submit button — only for non-OTP modes
-                          if (mode != _AuthMode.otp)
-                          Builder(builder: (ctx) {
-                            final api = _ApiScope.of(ctx);
-                            return FilledButton(
-                              onPressed: busy ? null : () => onSubmit(api),
-                              child: Padding(
-                                padding: const EdgeInsets.all(14),
-                                child: Text(
-                                  busy ? 'Please wait…' : _submitLabel,
-                                  style: const TextStyle(fontSize: 16),
-                                ),
-                              ),
-                            );
-                          }),
-
-                          const SizedBox(height: 8),
-
-                          // Secondary actions
-                          if (mode == _AuthMode.otp)
-                            TextButton(
-                              onPressed:
-                                  busy ? null : () => onModeChange(_AuthMode.login),
-                              child: const Text('Back to login'),
-                            )
-                          else ...[
-                            if (mode == _AuthMode.login)
+                            const SizedBox(height: 20),
+                            if (mode != _AuthMode.otp)
+                              Builder(builder: (ctx) {
+                                final api = _ApiScope.of(ctx);
+                                return SizedBox(
+                                  height: 44,
+                                  child: FilledButton(
+                                    onPressed:
+                                        busy ? null : () => onSubmit(api),
+                                    child: Text(
+                                      busy ? 'Please wait…' : _submitLabel,
+                                      style: const TextStyle(fontSize: 14),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            const SizedBox(height: 8),
+                            if (mode == _AuthMode.otp)
                               TextButton(
                                 onPressed: busy
                                     ? null
-                                    : () =>
-                                        onModeChange(_AuthMode.forgotPassword),
-                                child: const Text('Forgot password?'),
+                                    : () => onModeChange(_AuthMode.login),
+                                child: const Text('Back to log in'),
+                              )
+                            else ...[
+                              if (mode == _AuthMode.login)
+                                TextButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => onModeChange(
+                                          _AuthMode.forgotPassword),
+                                  child: const Text('Forgot password?'),
+                                ),
+                              TextButton(
+                                onPressed: busy
+                                    ? null
+                                    : () => onModeChange(mode == _AuthMode.login
+                                        ? _AuthMode.register
+                                        : _AuthMode.login),
+                                child: Text(mode == _AuthMode.login
+                                    ? 'Don’t have an account? Sign up'
+                                    : mode == _AuthMode.register
+                                        ? 'Already have an account? Log in'
+                                        : 'Back to login'),
                               ),
-                            TextButton(
-                              onPressed: busy
-                                  ? null
-                                  : () => onModeChange(
-                                      mode == _AuthMode.login
-                                          ? _AuthMode.register
-                                          : _AuthMode.login),
-                              child: Text(mode == _AuthMode.login
-                                  ? 'New here? Create an account'
-                                  : mode == _AuthMode.register
-                                      ? 'Already have an account? Log in'
-                                      : 'Back to login'),
-                            ),
-                          ],
-                        ]),
-                  ),
-                ],
+                            ],
+                          ]),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -468,22 +460,22 @@ class _AuthBody extends StatelessWidget {
       case _AuthMode.login:
         return 'Welcome back';
       case _AuthMode.register:
-        return 'Create account';
+        return 'Create your account';
       case _AuthMode.otp:
         return 'Verify your email';
       case _AuthMode.forgotPassword:
-        return 'Reset password';
+        return 'Forgot your password?';
     }
   }
 
   String get _subtitle {
     switch (mode) {
       case _AuthMode.login:
-        return 'Manage projects and tasks from anywhere.';
+        return 'Log in to your workspace to continue.';
       case _AuthMode.register:
-        return 'Join Sababisha PMS to start collaborating.';
+        return 'Start managing projects with your team.';
       case _AuthMode.otp:
-        return 'A 6-digit code was sent to your email.';
+        return 'Enter the six-digit code sent to ${email.text.trim()}.';
       case _AuthMode.forgotPassword:
         return 'Enter your email to receive a reset link.';
     }
@@ -557,10 +549,12 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   Future<void> _submitOtp(String code) async {
-    setState(() { _busy = true; _error = null; });
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
-      await widget.api.verifyOtp(
-          email: _email.text.trim(), code: code);
+      await widget.api.verifyOtp(email: _email.text.trim(), code: code);
       WidgetsBinding.instance.addPostFrameCallback((_) => widget.onSignedIn());
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -570,8 +564,6 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   void _resendOtp() {
-    // Go back to login with email prefilled so user re-submits credentials
-    // which triggers a fresh OTP from the backend.
     setState(() {
       _mode = _AuthMode.login;
       _error = null;
@@ -589,8 +581,7 @@ class _AuthPageState extends State<AuthPage> {
     try {
       switch (_mode) {
         case _AuthMode.login:
-          await api.login(
-              email: _email.text.trim(), password: _password.text);
+          await api.login(email: _email.text.trim(), password: _password.text);
           setState(() => _mode = _AuthMode.otp);
           break;
         case _AuthMode.register:
@@ -603,7 +594,6 @@ class _AuthPageState extends State<AuthPage> {
           setState(() => _mode = _AuthMode.otp);
           break;
         case _AuthMode.otp:
-          // handled by _submitOtp
           break;
         case _AuthMode.forgotPassword:
           await api.forgotPassword(_email.text.trim());

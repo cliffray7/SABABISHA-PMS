@@ -7,17 +7,18 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/app_state.dart';
+import '../widgets/common.dart';
 import 'settings_screen.dart';
 
 // ─── Palette (mirrors web + app.dart) ─────────────────────────────────────────
-const _kViolet      = Color(0xFF4D40ED);
+const _kViolet = Color(0xFF4D40ED);
 const _kVioletLight = Color(0xFFEEEDFF);
-const _kDanger      = Color(0xFFEF4444);
-const _kWarning     = Color(0xFFF59E0B);
-const _kSuccess     = Color(0xFF22C55E);
-const _kMuted       = Color(0xFF9EA3B0);
-const _kLine        = Color(0xFFE5E7EB);
-const _kLineDark    = Color(0xFF343845);
+const _kDanger = Color(0xFFEF4444);
+const _kWarning = Color(0xFFF59E0B);
+const _kSuccess = Color(0xFF22C55E);
+const _kMuted = Color(0xFF9EA3B0);
+const _kLine = Color(0xFFE5E7EB);
+const _kLineDark = Color(0xFF343845);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Section enum — mirrors web AdminNav exactly
@@ -39,58 +40,92 @@ enum _AdminSection {
 extension _AdminSectionExt on _AdminSection {
   String get label {
     switch (this) {
-      case _AdminSection.overview:          return 'Overview';
-      case _AdminSection.analytics:         return 'Analytics';
-      case _AdminSection.users:             return 'Users';
-      case _AdminSection.organizations:     return 'Organizations';
-      case _AdminSection.projects:          return 'Projects';
-      case _AdminSection.activity:          return 'Activity';
-      case _AdminSection.health:            return 'System Health';
-      case _AdminSection.reports:           return 'Reports';
-      case _AdminSection.platformSettings:  return 'Platform Settings';
-      case _AdminSection.accountSettings:   return 'Account & Settings';
+      case _AdminSection.overview:
+        return 'Overview';
+      case _AdminSection.analytics:
+        return 'Analytics';
+      case _AdminSection.users:
+        return 'Users';
+      case _AdminSection.organizations:
+        return 'Organizations';
+      case _AdminSection.projects:
+        return 'Projects';
+      case _AdminSection.activity:
+        return 'Activity';
+      case _AdminSection.health:
+        return 'System Health';
+      case _AdminSection.reports:
+        return 'Reports';
+      case _AdminSection.platformSettings:
+        return 'Platform Settings';
+      case _AdminSection.accountSettings:
+        return 'Account & Settings';
     }
   }
 
   IconData get icon {
     switch (this) {
-      case _AdminSection.overview:         return Icons.dashboard_outlined;
-      case _AdminSection.analytics:        return Icons.bar_chart_outlined;
-      case _AdminSection.users:            return Icons.people_outlined;
-      case _AdminSection.organizations:    return Icons.business_outlined;
-      case _AdminSection.projects:         return Icons.folder_outlined;
-      case _AdminSection.activity:         return Icons.show_chart;
-      case _AdminSection.health:           return Icons.favorite_border;
-      case _AdminSection.reports:          return Icons.file_download_outlined;
-      case _AdminSection.platformSettings: return Icons.settings_outlined;
-      case _AdminSection.accountSettings:  return Icons.manage_accounts_outlined;
+      case _AdminSection.overview:
+        return Icons.dashboard_outlined;
+      case _AdminSection.analytics:
+        return Icons.bar_chart_outlined;
+      case _AdminSection.users:
+        return Icons.people_outlined;
+      case _AdminSection.organizations:
+        return Icons.business_outlined;
+      case _AdminSection.projects:
+        return Icons.folder_outlined;
+      case _AdminSection.activity:
+        return Icons.show_chart;
+      case _AdminSection.health:
+        return Icons.favorite_border;
+      case _AdminSection.reports:
+        return Icons.file_download_outlined;
+      case _AdminSection.platformSettings:
+        return Icons.settings_outlined;
+      case _AdminSection.accountSettings:
+        return Icons.manage_accounts_outlined;
     }
   }
 
   IconData get selectedIcon {
     switch (this) {
-      case _AdminSection.overview:         return Icons.dashboard;
-      case _AdminSection.analytics:        return Icons.bar_chart;
-      case _AdminSection.users:            return Icons.people;
-      case _AdminSection.organizations:    return Icons.business;
-      case _AdminSection.projects:         return Icons.folder;
-      case _AdminSection.activity:         return Icons.show_chart;
-      case _AdminSection.health:           return Icons.favorite;
-      case _AdminSection.reports:          return Icons.file_download;
-      case _AdminSection.platformSettings: return Icons.settings;
-      case _AdminSection.accountSettings:  return Icons.manage_accounts;
+      case _AdminSection.overview:
+        return Icons.dashboard;
+      case _AdminSection.analytics:
+        return Icons.bar_chart;
+      case _AdminSection.users:
+        return Icons.people;
+      case _AdminSection.organizations:
+        return Icons.business;
+      case _AdminSection.projects:
+        return Icons.folder;
+      case _AdminSection.activity:
+        return Icons.show_chart;
+      case _AdminSection.health:
+        return Icons.favorite;
+      case _AdminSection.reports:
+        return Icons.file_download;
+      case _AdminSection.platformSettings:
+        return Icons.settings;
+      case _AdminSection.accountSettings:
+        return Icons.manage_accounts;
     }
   }
 }
 
 // ─── Nav group definitions (mirrors web AdminNav sections) ────────────────────
 const _navGroups = [
-  _NavGroup('PLATFORM',       [_AdminSection.overview, _AdminSection.analytics]),
-  _NavGroup('MANAGEMENT',     [_AdminSection.users, _AdminSection.organizations, _AdminSection.projects]),
-  _NavGroup('MONITORING',     [_AdminSection.activity, _AdminSection.health]),
-  _NavGroup('REPORTING',      [_AdminSection.reports]),
+  _NavGroup('PLATFORM', [_AdminSection.overview, _AdminSection.analytics]),
+  _NavGroup('MANAGEMENT', [
+    _AdminSection.users,
+    _AdminSection.organizations,
+    _AdminSection.projects
+  ]),
+  _NavGroup('MONITORING', [_AdminSection.activity, _AdminSection.health]),
+  _NavGroup('REPORTING', [_AdminSection.reports]),
   _NavGroup('ADMINISTRATION', [_AdminSection.platformSettings]),
-  _NavGroup('ACCOUNT',        [_AdminSection.accountSettings]),
+  _NavGroup('ACCOUNT', [_AdminSection.accountSettings]),
 ];
 
 class _NavGroup {
@@ -133,7 +168,7 @@ class _AdminScreenState extends State<AdminScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg     = isDark ? const Color(0xFF13151F) : const Color(0xFFF4F5FA);
+    final bg = isDark ? const Color(0xFF13151F) : const Color(0xFFF4F5FA);
     final border = isDark ? _kLineDark : _kLine;
 
     return Scaffold(
@@ -151,15 +186,10 @@ class _AdminScreenState extends State<AdminScreen> {
         // Left: logo mark + section breadcrumb
         title: Row(
           children: [
-            // Violet shield icon — brand mark
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: _kViolet,
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: const Icon(Icons.shield_outlined, color: Colors.white, size: 16),
+            const TaskFlowBrand(
+              iconSize: 30,
+              textSize: 15,
+              showWordmark: false,
             ),
             const SizedBox(width: 10),
             Column(
@@ -263,7 +293,7 @@ class _AdminDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg     = isDark ? const Color(0xFF1B1D2A) : Colors.white;
+    final bg = isDark ? const Color(0xFF1B1D2A) : Colors.white;
     final border = isDark ? _kLineDark : _kLine;
 
     return Drawer(
@@ -318,8 +348,7 @@ class _AdminDrawer extends StatelessWidget {
                 children: [
                   for (final group in _navGroups) ...[
                     Padding(
-                      padding:
-                          const EdgeInsets.fromLTRB(12, 14, 12, 4),
+                      padding: const EdgeInsets.fromLTRB(12, 14, 12, 4),
                       child: Text(
                         group.label,
                         style: const TextStyle(
@@ -384,9 +413,7 @@ class _DrawerTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: selected
-                ? (isDark
-                    ? _kViolet.withValues(alpha: 0.18)
-                    : _kVioletLight)
+                ? (isDark ? _kViolet.withValues(alpha: 0.18) : _kVioletLight)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
           ),
@@ -402,8 +429,7 @@ class _DrawerTile extends StatelessWidget {
                 section.label,
                 style: TextStyle(
                   fontSize: 13.5,
-                  fontWeight:
-                      selected ? FontWeight.w700 : FontWeight.w400,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
                   color: selected
                       ? _kViolet
                       : (isDark ? Colors.white70 : const Color(0xFF3A3F5C)),
@@ -568,12 +594,14 @@ class _AdminOverviewState extends State<_AdminOverview> {
     final m = state.adminMetrics;
 
     final cards = [
-      _MetricDef('Total Users',         Icons.people_outlined,          m?.totalUsers),
-      _MetricDef('Organizations',        Icons.business_outlined,        m?.totalOrganizations),
-      _MetricDef('Total Projects',       Icons.folder_outlined,          m?.totalProjects),
-      _MetricDef('Total Tasks',          Icons.format_list_bulleted,     m?.totalTasks),
-      _MetricDef('Completed Tasks',      Icons.check_circle_outline,     m?.completedTasks),
-      _MetricDef('Active Projects',      Icons.show_chart,               m?.activeProjects),
+      _MetricDef('Total Users', Icons.people_outlined, m?.totalUsers),
+      _MetricDef(
+          'Organizations', Icons.business_outlined, m?.totalOrganizations),
+      _MetricDef('Total Projects', Icons.folder_outlined, m?.totalProjects),
+      _MetricDef('Total Tasks', Icons.format_list_bulleted, m?.totalTasks),
+      _MetricDef(
+          'Completed Tasks', Icons.check_circle_outline, m?.completedTasks),
+      _MetricDef('Active Projects', Icons.show_chart, m?.activeProjects),
     ];
 
     return _SectionPage(
@@ -628,8 +656,7 @@ class _AdminOverviewState extends State<_AdminOverview> {
           // Download feedback
           if (_downloadMsg != null) ...[
             const SizedBox(height: 16),
-            _FeedbackBanner(
-                message: _downloadMsg!, success: _downloadSuccess),
+            _FeedbackBanner(message: _downloadMsg!, success: _downloadSuccess),
           ],
 
           // Hint
@@ -644,8 +671,7 @@ class _AdminOverviewState extends State<_AdminOverview> {
                       text: 'Analytics',
                       style: TextStyle(
                           fontWeight: FontWeight.w700, color: _kViolet)),
-                  TextSpan(
-                      text: ' from the menu. Metrics refresh every 30 s.'),
+                  TextSpan(text: ' from the menu. Metrics refresh every 30 s.'),
                 ],
               ),
             ),
@@ -675,8 +701,7 @@ class _MetricCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1B1D2A) : Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-            color: isDark ? _kLineDark : _kLine),
+        border: Border.all(color: isDark ? _kLineDark : _kLine),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -697,9 +722,7 @@ class _MetricCard extends StatelessWidget {
               child: Text(
                 def.label,
                 style: const TextStyle(
-                    fontSize: 11,
-                    color: _kMuted,
-                    fontWeight: FontWeight.w500),
+                    fontSize: 11, color: _kMuted, fontWeight: FontWeight.w500),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -708,8 +731,7 @@ class _MetricCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             def.value != null ? '${def.value}' : '—',
-            style: const TextStyle(
-                fontSize: 28, fontWeight: FontWeight.w700),
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
           ),
         ],
       ),
@@ -747,8 +769,9 @@ class _AdminAnalyticsState extends State<_AdminAnalytics> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  void _load() => context.read<AppState>().loadAdminAnalytics(
-      from: _from(_days), to: _today);
+  void _load() => context
+      .read<AppState>()
+      .loadAdminAnalytics(from: _from(_days), to: _today);
 
   @override
   Widget build(BuildContext context) {
@@ -783,8 +806,7 @@ class _AdminAnalyticsState extends State<_AdminAnalytics> {
                 selectedColor: _kVioletLight,
                 labelStyle: TextStyle(
                   color: _days == d ? _kViolet : _kMuted,
-                  fontWeight:
-                      _days == d ? FontWeight.w700 : FontWeight.normal,
+                  fontWeight: _days == d ? FontWeight.w700 : FontWeight.normal,
                   fontSize: 13,
                 ),
                 side: BorderSide(color: _days == d ? _kViolet : _kLine),
@@ -814,8 +836,7 @@ class _AdminAnalyticsState extends State<_AdminAnalytics> {
             _ChartCard(
               title: 'Project Growth',
               child: _BarChart(
-                  data: a.projectGrowth,
-                  color: const Color(0xFF06B6D4)),
+                  data: a.projectGrowth, color: const Color(0xFF06B6D4)),
             ),
             const SizedBox(height: 12),
             _ChartCard(
@@ -853,8 +874,8 @@ class _ChartCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title,
-              style: const TextStyle(
-                  fontSize: 14, fontWeight: FontWeight.w700)),
+              style:
+                  const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
           const SizedBox(height: 14),
           child,
         ],
@@ -889,8 +910,7 @@ class _BarChart extends StatelessWidget {
                 children: [
                   if (pt.count > 0)
                     Text('${pt.count}',
-                        style: const TextStyle(
-                            fontSize: 8, color: _kMuted)),
+                        style: const TextStyle(fontSize: 8, color: _kMuted)),
                   const SizedBox(height: 2),
                   Flexible(
                     flex: (ratio * 100).round().clamp(1, 100),
@@ -905,8 +925,7 @@ class _BarChart extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     _shortDate(pt.date),
-                    style: const TextStyle(
-                        fontSize: 7.5, color: _kMuted),
+                    style: const TextStyle(fontSize: 7.5, color: _kMuted),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
@@ -952,8 +971,7 @@ class _HorizBar extends StatelessWidget {
                       style: const TextStyle(
                           fontSize: 12, fontWeight: FontWeight.w500)),
                   Text('${pt.count}',
-                      style: const TextStyle(
-                          fontSize: 12, color: _kMuted)),
+                      style: const TextStyle(fontSize: 12, color: _kMuted)),
                 ],
               ),
               const SizedBox(height: 4),
@@ -990,8 +1008,8 @@ class _AdminUsersState extends State<_AdminUsers> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-        (_) => context.read<AppState>().loadAdminUsers());
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => context.read<AppState>().loadAdminUsers());
   }
 
   @override
@@ -1014,7 +1032,7 @@ class _AdminUsersState extends State<_AdminUsers> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final rows  = _filtered(state.adminUsers);
+    final rows = _filtered(state.adminUsers);
 
     return Column(
       children: [
@@ -1032,20 +1050,15 @@ class _AdminUsersState extends State<_AdminUsers> {
                     children: [
                       Text('Users',
                           style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700)),
+                              fontSize: 20, fontWeight: FontWeight.w700)),
                       SizedBox(height: 2),
-                      Text(
-                          'Manage and monitor registered TaskFlow accounts.',
-                          style:
-                              TextStyle(fontSize: 12, color: _kMuted)),
+                      Text('Manage and monitor registered TaskFlow accounts.',
+                          style: TextStyle(fontSize: 12, color: _kMuted)),
                     ],
                   ),
                   FilledButton.icon(
-                    onPressed: () =>
-                        _showCreateUser(context, state),
-                    icon:
-                        const Icon(Icons.person_add_outlined, size: 17),
+                    onPressed: () => _showCreateUser(context, state),
+                    icon: const Icon(Icons.person_add_outlined, size: 17),
                     label: const Text('Add user'),
                     style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
@@ -1079,8 +1092,7 @@ class _AdminUsersState extends State<_AdminUsers> {
                         _search.isEmpty
                             ? 'No users found.'
                             : 'No users match "$_search".',
-                        style: const TextStyle(
-                            fontSize: 14, color: _kMuted),
+                        style: const TextStyle(fontSize: 14, color: _kMuted),
                       ),
                     )
                   : RefreshIndicator(
@@ -1090,8 +1102,7 @@ class _AdminUsersState extends State<_AdminUsers> {
                       child: ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                         itemCount: rows.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 4),
+                        separatorBuilder: (_, __) => const SizedBox(height: 4),
                         itemBuilder: (ctx, i) => _UserTile(
                           user: rows[i],
                           onRefresh: () =>
@@ -1145,9 +1156,7 @@ class _UserTile extends StatelessWidget {
               (user.firstName.isNotEmpty ? user.firstName[0] : '') +
                   (user.lastName.isNotEmpty ? user.lastName[0] : ''),
               style: const TextStyle(
-                  color: _kViolet,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700),
+                  color: _kViolet, fontSize: 12, fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(width: 10),
@@ -1159,35 +1168,30 @@ class _UserTile extends StatelessWidget {
                   Flexible(
                     child: Text(user.fullName,
                         style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600)),
+                            fontSize: 14, fontWeight: FontWeight.w600)),
                   ),
                   const SizedBox(width: 6),
                   _StatusPill(user.status),
                 ]),
                 Text(user.email,
-                    style: const TextStyle(
-                        fontSize: 12, color: _kMuted),
+                    style: const TextStyle(fontSize: 12, color: _kMuted),
                     overflow: TextOverflow.ellipsis),
                 Text(
                   '${user.organizationCount} org${user.organizationCount != 1 ? 's' : ''} · ${_fmtDate(user.createdAt)}',
-                  style: const TextStyle(
-                      fontSize: 11, color: _kMuted),
+                  style: const TextStyle(fontSize: 11, color: _kMuted),
                 ),
               ],
             ),
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert,
-                size: 18, color: _kMuted),
+            icon: const Icon(Icons.more_vert, size: 18, color: _kMuted),
             onSelected: (a) => _handleAction(context, a),
             itemBuilder: (_) => [
               if (!isSuspended)
                 const PopupMenuItem(
                   value: 'suspend',
                   child: Row(children: [
-                    Icon(Icons.block_outlined,
-                        size: 16, color: _kWarning),
+                    Icon(Icons.block_outlined, size: 16, color: _kWarning),
                     SizedBox(width: 8),
                     Text('Suspend'),
                   ]),
@@ -1195,11 +1199,9 @@ class _UserTile extends StatelessWidget {
               const PopupMenuItem(
                 value: 'delete',
                 child: Row(children: [
-                  Icon(Icons.delete_outline,
-                      size: 16, color: _kDanger),
+                  Icon(Icons.delete_outline, size: 16, color: _kDanger),
                   SizedBox(width: 8),
-                  Text('Delete permanently',
-                      style: TextStyle(color: _kDanger)),
+                  Text('Delete permanently', style: TextStyle(color: _kDanger)),
                 ]),
               ),
             ],
@@ -1277,46 +1279,55 @@ class _CreateUserSheet extends StatefulWidget {
 }
 
 class _CreateUserSheetState extends State<_CreateUserSheet> {
-  final _formKey  = GlobalKey<FormState>();
-  final _first    = TextEditingController();
-  final _last     = TextEditingController();
-  final _email    = TextEditingController();
-  final _pass     = TextEditingController();
-  final _tz       = TextEditingController(text: 'UTC');
-  bool _loading   = false;
+  final _formKey = GlobalKey<FormState>();
+  final _first = TextEditingController();
+  final _last = TextEditingController();
+  final _email = TextEditingController();
+  final _pass = TextEditingController();
+  final _tz = TextEditingController(text: 'UTC');
+  bool _loading = false;
   String? _error;
 
   @override
   void dispose() {
-    _first.dispose(); _last.dispose(); _email.dispose();
-    _pass.dispose();  _tz.dispose();
+    _first.dispose();
+    _last.dispose();
+    _email.dispose();
+    _pass.dispose();
+    _tz.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       await context.read<AppState>().api.adminCreateUser(
-        firstName: _first.text.trim(),
-        lastName:  _last.text.trim(),
-        email:     _email.text.trim(),
-        password:  _pass.text,
-        timezone:  _tz.text.trim().isEmpty ? 'UTC' : _tz.text.trim(),
-      );
+            firstName: _first.text.trim(),
+            lastName: _last.text.trim(),
+            email: _email.text.trim(),
+            password: _pass.text,
+            timezone: _tz.text.trim().isEmpty ? 'UTC' : _tz.text.trim(),
+          );
       if (!mounted) return;
       await context.read<AppState>().loadAdminUsers();
       if (mounted) Navigator.pop(context);
     } on ApiException catch (e) {
-      setState(() { _loading = false; _error = e.message; });
+      setState(() {
+        _loading = false;
+        _error = e.message;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -1326,15 +1337,14 @@ class _CreateUserSheetState extends State<_CreateUserSheet> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text('Create user account',
-                  style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w700)),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 16),
               Row(children: [
                 Expanded(
                   child: TextFormField(
                     controller: _first,
-                    decoration: const InputDecoration(
-                        labelText: 'First name *'),
+                    decoration:
+                        const InputDecoration(labelText: 'First name *'),
                     validator: (v) =>
                         v?.trim().isEmpty == true ? 'Required' : null,
                   ),
@@ -1343,8 +1353,7 @@ class _CreateUserSheetState extends State<_CreateUserSheet> {
                 Expanded(
                   child: TextFormField(
                     controller: _last,
-                    decoration: const InputDecoration(
-                        labelText: 'Last name *'),
+                    decoration: const InputDecoration(labelText: 'Last name *'),
                     validator: (v) =>
                         v?.trim().isEmpty == true ? 'Required' : null,
                   ),
@@ -1353,13 +1362,11 @@ class _CreateUserSheetState extends State<_CreateUserSheet> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _email,
-                decoration: const InputDecoration(
-                    labelText: 'Email address *'),
+                decoration: const InputDecoration(labelText: 'Email address *'),
                 keyboardType: TextInputType.emailAddress,
                 validator: (v) {
                   if (v?.trim().isEmpty == true) return 'Required';
-                  if (!RegExp(r'^[^@]+@[^@]+\.[^@]+')
-                      .hasMatch(v!.trim())) {
+                  if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(v!.trim())) {
                     return 'Enter a valid email';
                   }
                   return null;
@@ -1396,8 +1403,7 @@ class _CreateUserSheetState extends State<_CreateUserSheet> {
               Row(children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed:
-                        _loading ? null : () => Navigator.pop(context),
+                    onPressed: _loading ? null : () => Navigator.pop(context),
                     child: const Text('Cancel'),
                   ),
                 ),
@@ -1407,10 +1413,10 @@ class _CreateUserSheetState extends State<_CreateUserSheet> {
                     onPressed: _loading ? null : _submit,
                     child: _loading
                         ? const SizedBox(
-                            width: 18, height: 18,
+                            width: 18,
+                            height: 18,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white))
+                                strokeWidth: 2, color: Colors.white))
                         : const Text('Create user'),
                   ),
                 ),
@@ -1441,12 +1447,15 @@ class _AdminOrganizationsState extends State<_AdminOrganizations> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-        (_) => context.read<AppState>().loadAdminOrgs());
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => context.read<AppState>().loadAdminOrgs());
   }
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   List<AdminOrganization> _filtered(List<AdminOrganization> all) {
     if (_search.isEmpty) return all;
@@ -1462,7 +1471,7 @@ class _AdminOrganizationsState extends State<_AdminOrganizations> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final rows  = _filtered(state.adminOrgs);
+    final rows = _filtered(state.adminOrgs);
 
     return Column(
       children: [
@@ -1472,11 +1481,9 @@ class _AdminOrganizationsState extends State<_AdminOrganizations> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text('Organizations',
-                  style: TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.w700)),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
               const SizedBox(height: 2),
-              const Text(
-                  'View organizations across the TaskFlow platform.',
+              const Text('View organizations across the TaskFlow platform.',
                   style: TextStyle(fontSize: 12, color: _kMuted)),
               const SizedBox(height: 12),
               TextField(
@@ -1502,19 +1509,16 @@ class _AdminOrganizationsState extends State<_AdminOrganizations> {
                         _search.isEmpty
                             ? 'No organizations found.'
                             : 'No organizations match "$_search".',
-                        style: const TextStyle(
-                            fontSize: 14, color: _kMuted),
+                        style: const TextStyle(fontSize: 14, color: _kMuted),
                       ),
                     )
                   : RefreshIndicator(
                       color: _kViolet,
-                      onRefresh: () =>
-                          context.read<AppState>().loadAdminOrgs(),
+                      onRefresh: () => context.read<AppState>().loadAdminOrgs(),
                       child: ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                         itemCount: rows.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 4),
+                        separatorBuilder: (_, __) => const SizedBox(height: 4),
                         itemBuilder: (_, i) => _OrgTile(rows[i]),
                       ),
                     ),
@@ -1540,13 +1544,13 @@ class _OrgTile extends StatelessWidget {
       ),
       child: Row(children: [
         Container(
-          width: 36, height: 36,
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
             color: _kVioletLight,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: const Icon(Icons.business_outlined,
-              size: 18, color: _kViolet),
+          child: const Icon(Icons.business_outlined, size: 18, color: _kViolet),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -1557,15 +1561,13 @@ class _OrgTile extends StatelessWidget {
                   style: const TextStyle(
                       fontSize: 14, fontWeight: FontWeight.w600)),
               Text(org.slug,
-                  style: const TextStyle(
-                      fontSize: 11, color: _kMuted)),
+                  style: const TextStyle(fontSize: 11, color: _kMuted)),
               const SizedBox(height: 4),
               Row(children: [
-                _InfoChip(Icons.people_outline,
-                    '${org.memberCount} members'),
+                _InfoChip(Icons.people_outline, '${org.memberCount} members'),
                 const SizedBox(width: 8),
-                _InfoChip(Icons.folder_outlined,
-                    '${org.projectCount} projects'),
+                _InfoChip(
+                    Icons.folder_outlined, '${org.projectCount} projects'),
               ]),
             ],
           ),
@@ -1574,12 +1576,10 @@ class _OrgTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(org.owner ?? 'No owner',
-                style: const TextStyle(
-                    fontSize: 11, color: _kMuted)),
+                style: const TextStyle(fontSize: 11, color: _kMuted)),
             const SizedBox(height: 2),
             Text(_fmtDate(org.createdAt),
-                style: const TextStyle(
-                    fontSize: 11, color: _kMuted)),
+                style: const TextStyle(fontSize: 11, color: _kMuted)),
           ],
         ),
       ]),
@@ -1611,23 +1611,24 @@ class _AdminProjectsState extends State<_AdminProjects> {
   }
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
-  List<AdminProject> _filtered(List<AdminProject> all) =>
-      all.where((p) {
+  List<AdminProject> _filtered(List<AdminProject> all) => all.where((p) {
         final q = _search.toLowerCase();
         return (q.isEmpty ||
                 p.name.toLowerCase().contains(q) ||
                 (p.organizationName ?? '').toLowerCase().contains(q) ||
                 p.displayStatus.toLowerCase().contains(q)) &&
-            (_statusFilter.isEmpty ||
-                p.displayStatus == _statusFilter);
+            (_statusFilter.isEmpty || p.displayStatus == _statusFilter);
       }).toList();
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final rows  = _filtered(state.adminProjects);
+    final rows = _filtered(state.adminProjects);
 
     return Column(
       children: [
@@ -1637,11 +1638,9 @@ class _AdminProjectsState extends State<_AdminProjects> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text('Projects',
-                  style: TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.w700)),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
               const SizedBox(height: 2),
-              const Text(
-                  'Read-only oversight of projects across the platform.',
+              const Text('Read-only oversight of projects across the platform.',
                   style: TextStyle(fontSize: 12, color: _kMuted)),
               const SizedBox(height: 12),
               TextField(
@@ -1658,8 +1657,12 @@ class _AdminProjectsState extends State<_AdminProjects> {
                 scrollDirection: Axis.horizontal,
                 child: Row(children: [
                   for (final s in [
-                    '', 'PLANNING', 'ACTIVE',
-                    'ON_HOLD', 'COMPLETED', 'ARCHIVED'
+                    '',
+                    'PLANNING',
+                    'ACTIVE',
+                    'ON_HOLD',
+                    'COMPLETED',
+                    'ARCHIVED'
                   ])
                     Padding(
                       padding: const EdgeInsets.only(right: 6),
@@ -1667,17 +1670,12 @@ class _AdminProjectsState extends State<_AdminProjects> {
                         label: Text(s.isEmpty ? 'All' : s,
                             style: const TextStyle(fontSize: 11)),
                         selected: _statusFilter == s,
-                        onSelected: (_) =>
-                            setState(() => _statusFilter = s),
+                        onSelected: (_) => setState(() => _statusFilter = s),
                         selectedColor: _kVioletLight,
                         labelStyle: TextStyle(
-                            color: _statusFilter == s
-                                ? _kViolet
-                                : _kMuted),
+                            color: _statusFilter == s ? _kViolet : _kMuted),
                         side: BorderSide(
-                            color: _statusFilter == s
-                                ? _kViolet
-                                : _kLine),
+                            color: _statusFilter == s ? _kViolet : _kLine),
                         shape: const StadiumBorder(),
                         padding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 0),
@@ -1689,8 +1687,7 @@ class _AdminProjectsState extends State<_AdminProjects> {
           ),
         ),
         Expanded(
-          child: state.loadingAdminProjects &&
-                  state.adminProjects.isEmpty
+          child: state.loadingAdminProjects && state.adminProjects.isEmpty
               ? const Center(
                   child: CircularProgressIndicator(
                       valueColor: AlwaysStoppedAnimation(_kViolet)))
@@ -1700,8 +1697,7 @@ class _AdminProjectsState extends State<_AdminProjects> {
                         _search.isEmpty
                             ? 'No projects found.'
                             : 'No projects match "$_search".',
-                        style: const TextStyle(
-                            fontSize: 14, color: _kMuted),
+                        style: const TextStyle(fontSize: 14, color: _kMuted),
                       ),
                     )
                   : RefreshIndicator(
@@ -1711,8 +1707,7 @@ class _AdminProjectsState extends State<_AdminProjects> {
                       child: ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                         itemCount: rows.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 4),
+                        separatorBuilder: (_, __) => const SizedBox(height: 4),
                         itemBuilder: (_, i) => _ProjectTile(rows[i]),
                       ),
                     ),
@@ -1728,18 +1723,23 @@ class _ProjectTile extends StatelessWidget {
 
   Color _statusColor(String s) {
     switch (s) {
-      case 'ACTIVE':    return _kSuccess;
-      case 'COMPLETED': return _kViolet;
-      case 'ON_HOLD':   return _kWarning;
-      case 'ARCHIVED':  return _kMuted;
-      default:          return const Color(0xFF06B6D4);
+      case 'ACTIVE':
+        return _kSuccess;
+      case 'COMPLETED':
+        return _kViolet;
+      case 'ON_HOLD':
+        return _kWarning;
+      case 'ARCHIVED':
+        return _kMuted;
+      default:
+        return const Color(0xFF06B6D4);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark  = Theme.of(context).brightness == Brightness.dark;
-    final color   = _statusColor(project.displayStatus);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = _statusColor(project.displayStatus);
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1750,7 +1750,8 @@ class _ProjectTile extends StatelessWidget {
       ),
       child: Row(children: [
         Container(
-          width: 36, height: 36,
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(8),
@@ -1766,12 +1767,11 @@ class _ProjectTile extends StatelessWidget {
                   style: const TextStyle(
                       fontSize: 14, fontWeight: FontWeight.w600)),
               Text(project.organizationName ?? 'Unknown organization',
-                  style: const TextStyle(
-                      fontSize: 12, color: _kMuted)),
+                  style: const TextStyle(fontSize: 12, color: _kMuted)),
               const SizedBox(height: 4),
               Row(children: [
-                _InfoChip(Icons.task_alt_outlined,
-                    '${project.taskCount} tasks'),
+                _InfoChip(
+                    Icons.task_alt_outlined, '${project.taskCount} tasks'),
                 if (project.dueDate != null) ...[
                   const SizedBox(width: 8),
                   _InfoChip(Icons.event_outlined,
@@ -1782,8 +1782,7 @@ class _ProjectTile extends StatelessWidget {
           ),
         ),
         Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(10),
@@ -1847,8 +1846,7 @@ class _AdminHealthState extends State<_AdminHealth> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   Future<void> _load() async {
@@ -1876,8 +1874,7 @@ class _AdminHealthState extends State<_AdminHealth> {
                   ? const SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2))
+                      child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.refresh_outlined, size: 16),
               label: const Text('Refresh'),
             ),
@@ -1885,8 +1882,7 @@ class _AdminHealthState extends State<_AdminHealth> {
               const SizedBox(width: 12),
               Text(
                 'Last checked ${_fmtTime(_lastChecked!)}',
-                style: const TextStyle(
-                    fontSize: 12, color: _kMuted),
+                style: const TextStyle(fontSize: 12, color: _kMuted),
               ),
             ],
           ]),
@@ -1894,8 +1890,7 @@ class _AdminHealthState extends State<_AdminHealth> {
           if (state.loadingAdminHealth && h == null)
             const Center(
                 child: CircularProgressIndicator(
-                    valueColor:
-                        AlwaysStoppedAnimation(_kViolet)))
+                    valueColor: AlwaysStoppedAnimation(_kViolet)))
           else if (h == null)
             const _ErrorBanner('Could not check health status.')
           else
@@ -1909,8 +1904,7 @@ class _AdminHealthState extends State<_AdminHealth> {
     );
   }
 
-  String _fmtTime(DateTime dt) =>
-      '${dt.hour.toString().padLeft(2, '0')}:'
+  String _fmtTime(DateTime dt) => '${dt.hour.toString().padLeft(2, '0')}:'
       '${dt.minute.toString().padLeft(2, '0')}:'
       '${dt.second.toString().padLeft(2, '0')}';
 }
@@ -1922,17 +1916,23 @@ class _HealthTile extends StatelessWidget {
 
   Color get _color {
     switch (status.toLowerCase()) {
-      case 'healthy':  return _kSuccess;
-      case 'degraded': return _kWarning;
-      default:         return _kDanger;
+      case 'healthy':
+        return _kSuccess;
+      case 'degraded':
+        return _kWarning;
+      default:
+        return _kDanger;
     }
   }
 
   IconData get _icon {
     switch (status.toLowerCase()) {
-      case 'healthy':  return Icons.check_circle_outline;
-      case 'degraded': return Icons.warning_amber_outlined;
-      default:         return Icons.error_outline;
+      case 'healthy':
+        return Icons.check_circle_outline;
+      case 'degraded':
+        return Icons.warning_amber_outlined;
+      default:
+        return Icons.error_outline;
     }
   }
 
@@ -1952,14 +1952,10 @@ class _HealthTile extends StatelessWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label,
-                style: const TextStyle(
-                    fontSize: 12, color: _kMuted)),
+            Text(label, style: const TextStyle(fontSize: 12, color: _kMuted)),
             Text(status,
                 style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: _color)),
+                    fontSize: 20, fontWeight: FontWeight.w700, color: _color)),
           ],
         ),
       ]),
@@ -1991,8 +1987,8 @@ class _AdminReportsState extends State<_AdminReports> {
     });
     try {
       final bytes = await context.read<AppState>().api.adminReport();
-      final dir  = await getTemporaryDirectory();
-      final now  = DateTime.now();
+      final dir = await getTemporaryDirectory();
+      final now = DateTime.now();
       final name =
           'taskflow-report-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.csv';
       final file = File('${dir.path}/$name');
@@ -2036,20 +2032,17 @@ class _AdminReportsState extends State<_AdminReports> {
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF1B1D2A) : Colors.white,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                  color: isDark ? _kLineDark : _kLine),
+              border: Border.all(color: isDark ? _kLineDark : _kLine),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Row(children: [
-                  Icon(Icons.summarize_outlined,
-                      size: 20, color: _kViolet),
+                  Icon(Icons.summarize_outlined, size: 20, color: _kViolet),
                   SizedBox(width: 8),
                   Text('System Report',
-                      style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600)),
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                 ]),
                 const SizedBox(height: 8),
                 const Text(
@@ -2065,12 +2058,9 @@ class _AdminReportsState extends State<_AdminReports> {
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white))
-                      : const Icon(Icons.download_outlined,
-                          size: 18),
-                  label: Text(
-                      _downloading ? 'Downloading…' : 'Download CSV'),
+                              strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.download_outlined, size: 18),
+                  label: Text(_downloading ? 'Downloading…' : 'Download CSV'),
                 ),
               ],
             ),
@@ -2112,23 +2102,18 @@ class _AdminPlatformSettings extends StatelessWidget {
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF1B1D2A) : Colors.white,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                  color: isDark ? _kLineDark : _kLine),
+              border: Border.all(color: isDark ? _kLineDark : _kLine),
             ),
             child: const Column(
               children: [
-                _SettingsRow(
-                    label: 'Application', value: 'TaskFlow'),
+                _SettingsRow(label: 'Application', value: 'TaskFlow'),
+                Divider(height: 20),
+                _SettingsRow(label: 'Platform', value: 'Sababisha PMS'),
                 Divider(height: 20),
                 _SettingsRow(
-                    label: 'Platform', value: 'Sababisha PMS'),
+                    label: 'API endpoint', value: 'Configured via dart-define'),
                 Divider(height: 20),
-                _SettingsRow(
-                    label: 'API endpoint',
-                    value: 'Configured via dart-define'),
-                Divider(height: 20),
-                _SettingsRow(
-                    label: 'Mobile client', value: 'Flutter'),
+                _SettingsRow(label: 'Mobile client', value: 'Flutter'),
                 Divider(height: 20),
                 Text(
                   'Theme, credentials, and runtime configuration are '
@@ -2155,10 +2140,8 @@ class _SettingsRow extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label,
-            style: const TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w600)),
-        Text(value,
-            style: const TextStyle(fontSize: 13, color: _kMuted)),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        Text(value, style: const TextStyle(fontSize: 13, color: _kMuted)),
       ],
     );
   }
@@ -2173,10 +2156,8 @@ class _ErrorBanner extends StatelessWidget {
   final String message;
 
   @override
-  Widget build(BuildContext context) => _Banner(
-      message: message,
-      color: _kDanger,
-      icon: Icons.error_outline);
+  Widget build(BuildContext context) =>
+      _Banner(message: message, color: _kDanger, icon: Icons.error_outline);
 }
 
 class _InfoBanner extends StatelessWidget {
@@ -2184,10 +2165,8 @@ class _InfoBanner extends StatelessWidget {
   final String message;
 
   @override
-  Widget build(BuildContext context) => _Banner(
-      message: message,
-      color: _kViolet,
-      icon: Icons.info_outline);
+  Widget build(BuildContext context) =>
+      _Banner(message: message, color: _kViolet, icon: Icons.info_outline);
 }
 
 class _FeedbackBanner extends StatelessWidget {
@@ -2199,16 +2178,12 @@ class _FeedbackBanner extends StatelessWidget {
   Widget build(BuildContext context) => _Banner(
       message: message,
       color: success ? _kSuccess : _kDanger,
-      icon: success
-          ? Icons.check_circle_outline
-          : Icons.error_outline);
+      icon: success ? Icons.check_circle_outline : Icons.error_outline);
 }
 
 class _Banner extends StatelessWidget {
   const _Banner(
-      {required this.message,
-      required this.color,
-      required this.icon});
+      {required this.message, required this.color, required this.icon});
   final String message;
   final Color color;
   final IconData icon;
@@ -2226,8 +2201,7 @@ class _Banner extends StatelessWidget {
         Icon(icon, color: color, size: 17),
         const SizedBox(width: 8),
         Expanded(
-            child: Text(message,
-                style: TextStyle(fontSize: 13, color: color))),
+            child: Text(message, style: TextStyle(fontSize: 13, color: color))),
       ]),
     );
   }
@@ -2240,14 +2214,13 @@ class _InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(icon, size: 12, color: _kMuted),
-      const SizedBox(width: 3),
-      Text(label,
-          style: const TextStyle(fontSize: 11, color: _kMuted)),
-    ],
-  );
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: _kMuted),
+          const SizedBox(width: 3),
+          Text(label, style: const TextStyle(fontSize: 11, color: _kMuted)),
+        ],
+      );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -2293,8 +2266,18 @@ String _fmtDate(String iso) {
   try {
     final dt = DateTime.parse(iso);
     const m = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
     ];
     return '${m[dt.month - 1]} ${dt.day}, ${dt.year}';
   } catch (_) {
