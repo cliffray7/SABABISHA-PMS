@@ -36,20 +36,23 @@ function activityDateBounds(range: ActivityRange, from: string, to: string) {
     const end = to ? new Date(`${to}T00:00:00`) : null;
     if (end) {
       const isToday = end.getFullYear() === now.getFullYear() && end.getMonth() === now.getMonth() && end.getDate() === now.getDate();
-      if (isToday) end.setTime(now.getTime());
-      else end.setDate(end.getDate() + 1);
-      if (end > now) end.setTime(now.getTime());
+      if (isToday) {
+        if (start && now.getTime() - start.getTime() > 366 * 86_400_000) {
+          start.setTime(now.getTime() - 366 * 86_400_000);
+        }
+        return { from: start?.toISOString(), to: undefined };
+      }
+      end.setDate(end.getDate() + 1);
     }
     if (start && end && end.getTime() - start.getTime() > 366 * 86_400_000) {
       start.setTime(end.getTime() - 366 * 86_400_000);
     }
     return { from: start?.toISOString(), to: end?.toISOString() };
   }
-  const end = now;
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (range === '7d') start.setDate(start.getDate() - 6);
   if (range === '30d') start.setDate(start.getDate() - 29);
-  return { from: start.toISOString(), to: end.toISOString() };
+  return { from: start.toISOString(), to: undefined };
 }
 
 function activityDayHeading(value: string) {
@@ -98,7 +101,15 @@ export function AdminActivity() {
     const timeout = window.setTimeout(() => { setSearch(searchInput.trim()); setCursorStack([null]); }, 300);
     return () => window.clearTimeout(timeout);
   }, [searchInput]);
-  const validationError = range === 'custom' && from && to && from > to ? 'The start date must be on or before the end date.' : null;
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const validationError = range === 'custom'
+    ? from && to && from > to
+      ? 'The start date must be on or before the end date.'
+      : from > today || to > today
+        ? 'Activity dates cannot be in the future.'
+        : null
+    : null;
   const query = useQuery({
     queryKey: ['admin-activity-events', category, search, organizationId, range, from, to, cursor],
     queryFn: async () => {
@@ -129,7 +140,7 @@ export function AdminActivity() {
       <Button className="admin-activity-filter-toggle" variant="outlined" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(open => !open)} startIcon={<Filter size={16}/>}>More filters</Button>
       <Button className="admin-activity-refresh" aria-label="Refresh activity" title="Refresh activity" variant="outlined" startIcon={query.isFetching ? <CircularProgress size={14}/> : <RefreshCw size={15}/>} disabled={query.isFetching} onClick={() => void query.refetch()}>Refresh</Button>
     </Box>
-    {filtersOpen && <Box className="admin-activity-advanced-filters" aria-label="Advanced activity filters"><div><strong>Date range</strong><span>Choose inclusive calendar dates.</span></div><TextField fullWidth type="date" size="small" label="From" value={from} InputLabelProps={{ shrink: true }} onChange={event => { setRange('custom'); setFrom(event.target.value); resetPage(); }}/><TextField fullWidth type="date" size="small" label="To" value={to} InputLabelProps={{ shrink: true }} onChange={event => { setRange('custom'); setTo(event.target.value); resetPage(); }}/></Box>}
+    {filtersOpen && <Box className="admin-activity-advanced-filters" aria-label="Advanced activity filters"><div><strong>Date range</strong><span>Choose inclusive calendar dates.</span></div><TextField fullWidth type="date" size="small" label="From" value={from} inputProps={{ max: today }} InputLabelProps={{ shrink: true }} onChange={event => { setRange('custom'); setFrom(event.target.value); resetPage(); }}/><TextField fullWidth type="date" size="small" label="To" value={to} inputProps={{ max: today }} InputLabelProps={{ shrink: true }} onChange={event => { setRange('custom'); setTo(event.target.value); resetPage(); }}/></Box>}
     <nav className="activity-category-tabs admin-activity-category-tabs" aria-label="Activity category filters">{activityCategories.map(item => { const Icon = activityCategoryIcon[item] ?? Activity; return <button key={item} className={category === item ? 'active' : ''} aria-pressed={category === item} onClick={() => { setCategory(item); resetPage(); }}><Icon size={15}/>{item}</button>; })}</nav>
     {validationError && <Alert severity="warning" role="alert">{validationError}</Alert>}
     {!validationError && query.isLoading && <div className="admin-health-skeletons" role="status" aria-label="Loading activity"><span/><span/></div>}
