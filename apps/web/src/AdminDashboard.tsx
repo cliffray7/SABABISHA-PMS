@@ -53,7 +53,12 @@ const statusColors: Record<string, string> = {
 const AdminDashboard = ({ person }: { person?: Person }) => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [periodDays, setPeriodDays] = useState(30);
-  const analyticsTo = format(new Date(), "yyyy-MM-dd");
+  const currentUtc = new Date();
+  const analyticsTo = new Date(Date.UTC(
+    currentUtc.getUTCFullYear(),
+    currentUtc.getUTCMonth(),
+    currentUtc.getUTCDate() + 1,
+  ) - 1).toISOString();
   const analyticsFrom = format(subDays(new Date(), periodDays), "yyyy-MM-dd");
   const metricsQuery = useQuery<AdminDashboardMetrics>({
     queryKey: ["adminDashboardMetrics"],
@@ -103,14 +108,15 @@ const AdminDashboard = ({ person }: { person?: Person }) => {
   const statusTotal = taskStatus.reduce((total, item) => total + item.count, 0);
   const userGrowth = analyticsQuery.data?.userGrowth ?? [];
   const trendCount = (points: { date: string; users?: number; projects?: number }[], key: "users" | "projects") => {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const start = subDays(today, 6);
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const start = subDays(today, 29);
     const end = subDays(today, -1);
-    return points.filter((point) => { const date = new Date(`${point.date}T00:00:00`); return date >= start && date < end; })
+    return points.filter((point) => { const date = new Date(point.date); return date >= start && date < end; })
       .reduce((total, point) => total + (point[key] ?? 0), 0);
   };
-  const weeklyUsers = trendCount(userGrowth, "users");
-  const weeklyProjects = trendCount(analyticsQuery.data?.projectGrowth ?? [], "projects");
+  const usersLastThirtyDays = trendCount(userGrowth, "users");
+  const projectsLastThirtyDays = trendCount(analyticsQuery.data?.projectGrowth ?? [], "projects");
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
@@ -142,7 +148,7 @@ const AdminDashboard = ({ person }: { person?: Person }) => {
               </div>
               <strong>{metrics[key].toLocaleString()}</strong>
               {(key === "totalUsers" || key === "totalProjects") && <>
-                <span className="admin-overview-trend">+{key === "totalUsers" ? weeklyUsers : weeklyProjects} created · 7d</span>
+                <span className="admin-overview-trend">+{key === "totalUsers" ? usersLastThirtyDays : projectsLastThirtyDays} created · 30d</span>
                 <svg className="admin-overview-sparkline" viewBox="0 0 72 24" role="img" aria-label={key === "totalUsers" ? "Daily new users" : "Daily new projects"}>
                   <polyline points={(key === "totalUsers" ? userGrowth : projectGrowth).slice(-7).map((point, index, points) => {
                     const value = key === "totalUsers" ? (point as { users: number }).users : (point as { projects: number }).projects;

@@ -392,8 +392,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         final organization = state.organizations
             .where((item) => item.id == project.organizationId)
             .firstOrNull;
-        if (organization == null)
+        if (organization == null) {
           throw const ApiException('Workspace is unavailable.');
+        }
         await state.selectOrg(organization);
       }
       final selected =
@@ -411,9 +412,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         ));
       }
     } on ApiException catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(error.message)));
+      }
     }
   }
 
@@ -493,12 +495,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 
   Future<void> _createOrganization() async {
-    final state = context.read<AppState>();
-    final navigator = Navigator.of(context);
     Navigator.of(context).pop();
     final controller = TextEditingController();
+    final state = context.read<AppState>();
     final name = await showDialog<String>(
-      context: navigator.context,
+      context: context,
       builder: (context) => AlertDialog(
         title: const Text('New organization'),
         content: TextField(
@@ -532,8 +533,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 
   Future<void> _signOut() async {
-    final state = context.read<AppState>();
     Navigator.of(context).pop();
+    final state = context.read<AppState>();
     try {
       await state.api.logout();
     } on ApiException {
@@ -676,19 +677,21 @@ class _WorkspaceActivityScreenState extends State<_WorkspaceActivityScreen> {
   Future<void> _load({String? cursor, bool silent = false}) async {
     final organizationId = context.read<AppState>().selectedOrg?.id;
     if (organizationId == null) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _events = [];
           _loading = false;
         });
+      }
       return;
     }
     if (_loading && silent) return;
-    if (!silent && mounted)
+    if (!silent && mounted) {
       setState(() {
         _loading = true;
         _error = null;
       });
+    }
     try {
       final range = _range;
       final page = await context.read<AppState>().api.workspaceActivityPage(
@@ -707,25 +710,28 @@ class _WorkspaceActivityScreenState extends State<_WorkspaceActivityScreen> {
             cursor: cursor ?? _cursorStack.last,
             pageSize: 30,
           );
-      if (mounted)
+      if (mounted) {
         setState(() {
           _events = page.items;
           _nextCursor = page.nextCursor;
           _loading = false;
           _error = null;
         });
+      }
     } on ApiException catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = error.message;
           _loading = false;
         });
+      }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = error.toString();
           _loading = false;
         });
+      }
     } finally {
       if (mounted && _loading) setState(() => _loading = false);
     }
@@ -762,9 +768,7 @@ class _WorkspaceActivityScreenState extends State<_WorkspaceActivityScreen> {
     final value = DateTime.tryParse(event['createdAt'] as String? ?? '');
     return value == null
         ? ''
-        : MaterialLocalizations.of(context).formatFullDate(value.toLocal()) +
-            ' at ' +
-            TimeOfDay.fromDateTime(value.toLocal()).format(context);
+        : '${MaterialLocalizations.of(context).formatFullDate(value.toLocal())} at ${TimeOfDay.fromDateTime(value.toLocal()).format(context)}';
   }
 
   void _showEvent(Map<String, dynamic> event) {
@@ -819,9 +823,9 @@ class _WorkspaceActivityScreenState extends State<_WorkspaceActivityScreen> {
           padding: const EdgeInsets.fromLTRB(12, 14, 12, 24),
           children: [
             Row(children: [
-              Expanded(
+              const Expanded(
                   child: Text('Activity',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 21, fontWeight: FontWeight.w700))),
               IconButton(
                   onPressed: _loading ? null : () => _load(),

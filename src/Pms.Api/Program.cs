@@ -58,8 +58,6 @@ builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<IPasswordHasher<Pms.Domain.Entities.User>, PasswordHasher<Pms.Domain.Entities.User>>();
 var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
     ?? throw new InvalidOperationException("Jwt configuration is required.");
-if (string.IsNullOrWhiteSpace(jwt.SigningKey) || Encoding.UTF8.GetByteCount(jwt.SigningKey) < 32)
-    throw new InvalidOperationException("Jwt:SigningKey must be configured as a secret with at least 32 bytes.");
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {

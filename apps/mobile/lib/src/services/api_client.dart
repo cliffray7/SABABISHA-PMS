@@ -281,17 +281,6 @@ class ApiClient {
     return Task.fromJson(_json(response));
   }
 
-  Future<AiTaskSuggestion> suggestTask({
-    required String projectId,
-    required String prompt,
-  }) async {
-    final response = await _authorized('POST', '/ai/tasks/suggest', body: {
-      'projectId': projectId,
-      'prompt': prompt,
-    });
-    return AiTaskSuggestion.fromJson(_json(response));
-  }
-
   Future<Task> updateTask({
     required String taskId,
     String? title,
@@ -385,8 +374,9 @@ class ApiClient {
     required String fileName,
   }) async {
     final session = await _sessionStore.read();
-    if (session == null)
+    if (session == null) {
       throw const ApiException('Session expired.', statusCode: 401);
+    }
 
     final request = http.MultipartRequest(
       'POST',
@@ -481,46 +471,6 @@ class ApiClient {
     return AdminAnalytics.fromJson(_json(response));
   }
 
-  Future<PlatformActivityPage> adminActivityEvents({
-    String? category,
-    String? search,
-    String? organizationId,
-    String? from,
-    String? to,
-    String? cursor,
-    int pageSize = 50,
-  }) async {
-    final response =
-        await _authorized('GET', '/admin/activity-events', params: {
-      if (category != null && category.isNotEmpty) 'category': category,
-      if (search != null && search.isNotEmpty) 'search': search,
-      if (organizationId != null && organizationId.isNotEmpty)
-        'organizationId': organizationId,
-      if (from != null) 'from': from,
-      if (to != null) 'to': to,
-      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
-      'pageSize': '$pageSize',
-    });
-    return PlatformActivityPage.fromJson(_json(response));
-  }
-
-  Future<AdminAuditPage> adminAuditEvents({
-    String? action,
-    String? from,
-    String? to,
-    String? cursor,
-    int pageSize = 50,
-  }) async {
-    final response = await _authorized('GET', '/admin/audit-events', params: {
-      if (action != null && action.isNotEmpty) 'action': action,
-      if (from != null) 'from': from,
-      if (to != null) 'to': to,
-      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
-      'pageSize': '$pageSize',
-    });
-    return AdminAuditPage.fromJson(_json(response));
-  }
-
   Future<List<AdminUser>> adminUsers() async {
     final response = await _authorized('GET', '/admin/users');
     return _jsonList(response).map(AdminUser.fromJson).toList();
@@ -562,14 +512,14 @@ class ApiClient {
     return _jsonList(response).map(AdminProject.fromJson).toList();
   }
 
-  /// Returns PDF, XLSX, or raw CSV bytes for a system report.
-  Future<List<int>> adminReport({String format = 'csv'}) async {
+  /// Returns the raw CSV bytes for a system report.
+  Future<List<int>> adminReport() async {
     var session = await _sessionStore.read();
     if (session == null) {
       throw const ApiException('Your session has expired.', statusCode: 401);
     }
 
-    final uri = _uri('/admin/reports', {'format': format});
+    final uri = _uri('/admin/reports', {'format': 'csv'});
     final request = http.Request('GET', uri)
       ..headers['Authorization'] = 'Bearer ${session.accessToken}';
 
@@ -680,8 +630,9 @@ class ApiClient {
   }
 
   http.Response _ensureSuccess(http.Response response) {
-    if (response.statusCode >= 200 && response.statusCode < 300)
+    if (response.statusCode >= 200 && response.statusCode < 300) {
       return response;
+    }
     final payload = _tryJson(response.body);
     final message = payload?['message'] ??
         (payload?['error'] as Map<String, dynamic>?)?['message'];

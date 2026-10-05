@@ -166,7 +166,7 @@ class _OrgTabState extends State<_OrgTab> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: role,
+                initialValue: role,
                 decoration: const InputDecoration(labelText: 'Role'),
                 items: orgRoles
                     .map((r) => DropdownMenuItem(value: r, child: Text(r)))
@@ -395,7 +395,7 @@ class _ProjectTabState extends State<_ProjectTab> {
               ErrorBanner(err!,
                   onDismiss: () => set(() => err = null)),
             DropdownButtonFormField<Member>(
-              value: selected,
+              initialValue: selected,
               decoration: const InputDecoration(labelText: 'Member'),
               items: eligible
                   .map((m) => DropdownMenuItem(
@@ -407,7 +407,7 @@ class _ProjectTabState extends State<_ProjectTab> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: role,
+              initialValue: role,
               decoration: const InputDecoration(labelText: 'Role'),
               items: projectRoles
                   .map((r) =>

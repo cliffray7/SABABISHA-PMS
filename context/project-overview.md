@@ -42,7 +42,6 @@ Organization → Project → Task → Assignment → Work → Completion
 - Project & Task Management
 - SuperAdmin Dashboard & Analytics
 - Administrative Audit Logging
-- Tenant-scoped workspace Activity Center (separate from the administrative audit trail)
 - AI-Assisted Workflows (Gemini)
 
 ## 8. Business Rules
@@ -70,3 +69,4 @@ Organization → Project → Task → Assignment → Work → Completion
 - **Project**: A collection of tasks within an organization.
 - **Task**: An actionable item belonging to a project.
 - **SuperAdmin**: Hardcoded platform administrators (defined in `Operations:AdminUserIds`).
+

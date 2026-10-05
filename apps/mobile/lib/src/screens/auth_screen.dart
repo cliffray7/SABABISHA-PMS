@@ -24,8 +24,12 @@ class _OtpBoxesState extends State<_OtpBoxes> {
 
   @override
   void dispose() {
-    for (final c in _controllers) c.dispose();
-    for (final f in _focusNodes) f.dispose();
+    for (final c in _controllers) {
+      c.dispose();
+    }
+    for (final f in _focusNodes) {
+      f.dispose();
+    }
     super.dispose();
   }
 
@@ -69,7 +73,9 @@ class _OtpBoxesState extends State<_OtpBoxes> {
   }
 
   void clear() {
-    for (final c in _controllers) c.clear();
+    for (final c in _controllers) {
+      c.clear();
+    }
     _focusNodes[0].requestFocus();
   }
 
@@ -173,7 +179,7 @@ class _OtpCountdownState extends State<_OtpCountdown> {
     final expired = _seconds == 0;
     final mins = (_seconds ~/ 60).toString().padLeft(2, '0');
     final secs = (_seconds % 60).toString().padLeft(2, '0');
-    final urgentColor = const Color(0xFFDA3038);
+    const urgentColor = Color(0xFFDA3038);
 
     return Column(children: [
       if (!expired)
@@ -312,7 +318,7 @@ class _AuthBody extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.15),
+                          color: Colors.green.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8)),
                       child: Text(info!,
                           style: const TextStyle(color: Colors.green)),

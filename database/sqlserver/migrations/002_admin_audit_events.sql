@@ -1,6 +1,3 @@
--- Migration 002: append-only administrative audit events.
--- Apply this script to the existing SQL Server database before deploying the API.
-
 IF OBJECT_ID('admin_audit_events', 'U') IS NULL
 BEGIN
     CREATE TABLE admin_audit_events (

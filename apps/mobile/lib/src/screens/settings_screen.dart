@@ -437,7 +437,7 @@ Future<void> _showEditProjectDialog(
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: status,
+                initialValue: status,
                 decoration: const InputDecoration(labelText: 'Status'),
                 items: projectStatuses
                     .map((s) =>

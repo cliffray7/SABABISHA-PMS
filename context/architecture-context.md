@@ -14,7 +14,7 @@ Tenancy model: Multi-tenant (Organization-based logical isolation via Tenant ID 
 | Database | Microsoft SQL Server | Relational Data Persistence |
 | ORM | Entity Framework Core | Database Access and Migrations |
 | Authentication | JWT (JSON Web Tokens) | Auth & Authorization |
-| AI Integrations | Google Gemini 3.8 Flash | AI Task Assistance / Automation |
+| AI Integrations | Google Gemini 1.5 Flash | AI Task Assistance / Automation |
 | Email Service | Brevo | Transactional Emails |
 
 ## 3. System Architecture
@@ -58,19 +58,18 @@ Deployment: Vercel (`https://taskflow-pms.vercel.app`)
 Admin Dashboard components: `AdminDashboard.tsx`, `AdminAnalytics.tsx`, `AdminManagement.tsx`, `AdminPlatform.tsx`, `AdminReports.tsx`, `AdminNav.tsx`.
 
 ## 7. Database Architecture
-Main entities: Organization, User, Project, Task, AdminAuditEvent, ActivityEvent.
+Main entities: Organization, User, Project, Task, AdminAuditEvent.
 Relationships: Users belong to Organizations. Projects belong to Organizations. Tasks belong to Projects.
 Migration strategy: EF Core Migrations or raw SQL scripts (`database/sqlserver/migrations/`).
-Audit Trail: `002_admin_audit_events.sql` implements an append-only administrative audit log. `003_activity_events.sql` adds a separate tenant-scoped, human-readable workspace activity timeline; it does not replace or backfill the audit trail. Tenant members use the membership-scoped `/api/v1/activity`; SuperAdmins may view those same activity events across tenants through the separately authorized `/api/v1/admin/activity-events` endpoint.
+Audit Trail: `002_admin_audit_events.sql` implements an append-only administrative audit log.
 
 ## 8. Authentication
 Login: Custom Credentials / OTP.
 Token strategy: Short-lived access token (15 mins), long-lived refresh token (30 days).
-The web client renews expired access tokens using the rotating refresh token. Transient refresh failures (network errors/server errors) retain local credentials for a later retry; only a missing, invalid, or expired refresh token clears the local session. Browser tabs coordinate refresh-token rotation with the Web Locks API where supported.
 Revocation: Refresh credentials and unused login codes can be atomically revoked. Active JWTs remain valid until their 15-minute expiry.
 
 ## 9. Authorization
-Policies:
+Policies: 
 - `SuperAdmin` policy checks `Operations:AdminUserIds` configured in `appsettings.json`.
 Server-Side Enforcement: Hiding frontend buttons is NOT security. All privileged actions (e.g., user suspension, project archival) are enforced on the server.
 
@@ -84,8 +83,6 @@ How cross-tenant access is prevented: API routes and database queries must valid
 |---------|---------|------------------|
 | Brevo | Sending emails/OTP | Log failure, notify user |
 | Gemini API | AI capabilities | Graceful degradation if AI is down |
-
-Brevo credentials and verified sender settings must be supplied through API-host environment variables (`Brevo__ApiKey`, `Brevo__From`, and optionally `Brevo__FromName`); real credentials must never be committed in `appsettings.json`. The in-memory development email inbox is only available when the API is running in Development and has no Brevo key, since it can contain OTPs and password-reset links. A successful Brevo API response means the message was accepted for processing, not confirmed delivered to the recipient.
 
 ## 12. Security & Operational Boundaries
 - Client is untrusted.
@@ -101,6 +98,4 @@ These rules MUST NEVER be violated:
 - **Administrative actions must be logged** to the append-only audit trail once the capability is deployed.
 - **Do not generate mock success states** for endpoints that are absent or denied.
 
-## Live data refresh
 
-The current application has no SignalR hub, WebSocket, or server-sent event transport. Workspace project tasks, project members, and dashboard metrics are re-fetched from their existing authenticated endpoints every 15 seconds while a project is selected and the browser tab is visible. Returning focus or network connectivity triggers a refresh. Activity feeds poll every 10 seconds. React Query refreshes active queries on focus/reconnect; SuperAdmin management and summary data poll at 15–30 seconds, while heavier analytics remain at 30 seconds. Polls pause in hidden tabs. This is near-real-time polling, not push delivery; authorization continues to be enforced by the existing API on every request.

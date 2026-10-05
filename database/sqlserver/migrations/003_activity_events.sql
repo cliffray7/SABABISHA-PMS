@@ -1,6 +1,3 @@
--- Migration 003: tenant-scoped human-readable activity timeline.
--- Separate from admin_audit_events, which remains the privileged audit trail.
-
 IF OBJECT_ID('activity_events', 'U') IS NULL
 BEGIN
     CREATE TABLE activity_events (
