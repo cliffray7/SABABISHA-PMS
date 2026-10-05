@@ -160,13 +160,12 @@ export function Inbox({ navigate }: { navigate: (route: string) => void }) {
       <footer className="email-preview-otp-footer"><span>Sent to {m.to}</span><time>{new Date(m.createdAt).toLocaleString()}</time><button onClick={() => { const hash = new URL(m.link).hash.slice(1); navigate(hash); }}>Open verification</button></footer>
     </article>;
     return <article className="email-preview" key={m.id}>
-      <header className="email-preview-brand"><span className="email-preview-mark">T</span><span>TaskFlow</span><small>PROJECTS · PEOPLE · PROGRESS</small></header>
+      <header className="email-preview-brand"><img className="email-preview-mark" src="/taskflow-mark.svg" alt="" /><span className="email-preview-wordmark"><b>Task</b><strong>Flow</strong></span><small>PROJECTS · PEOPLE · PROGRESS</small></header>
       <div className="email-preview-meta"><span>TO</span><strong>{m.to}</strong><time>{new Date(m.createdAt).toLocaleString()}</time></div>
       <section className="email-preview-content"><p className="email-preview-eyebrow">TASKFLOW ACCOUNT</p><h2>{m.subject}</h2>{m.body && <p className="email-preview-message">{m.body}</p>}<button className="primary" onClick={() => { const hash = new URL(m.link).hash.slice(1); navigate(hash); }}>{actionLabel}</button><p className="email-preview-footnote">If you weren’t expecting this message, you can safely ignore it.</p></section>
       <footer className="email-preview-footer">TaskFlow · A clearer way to manage team work</footer>
     </article>;
   })}<button className="text-button inbox-back" onClick={() => navigate('dashboard')}>Back to TaskFlow</button></main>;
 }
-
 
 

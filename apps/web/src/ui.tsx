@@ -1,7 +1,17 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { errorMessage } from './api';
-export function Brand() { return <div className="brand">TaskFlow</div>; }
+export function Brand() {
+  return (
+    <div className="brand" role="img" aria-label="TaskFlow">
+      <img className="brand-icon" src="/taskflow-mark.svg" alt="" />
+      <span className="brand-wordmark" aria-hidden="true">
+        <span className="brand-task">Task</span>
+        <span className="brand-flow">Flow</span>
+      </span>
+    </div>
+  );
+}
 export function Empty({ title, children }: { title: string; children?: ReactNode }) { return <div className="empty-state"><h2>{title}</h2>{children}</div>; }
 export function useAction() {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
@@ -22,4 +32,3 @@ export function Modal({ title, close, children }: { title: string; close: () => 
 }
 export function Form({ onSubmit, children, className = '' }: { onSubmit: (data: FormData) => void; children: ReactNode; className?: string }) { return <form className={className} onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); onSubmit(new FormData(event.currentTarget)); }}>{children}</form>; }
 export const value = (data: FormData, name: string) => String(data.get(name) ?? '').trim();
-

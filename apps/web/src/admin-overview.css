@@ -223,6 +223,8 @@
 .admin-platform-shell.sidebar-collapsed .admin-sidebar-brand-row { flex-direction:column; justify-content:center; gap:11px; margin:0 0 20px; }
 .admin-platform-shell.sidebar-collapsed .admin-sidebar-brand-row .brand { display:grid; width:34px; height:34px; flex:none; place-items:center; border:1px solid var(--overview-border); border-radius:9px; background:var(--overview-soft); font-size:0; }
 .admin-platform-shell.sidebar-collapsed .admin-sidebar-brand-row .brand::after { content:"T"; color:var(--overview-primary); font-size:15px; font-weight:700; }
+.admin-platform-shell.sidebar-collapsed .admin-sidebar-brand-row .brand-wordmark { display:none; }
+.admin-platform-shell.sidebar-collapsed .admin-sidebar-brand-row .brand::after { content:none; }
 .admin-platform-shell.sidebar-collapsed .admin-sidebar-toggle-expanded { display:none; }
 .admin-platform-shell.sidebar-collapsed .admin-sidebar-toggle-collapsed { display:block; }
 .admin-platform-shell.sidebar-collapsed .admin-sidebar-toggle { width:34px; height:30px; }
