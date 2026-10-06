@@ -257,7 +257,7 @@ class ApiClient {
     return list.cast<Map<String, dynamic>>().map(Task.fromJson).toList();
   }
 
-  Future<Task> createTask({
+  Future<void> createTask({
     required String projectId,
     required String title,
     String? description,
@@ -267,8 +267,7 @@ class ApiClient {
     String? dueDate,
     List<String> assigneeIds = const [],
   }) async {
-    final response =
-        await _authorized('POST', '/projects/$projectId/tasks', body: {
+    await _authorized('POST', '/projects/$projectId/tasks', body: {
       'title': title,
       if (description != null && description.isNotEmpty)
         'description': description,
@@ -278,10 +277,9 @@ class ApiClient {
       if (dueDate != null) 'dueDate': dueDate,
       'assigneeIds': assigneeIds,
     });
-    return Task.fromJson(_json(response));
   }
 
-  Future<Task> updateTask({
+  Future<void> updateTask({
     required String taskId,
     String? title,
     String? description,
@@ -290,8 +288,10 @@ class ApiClient {
     String? startDate,
     String? dueDate,
     List<String>? assigneeIds,
+    bool clearStartDate = false,
+    bool clearDueDate = false,
   }) async {
-    final response = await _authorized('PATCH', '/tasks/$taskId', body: {
+    await _authorized('PATCH', '/tasks/$taskId', body: {
       if (title != null) 'title': title,
       if (description != null) 'description': description,
       if (status != null) 'status': status,
@@ -299,12 +299,24 @@ class ApiClient {
       if (startDate != null) 'startDate': startDate,
       if (dueDate != null) 'dueDate': dueDate,
       if (assigneeIds != null) 'assigneeIds': assigneeIds,
+      if (clearStartDate) 'clearStartDate': true,
+      if (clearDueDate) 'clearDueDate': true,
     });
-    return Task.fromJson(_json(response));
   }
 
   Future<void> deleteTask(String taskId) async {
     await _authorized('DELETE', '/tasks/$taskId');
+  }
+
+  Future<AiTaskSuggestion> suggestTask({
+    required String projectId,
+    required String prompt,
+  }) async {
+    final response = await _authorized('POST', '/ai/tasks/suggest', body: {
+      'projectId': projectId,
+      'prompt': prompt,
+    });
+    return AiTaskSuggestion.fromJson(_json(response));
   }
 
   // ─── Subtasks ────────────────────────────────────────────────────────────

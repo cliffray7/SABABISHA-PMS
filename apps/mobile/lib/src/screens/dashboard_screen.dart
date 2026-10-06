@@ -599,7 +599,7 @@ class _UpcomingDeadlines extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => ChangeNotifierProvider.value(
           value: state,
-          child: TaskDetailScreen(taskId: t.id, state: state),
+          child: TaskDetailScreen(taskId: t.id),
         ),
       ),
     );
@@ -958,8 +958,7 @@ class _PriorityList extends StatelessWidget {
                       MaterialPageRoute(
                           builder: (_) => ChangeNotifierProvider.value(
                               value: state,
-                              child: TaskDetailScreen(
-                                  taskId: task.id, state: state)))),
+                              child: TaskDetailScreen(taskId: task.id)))),
                   child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Row(children: [

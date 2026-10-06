@@ -1,6 +1,9 @@
 # Sababisha PMS mobile
 
-Flutter client for the Sababisha PMS API. The mobile app includes account access and the main project-management and administration screens; features depend on a reachable, configured API.
+TaskFlow-branded Flutter client for the Sababisha PMS API. The Android launcher
+label is **TaskFlow** and uses the TaskFlow mark. The mobile app includes
+account access and the main project-management and administration screens;
+features depend on a reachable, configured API.
 
 ## Current features
 

@@ -303,6 +303,55 @@ class AppState extends ChangeNotifier {
     await _loadProjectData(selectedProject!.id);
   }
 
+  Future<Task> getTask(String taskId) async {
+    final cachedTask = tasks.where((task) => task.id == taskId).firstOrNull;
+    if (cachedTask != null) return cachedTask;
+
+    final projectIds = <String>{
+      if (selectedProject != null) selectedProject!.id,
+      ...projects.map((project) => project.id),
+    };
+    for (final projectId in projectIds) {
+      final projectTasks = await api.tasks(projectId);
+      if (selectedProject?.id == projectId) {
+        tasks = projectTasks;
+        notifyListeners();
+      }
+      final task = projectTasks.where((item) => item.id == taskId).firstOrNull;
+      if (task != null) return task;
+    }
+
+    throw const ApiException('Task not found.', statusCode: 404);
+  }
+
+  Future<void> updateTask(Task task) async {
+    await api.updateTask(
+      taskId: task.id,
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      priority: task.priority,
+      startDate: task.startDate,
+      dueDate: task.dueDate,
+      assigneeIds: task.assigneeIds,
+      clearStartDate: task.startDate == null,
+      clearDueDate: task.dueDate == null,
+    );
+    tasks = [
+      for (final current in tasks)
+        if (current.id == task.id) task else current,
+    ];
+    notifyListeners();
+    if (selectedProject?.id == task.projectId) await refreshTasks();
+  }
+
+  Future<void> deleteTask(String taskId) async {
+    await api.deleteTask(taskId);
+    tasks = tasks.where((task) => task.id != taskId).toList();
+    notifyListeners();
+    await refreshTasks();
+  }
+
   Future<void> moveTask(String taskId, String status) async {
     // Optimistic update
     tasks = [

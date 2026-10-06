@@ -600,7 +600,7 @@ class _TaskCard extends StatelessWidget {
         MaterialPageRoute(
           builder: (_) => ChangeNotifierProvider.value(
             value: state,
-            child: TaskDetailScreen(taskId: task.id, state: state),
+            child: TaskDetailScreen(taskId: task.id),
           ),
         ),
       ),

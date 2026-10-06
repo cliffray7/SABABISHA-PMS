@@ -160,8 +160,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                       Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => ChangeNotifierProvider.value(
                           value: state,
-                          child:
-                              TaskDetailScreen(taskId: task.id, state: state),
+                          child: TaskDetailScreen(taskId: task.id),
                         ),
                       ));
                     }));
@@ -406,7 +405,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         await Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => ChangeNotifierProvider.value(
             value: state,
-            child: TaskDetailScreen(taskId: taskId, state: state),
+            child: TaskDetailScreen(taskId: taskId),
           ),
         ));
       }

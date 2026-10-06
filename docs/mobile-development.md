@@ -146,7 +146,12 @@ On any `401` during a protected request, `ApiClient._authorized` calls `/auth/re
 
 - List tasks filtered by project, status, assignee, and priority.
 - Create a task: title, description, status, priority, due date, multiple assignees.
-- Edit and delete tasks with permission checks.
+- Open task details from the loaded task list; if a task is not cached, reload
+  the authenticated `GET /api/v1/tasks?projectId={projectId}` lists for known
+  projects.
+- Edit tasks with `PATCH /api/v1/tasks/{id}` and delete them with
+  `DELETE /api/v1/tasks/{id}`. The API enforces project permissions and soft
+  deletes tasks.
 - Drag-to-reorder within a board column.
 - Comments and @-mention support.
 
@@ -163,7 +168,11 @@ On any `401` during a protected request, `ApiClient._authorized` calls `/auth/re
 
 ### AI task drafting (optional)
 
-When the backend has `Gemini__ApiKey` configured, a "Draft with AI" button on the new-task form calls `POST /api/v1/ai/tasks/suggest`. The app displays the suggestion for review and pre-fills the form; it never submits automatically. If the endpoint returns `503`, the button is hidden.
+When the backend has `Gemini__ApiKey` and `Gemini__Model` configured, a "Draft
+with AI" button on the new-task form calls `POST /api/v1/ai/tasks/suggest` with
+the selected project ID and prompt. The app displays the typed suggestion for
+review and pre-fills the form; it never submits automatically. API errors,
+including `503` when drafting is unavailable, are shown in the form.
 
 ---
 

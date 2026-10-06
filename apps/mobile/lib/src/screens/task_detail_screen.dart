@@ -3,12 +3,32 @@ import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../services/app_state.dart';
+import '../services/api_client.dart';
 import '../widgets/common.dart';
 import 'edit_task_screen.dart';
 
-class TaskDetailScreen extends StatelessWidget {
+class TaskDetailScreen extends StatefulWidget {
   const TaskDetailScreen({super.key, required this.taskId});
   final String taskId;
+
+  @override
+  State<TaskDetailScreen> createState() => _TaskDetailScreenState();
+}
+
+class _TaskDetailScreenState extends State<TaskDetailScreen> {
+  late Future<Task> _taskFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _taskFuture = context.read<AppState>().getTask(widget.taskId);
+  }
+
+  void _reloadTask() {
+    setState(() {
+      _taskFuture = context.read<AppState>().getTask(widget.taskId);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -16,17 +36,25 @@ class TaskDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Task Details'),
       ),
-      body: FutureBuilder<Task?>(
-        future: context.read<AppState>().getTask(taskId),
+      body: FutureBuilder<Task>(
+        future: _taskFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData || snapshot.data == null) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: ErrorBanner(snapshot.error.toString()),
+              ),
+            );
+          }
+          if (!snapshot.hasData) {
             return const Center(child: Text('Task not found.'));
           }
           final task = snapshot.data!;
-          return TaskDetailView(task: task);
+          return TaskDetailView(task: task, onTaskChanged: _reloadTask);
         },
       ),
     );
@@ -34,9 +62,14 @@ class TaskDetailScreen extends StatelessWidget {
 }
 
 class TaskDetailView extends StatelessWidget {
-  const TaskDetailView({super.key, required this.task});
+  const TaskDetailView({
+    super.key,
+    required this.task,
+    required this.onTaskChanged,
+  });
 
   final Task task;
+  final VoidCallback onTaskChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -48,16 +81,16 @@ class TaskDetailView extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.edit),
-            onPressed: () {
-              Navigator.of(context).push(
+            onPressed: () async {
+              final changed = await Navigator.of(context).push<bool>(
                 MaterialPageRoute(
-                  builder: (context) =>
-                      ChangeNotifierProvider.value(
-                        value: appState,
-                        child: EditTaskScreen(task: task),
-                      ),
+                  builder: (context) => ChangeNotifierProvider.value(
+                    value: appState,
+                    child: EditTaskScreen(task: task),
+                  ),
                 ),
               );
+              if (changed == true) onTaskChanged();
             },
           ),
           IconButton(
@@ -80,9 +113,16 @@ class TaskDetailView extends StatelessWidget {
                   ],
                 ),
               );
-              if (confirm == true) {
+              if (confirm != true || !context.mounted) return;
+              try {
                 await appState.deleteTask(task.id);
-                Navigator.of(context).pop();
+                if (context.mounted) Navigator.of(context).pop();
+              } on ApiException catch (error) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(error.message)),
+                  );
+                }
               }
             },
           ),
@@ -123,7 +163,8 @@ class TaskDetailView extends StatelessWidget {
               children: [
                 const Icon(Icons.calendar_today_outlined, size: 20),
                 const SizedBox(width: 8),
-                Text('Due: ${task.dueDate != null ? dateLabel(task.dueDate) : 'Not set'}'),
+                Text(
+                    'Due: ${task.dueDate != null ? dateLabel(task.dueDate) : 'Not set'}'),
               ],
             ),
           ],
