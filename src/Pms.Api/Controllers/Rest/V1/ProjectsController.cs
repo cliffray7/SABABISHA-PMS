@@ -6,9 +6,10 @@ using Pms.Api.Auth;
 using Pms.Api.Activity;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
+using Pms.Api.Realtime;
 namespace Pms.Api.Controllers.Rest.V1;
 [ApiController, Authorize, Route("api/v1/projects")]
-public sealed class ProjectsController(PmsDbContext db) : ControllerBase
+public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realtime) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> List(Guid organizationId, CancellationToken ct) => Ok(await (from p in db.Projects join m in db.ProjectMembers on p.Id equals m.ProjectId join om in db.OrganizationMembers on p.OrganizationId equals om.OrganizationId where p.OrganizationId == organizationId && p.ArchivedAt == null && p.DeletedAt == null && m.UserId == CurrentUser.Id(User) && m.Status == "active" && om.UserId == CurrentUser.Id(User) && om.Status == "active" select new { p.Id, p.OrganizationId, p.Name, p.Description, p.Status, p.StartDate, p.DueDate, m.Role }).ToListAsync(ct));
@@ -20,7 +21,7 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         var p = new Project { Id = Guid.NewGuid(), OrganizationId = request.OrganizationId, OwnerId = CurrentUser.Id(User), Name = request.Name.Trim(), Description = request.Description, Status = request.Status, StartDate = request.StartDate, DueDate = request.DueDate };
         db.Projects.Add(p); db.ProjectMembers.Add(new ProjectMember { Id = Guid.NewGuid(), ProjectId = p.Id, UserId = CurrentUser.Id(User), Role = "PROJECT_MANAGER" });
         await ActivityRecorder.RecordAsync(db, User, Request, p.OrganizationId, "Projects", "project.created", "project", p.Id, p.Name, $"created project \"{p.Name}\"", ct, p.Id);
-        await db.SaveChangesAsync(ct); return Ok(p);
+        await db.SaveChangesAsync(ct); await realtime.OrganizationChanged(p.OrganizationId, "projects", ct); return Ok(p);
     }
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
@@ -35,7 +36,7 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         p.Name = request.Name.Trim(); p.Description = request.Description; p.Status = request.Status; p.StartDate = request.StartDate; p.DueDate = request.DueDate; p.UpdatedAt = DateTime.UtcNow;
         var action = previousStatus == p.Status ? "project.updated" : "project.status_changed";
         await ActivityRecorder.RecordAsync(db, User, Request, p.OrganizationId, "Projects", action, "project", p.Id, p.Name, action == "project.status_changed" ? $"changed project \"{p.Name}\" status from {previousStatus} to {p.Status}" : $"updated project \"{p.Name}\"", ct, p.Id);
-        await db.SaveChangesAsync(ct); return Ok(p);
+        await db.SaveChangesAsync(ct); await realtime.ProjectChanged(p.OrganizationId, p.Id, "projects", ct); return Ok(p);
     }
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Archive(Guid id, CancellationToken ct)
@@ -44,7 +45,7 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         var project = await db.Projects.SingleAsync(x => x.Id == id && x.DeletedAt == null, ct);
         project.ArchivedAt = DateTime.UtcNow;
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Projects", "project.archived", "project", project.Id, project.Name, $"archived project \"{project.Name}\"", ct, project.Id);
-        await db.SaveChangesAsync(ct); return NoContent();
+        await db.SaveChangesAsync(ct); await realtime.ProjectChanged(project.OrganizationId, project.Id, "projects", ct); return NoContent();
     }
     [HttpPost("{id:guid}/restore")]
     public async Task<IActionResult> Restore(Guid id, CancellationToken ct)
@@ -64,7 +65,7 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         }
         project.UpdatedAt = DateTime.UtcNow;
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Projects", "project.restored", "project", project.Id, project.Name, $"restored project \"{project.Name}\"", ct, project.Id);
-        await db.SaveChangesAsync(ct); return NoContent();
+        await db.SaveChangesAsync(ct); await realtime.ProjectChanged(project.OrganizationId, project.Id, "projects", ct); return NoContent();
     }
     [HttpDelete("{id:guid}/trash")]
     public async Task<IActionResult> MoveToTrash(Guid id, CancellationToken ct)
@@ -76,6 +77,7 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         project.UpdatedAt = DateTime.UtcNow;
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Projects", "project.deleted", "project", project.Id, project.Name, $"moved project \"{project.Name}\" to Trash", ct, project.Id);
         await db.SaveChangesAsync(ct);
+        await realtime.ProjectChanged(project.OrganizationId, project.Id, "projects", ct);
         return NoContent();
     }
     [HttpGet("{id:guid}/members")]
@@ -99,7 +101,7 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         var addedUser = await db.Users.AsNoTracking().Where(x => x.Id == request.UserId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
         var addedName = $"{addedUser.FirstName} {addedUser.LastName}";
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "People", "project.member_added", "user", request.UserId, addedName, $"added {addedName} to project \"{project.Name}\"", ct, project.Id);
-        await db.SaveChangesAsync(ct); return NoContent();
+        await db.SaveChangesAsync(ct); await realtime.ProjectChanged(project.OrganizationId, project.Id, "members", ct); return NoContent();
     }
     [HttpDelete("{id:guid}/members/{userId:guid}")]
     public async Task<IActionResult> RemoveMember(Guid id, Guid userId, CancellationToken ct)
@@ -113,7 +115,7 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         var removedUser = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
         var removedName = $"{removedUser.FirstName} {removedUser.LastName}";
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "People", "project.member_removed", "user", userId, removedName, $"removed {removedName} from project \"{project.Name}\"", ct, project.Id);
-        await db.SaveChangesAsync(ct); return NoContent();
+        await db.SaveChangesAsync(ct); await realtime.ProjectChanged(project.OrganizationId, project.Id, "members", ct); return NoContent();
     }
     private Task<bool> Member(Guid id, CancellationToken ct) => (from projectMember in db.ProjectMembers
         join project in db.Projects on projectMember.ProjectId equals project.Id

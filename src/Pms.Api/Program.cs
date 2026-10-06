@@ -32,6 +32,8 @@ builder.Logging.AddJsonConsole();
 
 const string FrontendCors = "FrontendCors";
 builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles);
+builder.Services.AddSignalR();
+builder.Services.AddScoped<Pms.Api.Realtime.RealtimePublisher>();
 builder.Services.AddHttpClient("Brevo", client =>
 {
     client.BaseAddress = new Uri("https://api.brevo.com/");
@@ -51,9 +53,12 @@ builder.Services.AddRateLimiter(options => options.AddPolicy("auth", context =>
             QueueLimit = 0
         })));
 builder.Services.AddCors(options => options.AddPolicy(FrontendCors, policy => policy
-    .SetIsOriginAllowed(_ => true)
+    .SetIsOriginAllowed(origin => builder.Environment.IsDevelopment()
+        || origin == "https://taskflow-pms.vercel.app"
+        || origin.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase))
     .AllowAnyHeader()
-    .AllowAnyMethod()));
+    .AllowAnyMethod()
+    .AllowCredentials()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
@@ -73,6 +78,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true, ClockSkew = TimeSpan.FromSeconds(30)
         };
         options.MapInboundClaims = false;
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var token = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(token) && context.Request.Path.StartsWithSegments("/hubs/workspace"))
+                    context.Token = token;
+                return Task.CompletedTask;
+            }
+        };
     });
 builder.Services.AddDbContext<PmsDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("PmsDatabase"), sql =>
@@ -189,6 +204,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<Pms.Api.Realtime.WorkspaceHub>("/hubs/workspace").RequireAuthorization();
 app.MapHealthChecks("/api/v1/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/api/v1/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 app.MapGraphQL("/graphql");

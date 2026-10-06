@@ -8,9 +8,10 @@ using Pms.Api.Activity;
 using Pms.Api.Media;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
+using Pms.Api.Realtime;
 namespace Pms.Api.Controllers.Rest.V1;
 [ApiController, Authorize]
-public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment environment, IConfiguration configuration, ICloudinaryStorage media, ILogger<CollaborationController> logger) : ControllerBase
+public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment environment, IConfiguration configuration, ICloudinaryStorage media, ILogger<CollaborationController> logger, RealtimePublisher realtime) : ControllerBase
 {
     private string UploadFolder
     {
@@ -56,7 +57,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         var project = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Collaboration", mentions.Length > 0 ? "comment.mentioned" : "comment.created", "task", task.Id, task.Title,
             mentions.Length > 0 ? $"commented on task \"{task.Title}\" and mentioned teammates in project \"{project.Name}\"" : $"commented on task \"{task.Title}\" in project \"{project.Name}\"", ct, task.ProjectId);
-        await db.SaveChangesAsync(ct); return Ok(new { c.Id });
+        await db.SaveChangesAsync(ct); await Publish(task.ProjectId, "collaboration", ct); return Ok(new { c.Id });
     }
     [HttpDelete("/api/v1/tasks/{taskId:guid}/comments/{commentId:guid}")]
     public async Task<IActionResult> DeleteComment(Guid taskId, Guid commentId, CancellationToken ct)
@@ -70,7 +71,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         comment.DeletedAt = DateTime.UtcNow; comment.UpdatedAt = DateTime.UtcNow;
         var project = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Collaboration", "comment.deleted", "task", task.Id, task.Title, $"deleted a comment on task \"{task.Title}\" in project \"{project.Name}\"", ct, task.ProjectId);
-        await db.SaveChangesAsync(ct); return NoContent();
+        await db.SaveChangesAsync(ct); await Publish(task.ProjectId, "collaboration", ct); return NoContent();
     }
     [HttpPost("/api/v1/tasks/{taskId:guid}/comments/{commentId:guid}/restore")]
     public async Task<IActionResult> RestoreComment(Guid taskId, Guid commentId, CancellationToken ct)
@@ -83,6 +84,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         comment.DeletedAt = null;
         comment.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
+        await Publish(task.ProjectId, "collaboration", ct);
         return NoContent();
     }
     [HttpGet("/api/v1/tasks/{id:guid}/attachments")]
@@ -147,6 +149,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
             catch (Exception cleanupError) { logger.LogError(cleanupError, "Could not remove unreferenced Cloudinary attachment {PublicId}.", uploaded.PublicId); }
             throw;
         }
+        await Publish(task.ProjectId, "collaboration", ct);
         return Ok(new { attachment.Id, attachment.UploadedBy, attachment.FileName, attachment.FileSize, contentType = attachment.FileType, attachment.CreatedAt });
     }
     [HttpGet("/api/v1/attachments/{id:guid}/download")]
@@ -183,6 +186,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         var projectInfo = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
         await ActivityRecorder.RecordAsync(db, User, Request, projectInfo.OrganizationId, "Collaboration", "attachment.deleted", "task", task.Id, task.Title, $"removed a file from task \"{task.Title}\" in project \"{projectInfo.Name}\"", ct, task.ProjectId);
         await db.SaveChangesAsync(ct);
+        await Publish(task.ProjectId, "collaboration", ct);
         return NoContent();
     }
     [HttpPost("/api/v1/attachments/{id:guid}/restore")]
@@ -196,6 +200,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         if (attachment.UploadedBy != userId && !await IsManager(task.ProjectId, userId, ct)) return Forbid();
         attachment.DeletedAt = null;
         await db.SaveChangesAsync(ct);
+        await Publish(task.ProjectId, "collaboration", ct);
         return NoContent();
     }
     [HttpGet("/api/v1/notifications")]
@@ -211,5 +216,12 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
             && organizationMember.UserId == userId && organizationMember.Status == "active" && organizationMember.Role != "GUEST"
             && (member.Role == "PROJECT_MANAGER" || member.Role == "TEAM_LEAD")
         select member).AnyAsync(ct);
+
+    private async Task Publish(Guid projectId, string area, CancellationToken ct)
+    {
+        var organizationId = await db.Projects.AsNoTracking().Where(project => project.Id == projectId)
+            .Select(project => project.OrganizationId).SingleAsync(ct);
+        await realtime.ProjectChanged(organizationId, projectId, area, ct);
+    }
 }
 public sealed record CommentRequest([Required, StringLength(10000)] string Content, [Required] IReadOnlyCollection<Guid> MentionedUserIds, Guid? ParentCommentId);

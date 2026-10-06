@@ -1512,8 +1512,18 @@ Future<void> _showCreateTaskDialog(BuildContext context, AppState state) async {
                             dense: true,
                             contentPadding: EdgeInsets.zero,
                             controlAffinity: ListTileControlAffinity.leading,
-                            title: Text(member.fullName,
-                                style: const TextStyle(fontSize: 13)),
+                            title: Row(children: [
+                              AvatarChip(
+                                initials: member.initials,
+                                size: 26,
+                                avatarUrl: member.avatarUrl,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(member.fullName,
+                                    style: const TextStyle(fontSize: 13)),
+                              ),
+                            ]),
                             value: selectedAssignees.contains(member.userId),
                             onChanged: (selected) => setDialogState(() {
                               if (selected == true) {

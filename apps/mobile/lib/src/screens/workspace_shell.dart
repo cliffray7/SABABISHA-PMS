@@ -181,7 +181,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               for (final member in members) {
                 results.add(ListTile(
                     dense: true,
-                    leading: const Icon(Icons.person_outline, size: 17),
+                    leading: AvatarChip(
+                      initials: member.initials,
+                      size: 28,
+                      avatarUrl: member.avatarUrl,
+                    ),
                     title: Text(member.fullName,
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: const Text('Member'),
@@ -238,19 +242,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
             constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             tooltip: 'Account and workspace',
             onPressed: _openWorkspaceMenu,
-            icon: CircleAvatar(
-              radius: 14,
-              backgroundColor: _kVioletLight,
-              backgroundImage: account?.avatarUrl == null
-                  ? null
-                  : NetworkImage(account!.avatarUrl!),
-              child: account?.avatarUrl == null
-                  ? Text(initials.toLowerCase(),
-                      style: const TextStyle(
-                          fontSize: 9,
-                          color: _kViolet,
-                          fontWeight: FontWeight.w700))
-                  : null,
+            icon: AvatarChip(
+              initials: initials.isEmpty ? '?' : initials,
+              size: 28,
+              avatarUrl: account?.avatarUrl,
             ),
           ),
         ],
@@ -336,19 +331,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 14, 12),
                     child: Row(children: [
-                      CircleAvatar(
-                        radius: 14,
-                        backgroundColor: isDark
-                            ? const Color(0xFF35313E)
-                            : const Color(0xFFEAE5DC),
-                        backgroundImage: account?.avatarUrl == null
-                            ? null
-                            : NetworkImage(account!.avatarUrl!),
-                        child: account?.avatarUrl == null
-                            ? Text(initials.toLowerCase(),
-                                style: const TextStyle(
-                                    fontSize: 9, color: _kMuted))
-                            : null,
+                      AvatarChip(
+                        initials: initials.isEmpty ? '?' : initials,
+                        size: 28,
+                        avatarUrl: account?.avatarUrl,
                       ),
                       const SizedBox(width: 9),
                       Expanded(

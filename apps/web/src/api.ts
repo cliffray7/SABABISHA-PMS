@@ -1,6 +1,7 @@
 ﻿import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { ApolloClient, HttpLink, InMemoryCache } from '@apollo/client';
 import { QueryClient } from '@tanstack/react-query';
+import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 
 export const api = axios.create({ baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:5141/api/v1' });
 export const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: 'always', refetchOnReconnect: 'always', refetchIntervalInBackground: false } } });
@@ -18,6 +19,17 @@ export const graphqlClient = new ApolloClient({
 });
 export type AuthResponse = { userId: string; accessToken: string; refreshToken: string; accessTokenExpiresAt: string };
 export const signedIn = () => Boolean(localStorage.getItem('taskflow.accessToken'));
+export function createWorkspaceConnection(onChanged: (area: string) => void) {
+  const connection = new HubConnectionBuilder()
+    .withUrl(`${api.defaults.baseURL?.replace(/\/api\/v1\/?$/, '')}/hubs/workspace`, {
+      accessTokenFactory: () => localStorage.getItem('taskflow.accessToken') ?? ''
+    })
+    .withAutomaticReconnect()
+    .configureLogging(LogLevel.Warning)
+    .build();
+  connection.on('workspaceChanged', (area: string) => onChanged(area));
+  return connection;
+}
 export function saveAuth(auth: AuthResponse) { localStorage.setItem('taskflow.accessToken', auth.accessToken); localStorage.setItem('taskflow.refreshToken', auth.refreshToken); localStorage.setItem('taskflow.userId', auth.userId); }
 export function clearAuth() { ['accessToken','refreshToken','userId','organizationId','projectId'].forEach(k => localStorage.removeItem('taskflow.' + k)); }
 type RetriableRequestConfig = InternalAxiosRequestConfig & { retried?: boolean; accessTokenAtRequest?: string };

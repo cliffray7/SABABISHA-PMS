@@ -39,6 +39,7 @@ class _PmsAppState extends State<PmsApp> {
     try {
       final account = await _api.account();
       _appState.account = account;
+      await _appState.connectRealtime();
       await _appState.checkSuperAdmin();
       if (!_appState.isSuperAdmin) {
         await Future.wait([

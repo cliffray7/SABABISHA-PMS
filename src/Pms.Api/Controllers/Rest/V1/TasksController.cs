@@ -6,9 +6,10 @@ using Pms.Api.Auth;
 using Pms.Api.Activity;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
+using Pms.Api.Realtime;
 namespace Pms.Api.Controllers.Rest.V1;
 [ApiController, Authorize, Route("api/v1/tasks")]
-public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerBase
+public sealed class TasksController(PmsDbContext db, AppMail mail, RealtimePublisher realtime) : ControllerBase
 {
     private static readonly string[] Statuses = ["TO DO", "IN PROGRESS", "REVIEW", "DONE"];
     private static readonly string[] Priorities = ["URGENT", "HIGH", "MEDIUM", "LOW"];
@@ -42,7 +43,7 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
             var name = await db.Users.AsNoTracking().Where(user => user.Id == userId).Select(user => user.FirstName + " " + user.LastName).SingleAsync(ct);
             await RecordActivityAsync(task, "Tasks", "task.assigned", $"assigned task \"{task.Title}\" to {name}", ct);
         }
-        await db.SaveChangesAsync(ct); return Ok(new { task.Id });
+        await db.SaveChangesAsync(ct); await Publish(task.ProjectId, "tasks", ct); return Ok(new { task.Id });
     }
     [HttpGet("{id:guid}/subtasks")]
     public async Task<IActionResult> Subtasks(Guid id, CancellationToken ct)
@@ -75,7 +76,7 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
         var subtask = new WorkTask { Id = Guid.NewGuid(), ProjectId = parent.ProjectId, ParentTaskId = parent.Id, Title = request.Title.Trim(), Status = "TO DO", Priority = parent.Priority, CreatedBy = CurrentUser.Id(User) };
         db.Tasks.Add(subtask); parent.UpdatedAt = DateTime.UtcNow;
         await RecordActivityAsync(subtask, "Tasks", "subtask.created", $"added subtask \"{subtask.Title}\"", ct);
-        await db.SaveChangesAsync(ct); return Ok(new { subtask.Id });
+        await db.SaveChangesAsync(ct); await Publish(subtask.ProjectId, "tasks", ct); return Ok(new { subtask.Id });
     }
     [HttpPatch("{id:guid}/subtasks/{subtaskId:guid}")]
     public async Task<IActionResult> UpdateSubtask(Guid id, Guid subtaskId, SubtaskUpdateRequest request, CancellationToken ct)
@@ -86,7 +87,7 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
         subtask.Status = request.Done ? "DONE" : "TO DO"; subtask.CompletedAt = request.Done ? DateTime.UtcNow : null; subtask.UpdatedAt = DateTime.UtcNow;
         var parent = await db.Tasks.SingleAsync(x => x.Id == id, ct); parent.UpdatedAt = DateTime.UtcNow;
         await RecordActivityAsync(subtask, "Tasks", request.Done ? "subtask.completed" : "subtask.reopened", request.Done ? $"completed subtask \"{subtask.Title}\"" : $"reopened subtask \"{subtask.Title}\"", ct);
-        await db.SaveChangesAsync(ct); return NoContent();
+        await db.SaveChangesAsync(ct); await Publish(subtask.ProjectId, "tasks", ct); return NoContent();
     }
     [HttpPatch("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, UpdateTaskRequest r, CancellationToken ct)
@@ -126,7 +127,7 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
                 await RecordActivityAsync(task, "Tasks", "task.assigned", $"assigned task \"{task.Title}\" to {name}", ct);
             }
         }
-        await db.SaveChangesAsync(ct); return Ok(new { task.Id });
+        await db.SaveChangesAsync(ct); await Publish(task.ProjectId, "tasks", ct); return Ok(new { task.Id });
     }
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
@@ -142,7 +143,7 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
             select projectMember).AnyAsync(ct)) return Forbid();
         task.DeletedAt = DateTime.UtcNow;
         await RecordActivityAsync(task, "Tasks", "task.deleted", $"deleted task \"{task.Title}\"", ct);
-        await db.SaveChangesAsync(ct); return NoContent();
+        await db.SaveChangesAsync(ct); await Publish(task.ProjectId, "tasks", ct); return NoContent();
     }
     [HttpPost("{id:guid}/restore")]
     public async Task<IActionResult> Restore(Guid id, CancellationToken ct)
@@ -158,7 +159,7 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
             select projectMember).AnyAsync(ct)) return Forbid();
         task.DeletedAt = null; task.UpdatedAt = DateTime.UtcNow;
         await RecordActivityAsync(task, "Tasks", "task.restored", $"restored task \"{task.Title}\"", ct);
-        await db.SaveChangesAsync(ct); return NoContent();
+        await db.SaveChangesAsync(ct); await Publish(task.ProjectId, "tasks", ct); return NoContent();
     }
     private async Task RecordActivityAsync(WorkTask task, string category, string action, string description, CancellationToken ct)
     {
@@ -167,6 +168,12 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, category, action,
             task.ParentTaskId is null ? "task" : "subtask", task.Id, task.Title,
             $"{description} in project \"{project.Name}\"", ct, task.ProjectId);
+    }
+    private async Task Publish(Guid projectId, string area, CancellationToken ct)
+    {
+        var organizationId = await db.Projects.AsNoTracking().Where(project => project.Id == projectId)
+            .Select(project => project.OrganizationId).SingleAsync(ct);
+        await realtime.ProjectChanged(organizationId, projectId, area, ct);
     }
     // Queues an in-app notification and fires a task-assigned email.
     // The user's email is looked up synchronously on the same DbContext call

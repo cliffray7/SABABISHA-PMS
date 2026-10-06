@@ -28,6 +28,8 @@ class ApiClient {
   final SessionStore _sessionStore;
   final http.Client _http;
 
+  Future<AuthSession?> currentSession() => _sessionStore.read();
+
   Uri _uri(String path, [Map<String, String>? params]) {
     final uri = Uri.parse('$apiBaseUrl$path');
     return params != null ? uri.replace(queryParameters: params) : uri;

@@ -19,6 +19,8 @@ Tenancy model: Multi-tenant (Organization-based logical isolation via Tenant ID 
 
 ## 3. System Architecture
 
+Workspace real-time updates: `Pms.Api` exposes an authenticated `/hubs/workspace` SignalR hub. Clients invoke `JoinOrganization` or `JoinProject`; the hub verifies active organization/project membership server-side before joining groups. Mutations publish area-only change notifications after persistence, and clients reload authoritative data through existing authenticated REST endpoints. The web app reconnects automatically and refreshes on focus/online. Flutter reconnects, refreshes workspace data on events, and uses a 20-second REST polling fallback while disconnected. Platform-wide SuperAdmin feeds continue to use their existing query refresh intervals.
+
 Browser (React/Vite)
        ↓  (REST / HTTPS)
   API Controllers (`Pms.Api`)

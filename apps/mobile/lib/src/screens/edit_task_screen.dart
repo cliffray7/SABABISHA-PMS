@@ -160,7 +160,15 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   controlAffinity: ListTileControlAffinity.leading,
-                  title: Text(member.fullName),
+                  title: Row(children: [
+                    AvatarChip(
+                      initials: member.initials,
+                      size: 28,
+                      avatarUrl: member.avatarUrl,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(member.fullName)),
+                  ]),
                   value: _selectedAssignees.contains(member.userId),
                   onChanged: _busy
                       ? null

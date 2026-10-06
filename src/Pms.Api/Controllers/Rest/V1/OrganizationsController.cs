@@ -7,10 +7,11 @@ using Pms.Api.Auth;
 using Pms.Api.Activity;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
+using Pms.Api.Realtime;
 namespace Pms.Api.Controllers.Rest.V1;
 
 [ApiController, Authorize, Route("api/v1/organizations")]
-public sealed class OrganizationsController(PmsDbContext db, AppMail mail, TokenService tokens) : ControllerBase
+public sealed class OrganizationsController(PmsDbContext db, AppMail mail, TokenService tokens, RealtimePublisher realtime) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken ct) => Ok(await (from o in db.Organizations join m in db.OrganizationMembers on o.Id equals m.OrganizationId where m.UserId == CurrentUser.Id(User) && m.Status == "active" select new { o.Id, o.Name, o.Slug, m.Role }).ToListAsync(ct));
@@ -25,6 +26,7 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
         db.Organizations.Add(organization);
         await ActivityRecorder.RecordAsync(db, User, Request, organization.Id, "People", "organization.created", "organization", organization.Id, organization.Name, $"created organization \"{organization.Name}\"", ct);
         await db.SaveChangesAsync(ct);
+        await realtime.OrganizationChanged(organization.Id, "members", ct);
         return Ok(new { organization.Id, organization.Name, organization.Slug, role = "OWNER" });
     }
     [HttpGet("{id:guid}/members")]
@@ -47,7 +49,7 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
         var changedUser = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
         var changedName = $"{changedUser.FirstName} {changedUser.LastName}";
         await ActivityRecorder.RecordAsync(db, User, Request, id, "People", "organization.member_role_changed", "user", userId, changedName, $"changed {changedName}'s role from {previousRole} to {request.Role} in organization \"{organization.Name}\"", ct);
-        await db.SaveChangesAsync(ct); return NoContent();
+        await db.SaveChangesAsync(ct); await realtime.OrganizationChanged(id, "members", ct); return NoContent();
     }
     [HttpDelete("{id:guid}/members/{userId:guid}")]
     public async Task<IActionResult> RemoveMember(Guid id, Guid userId, CancellationToken ct)
@@ -66,7 +68,7 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, "inactive"), ct);
         await db.RefreshTokens.Where(x => x.UserId == userId && x.RevokedAt == null)
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.RevokedAt, DateTime.UtcNow), ct);
-        await db.SaveChangesAsync(ct); return NoContent();
+        await db.SaveChangesAsync(ct); await realtime.OrganizationChanged(id, "members", ct); return NoContent();
     }
     [HttpGet("{id:guid}/invitations")]
     public async Task<IActionResult> Invitations(Guid id, CancellationToken ct)
@@ -87,6 +89,7 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
         var organization = await db.Organizations.SingleAsync(x => x.Id == id, ct);
         await ActivityRecorder.RecordAsync(db, User, Request, id, "People", "organization.invitation_created", "organization", id, organization.Name, $"invited a person to organization \"{organization.Name}\" as {request.Role}", ct);
         await db.SaveChangesAsync(ct);
+        await realtime.OrganizationChanged(id, "invitations", ct);
         await mail.Send(email, "Join your team on TaskFlow", mail.Link("invite?token=" + Uri.EscapeDataString(token)));
         return Ok(new { invitation.Id, invitation.Email, invitation.Role });
     }
@@ -100,6 +103,7 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
         var organization = await db.Organizations.SingleAsync(x => x.Id == id, ct);
         await ActivityRecorder.RecordAsync(db, User, Request, id, "People", "organization.invitation_revoked", "organization", id, organization.Name, $"revoked an invitation to organization \"{organization.Name}\"", ct);
         await db.SaveChangesAsync(ct);
+        await realtime.OrganizationChanged(id, "invitations", ct);
         return NoContent();
     }
     [HttpPost("invitations/accept")]
@@ -123,6 +127,7 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
             var organization = await db.Organizations.SingleAsync(x => x.Id == invitation.OrganizationId, ct);
             await ActivityRecorder.RecordAsync(db, User, Request, invitation.OrganizationId, "People", "organization.invitation_accepted", "organization", organization.Id, organization.Name, $"joined organization \"{organization.Name}\"", ct);
             await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
+            await realtime.OrganizationChanged(invitation.OrganizationId, "members", ct);
             return Ok(new { invitation.OrganizationId });
         });
     }

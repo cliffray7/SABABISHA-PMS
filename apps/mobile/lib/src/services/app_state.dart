@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import 'package:signalr_netcore/signalr_client.dart';
+import 'dart:async';
 
 import '../models/models.dart';
 import 'api_client.dart';
@@ -7,6 +9,102 @@ class AppState extends ChangeNotifier {
   AppState(this.api);
 
   final ApiClient api;
+  HubConnection? _realtime;
+  Timer? _reconnectTimer;
+  Timer? _realtimeFallback;
+  String? _joinedOrganizationId;
+  String? _joinedProjectId;
+  bool _refreshingRealtime = false;
+
+  Future<void> connectRealtime() async {
+    final session = await api.currentSession();
+    if (session == null) return;
+    final url = apiBaseUrl.replaceFirst(RegExp(r'/api/v1/?$'), '/hubs/workspace');
+    final connection = HubConnectionBuilder()
+        .withUrl(url, options: HttpConnectionOptions(
+          accessTokenFactory: () async => (await api.currentSession())?.accessToken ?? '',
+          transport: HttpTransportType.WebSockets,
+        ))
+        .withAutomaticReconnect()
+        .build();
+    connection.on('workspaceChanged', (_) => _refreshFromRealtime());
+    connection.onclose(({error}) {
+      _startRealtimeFallback();
+      _scheduleRealtimeReconnect();
+    });
+    connection.onreconnected(({connectionId}) {
+      _stopRealtimeFallback();
+      _joinedOrganizationId = null;
+      _joinedProjectId = null;
+      _joinRealtimeGroups();
+    });
+    _realtime = connection;
+    try {
+      await connection.start();
+      _stopRealtimeFallback();
+      await _joinRealtimeGroups();
+    } catch (_) {
+      _startRealtimeFallback();
+      _scheduleRealtimeReconnect();
+    }
+  }
+
+  Future<void> _joinRealtimeGroups() async {
+    final connection = _realtime;
+    if (connection?.state != HubConnectionState.Connected) return;
+    final orgId = selectedOrg?.id;
+    final projectId = selectedProject?.id;
+    try {
+      if (orgId != null && orgId != _joinedOrganizationId) {
+        await connection!.invoke('JoinOrganization', args: [orgId]);
+        _joinedOrganizationId = orgId;
+      }
+      if (projectId != null && projectId != _joinedProjectId) {
+        if (_joinedProjectId != null) {
+          await connection!.invoke('LeaveProject', args: [_joinedProjectId!]);
+        }
+        await connection!.invoke('JoinProject', args: [projectId]);
+        _joinedProjectId = projectId;
+      } else if (projectId == null && _joinedProjectId != null) {
+        await connection!.invoke('LeaveProject', args: [_joinedProjectId!]);
+        _joinedProjectId = null;
+      }
+    } catch (_) { _startRealtimeFallback(); }
+  }
+
+  void _startRealtimeFallback() {
+    _realtimeFallback ??= Timer.periodic(const Duration(seconds: 20), (_) {
+      if (_refreshingRealtime) return;
+      _refreshingRealtime = true;
+      refreshAll().whenComplete(() => _refreshingRealtime = false);
+    });
+  }
+
+  void _scheduleRealtimeReconnect() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 30), () {
+      if (_realtime?.state != HubConnectionState.Connected) {
+        _joinedOrganizationId = null;
+        _joinedProjectId = null;
+        connectRealtime();
+      }
+    });
+  }
+
+  void _stopRealtimeFallback() { _realtimeFallback?.cancel(); _realtimeFallback = null; }
+
+  Future<void> _refreshFromRealtime() async {
+    if (_refreshingRealtime) return;
+    _refreshingRealtime = true;
+    try {
+      await Future.wait<void>([
+        loadNotifications(),
+        if (selectedOrg != null) _loadOrgData(selectedOrg!.id),
+        if (selectedProject != null) _loadProjectData(selectedProject!.id),
+      ]);
+      await _joinRealtimeGroups();
+    } finally { _refreshingRealtime = false; }
+  }
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
   Account? account;
@@ -238,6 +336,7 @@ class AppState extends ChangeNotifier {
     metrics = null;
     notifyListeners();
     await _loadOrgData(org.id);
+    await _joinRealtimeGroups();
   }
 
   Future<void> _loadOrgData(String orgId) async {
@@ -276,6 +375,7 @@ class AppState extends ChangeNotifier {
     projectMembers = [];
     notifyListeners();
     await _loadProjectData(project.id);
+    await _joinRealtimeGroups();
   }
 
   Future<void> _loadProjectData(String projectId) async {
@@ -440,5 +540,13 @@ class AppState extends ChangeNotifier {
   Future<void> refreshAll() async {
     await loadOrganizations();
     await loadNotifications();
+  }
+
+  @override
+  void dispose() {
+    _stopRealtimeFallback();
+    _reconnectTimer?.cancel();
+    _realtime?.stop();
+    super.dispose();
   }
 }

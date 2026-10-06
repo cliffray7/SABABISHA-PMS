@@ -1,5 +1,7 @@
 ## Activity screens
 
+- Shared-data workspace screens (dashboard, task board/detail, notifications, activity, members, project lists, and Trash) refresh when a same-organization/project change arrives. Events invalidate data; clients fetch authoritative data through authenticated REST. Keep reconnect/focus refresh and a visible-screen polling fallback on mobile.
+
 - Admin platform activity follows a compact, card-based layout: page header, search + organization/date controls, range selector, filter chips, and data table/timeline rows.
 - The activity view should use a clean purple accent palette for active filter pills and keep controls aligned with the platform admin shell.
 - Date filters must never send a future range or a range wider than 366 days. Omit the upper bound for live ranges and custom ranges ending today to avoid client/server clock skew; clamp custom ranges to the supported 366-day window.
@@ -10,4 +12,5 @@
 - The Flutter task-creation dialog keeps its form scrollable and sizes the scroll region against the height available above the Android keyboard, since the task-title field receives autofocus.
 - Account settings support a profile-picture upload (JPEG, PNG, WebP, or GIF); clients center-crop and resize images to a compressed 512px-square JPEG below the 5 MB API limit. Animated GIFs are flattened to a still image; show the current image with a circular cover crop or initials fallback. Task detail surfaces support file attachments (up to 10 MB) with a move-to-Trash action for the uploader and project managers/leads.
 - Web avatar display uses the available profile URL across workspace member lists, team/task workload views, task assignee chips, task comments, signed-in profile menus/sidebars, platform-admin signed-in profile surfaces, and account settings. Preserve initials when no URL exists or the image fails; use square clipped frames and centered circular cover crops. Admin user-management rows and platform activity actors currently lack avatar URLs in their API data and remain initials-only.
+- Mobile avatar display uses the existing `AvatarChip` across member lists, project team previews, workload, task assignees, account settings, and signed-in profile surfaces; also show photos in member search and assignee-selection controls. Use circular cover crops with initials fallback when the URL is missing or fails. SuperAdmin user rows and activity actors remain without profile photos because their current API data does not include avatar URLs.
 - Workspace Trash lists recoverable projects, tasks, comments, and attachments with their deletion time and restore action; clearly state the 30-day retention. Project Archive remains a separate, indefinite action and must not be presented as deletion.

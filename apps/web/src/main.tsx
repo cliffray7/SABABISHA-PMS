@@ -6,7 +6,7 @@ import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import { Activity, AlertTriangle, ArrowRight, Bell, CalendarDays, ChevronDown, Circle, CirclePlus, Clock3, LayoutDashboard, List, ListTodo, LogOut, Moon, Search, Settings, Sun, Trash2, Users, X } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import axios from 'axios';
-import { api, clearAuth, DashboardMetrics, dateLabel, errorMessage, formatDisplayName, graphqlClient, initials, Invitation, Member, Notice, Organization, overdue, Person, priorities, Project, queryClient, signedIn, statuses, Task } from './api';
+import { api, clearAuth, createWorkspaceConnection, DashboardMetrics, dateLabel, errorMessage, formatDisplayName, graphqlClient, initials, Invitation, Member, Notice, Organization, overdue, Person, priorities, Project, queryClient, signedIn, statuses, Task } from './api';
 import { Auth, Inbox } from './Auth';
 import AdminDashboard from './AdminDashboard';
 import AdminAnalytics from './AdminAnalytics';
@@ -57,13 +57,49 @@ function App({ mode, toggleTheme }: { mode: ColorMode; toggleTheme: () => void }
   useEffect(() => { document.documentElement.dataset.theme = mode; }, [mode]);
   useEffect(() => { if (route.startsWith('invite?')) sessionStorage.setItem('taskflow.invitation',route); }, [route]);
   useEffect(() => {
-    if (!authenticated || adminAccess !== 'user' || !projectId) return;
-    const refreshVisibleProject = () => { if (document.visibilityState === 'visible' && navigator.onLine) setLiveDataVersion(current => current + 1); };
-    const timer = window.setInterval(refreshVisibleProject, 15_000);
-    window.addEventListener('focus', refreshVisibleProject);
-    window.addEventListener('online', refreshVisibleProject);
-    return () => { window.clearInterval(timer); window.removeEventListener('focus', refreshVisibleProject); window.removeEventListener('online', refreshVisibleProject); };
-  }, [authenticated, adminAccess, projectId]);
+    if (!authenticated || adminAccess !== 'user' || !organizationId) return;
+    let disposed = false;
+    let joinedProject = '';
+    const refreshWorkspace = (area: string) => {
+      if (disposed || document.visibilityState !== 'visible') return;
+      if (area === 'tasks' || area === 'projects') setLiveDataVersion(current => current + 1);
+      if (area === 'members' || area === 'invitations' || area === 'projects') setVersion(current => current + 1);
+      if (area !== 'projects' && area !== 'members' && area !== 'invitations') setLiveDataVersion(current => current + 1);
+      if (area === 'collaboration') window.dispatchEvent(new Event('workspace-collaboration-changed'));
+      void reloadNotifications();
+    };
+    const connection = createWorkspaceConnection(refreshWorkspace);
+    const connect = async () => {
+      try {
+        await connection.start();
+        if (disposed) { await connection.stop(); return; }
+        await connection.invoke('JoinOrganization', organizationId);
+        if (projectId) { await connection.invoke('JoinProject', projectId); joinedProject = projectId; }
+      } catch { /* REST focus/reconnect refresh below remains available. */ }
+    };
+    void connect();
+    const onReconnect = async () => {
+      try {
+        await connection.invoke('JoinOrganization', organizationId);
+        if (projectId) { await connection.invoke('JoinProject', projectId); joinedProject = projectId; }
+        refreshWorkspace('tasks');
+      } catch { /* the next reconnect or focus refresh will retry */ }
+    };
+    connection.onreconnected(onReconnect);
+    const onResume = () => { if (navigator.onLine) { setVersion(current => current + 1); setLiveDataVersion(current => current + 1); void reloadNotifications(); } };
+    window.addEventListener('focus', onResume);
+    window.addEventListener('online', onResume);
+    const reconcileProject = async () => {
+      if (connection.state !== 'Connected' || joinedProject === projectId) return;
+      try {
+        if (joinedProject) await connection.invoke('LeaveProject', joinedProject);
+        if (projectId) await connection.invoke('JoinProject', projectId);
+        joinedProject = projectId;
+      } catch { /* membership changes are still refreshed through REST */ }
+    };
+    void reconcileProject();
+    return () => { disposed = true; window.removeEventListener('focus', onResume); window.removeEventListener('online', onResume); void connection.stop(); };
+  }, [authenticated, adminAccess, organizationId, projectId]);
   useEffect(() => { if (authenticated && ['landing','login','register'].includes(route)) { location.hash = 'dashboard'; setRoute('dashboard'); } }, [authenticated,route]);
   const navigate = (next: string) => { location.hash = next; setRoute(next); setMobile(false); setBell(false); setModal(''); };
   const chooseOrg = (id: string) => { setOrganizationId(id); localStorage.setItem('taskflow.organizationId',id); setProjects([]); setTasks([]); setMetrics(undefined); setMembers([]); setInvitations([]); setProjectId(''); localStorage.removeItem('taskflow.projectId'); };

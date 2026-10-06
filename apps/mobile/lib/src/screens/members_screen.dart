@@ -400,7 +400,15 @@ class _ProjectTabState extends State<_ProjectTab> {
               items: eligible
                   .map((m) => DropdownMenuItem(
                         value: m,
-                        child: Text(m.fullName),
+                        child: Row(children: [
+                          AvatarChip(
+                            initials: m.initials,
+                            size: 24,
+                            avatarUrl: m.avatarUrl,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(m.fullName),
+                        ]),
                       ))
                   .toList(),
               onChanged: (m) => set(() => selected = m),
