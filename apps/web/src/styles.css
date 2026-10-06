@@ -382,6 +382,7 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .shell:not(.admin-platform-shell) .view-tabs button.active { border-bottom: 2px solid var(--overview-primary); color: var(--overview-primary); font-weight: 600; }
 .shell:not(.admin-platform-shell) .task-list-row { min-height: 42px; padding: 10px 0; color: var(--overview-ink); font-size: 13px; }
 .shell:not(.admin-platform-shell) .member-row { min-height: 58px; padding: 10px 12px; border-bottom-color: var(--overview-border); }
+.shell:not(.admin-platform-shell) .member-row .avatar { padding: 0; border-radius: 50%; }
 .shell:not(.admin-platform-shell) .member-row strong { color: var(--overview-ink); font-size: 13px; font-weight: 550; }
 .shell:not(.admin-platform-shell) .member-row small { color: var(--overview-muted); font-size: 11px; }
 .shell:not(.admin-platform-shell) .notification-row { min-height: 64px; border-color: var(--overview-border); background: var(--overview-card); }
