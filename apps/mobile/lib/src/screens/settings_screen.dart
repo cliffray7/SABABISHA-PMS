@@ -1,8 +1,11 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
@@ -150,6 +153,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _chooseAvatar() async {
     final state = context.read<AppState>();
+    File? preparedAvatar;
     setState(() {
       _busy = true;
       _error = null;
@@ -164,14 +168,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       if (image == null) return;
       if (!mounted) return;
-      await state.api.uploadAvatar(File(image.path));
+      preparedAvatar = await _prepareAvatar(File(image.path));
+      await state.api.uploadAvatar(preparedAvatar);
       await state.loadAccount();
-      if (mounted) setState(() => _success = 'Profile picture updated.');
+      if (mounted) {
+        setState(() => _success =
+            'Profile picture updated. Large images are centered and resized to fit.');
+      }
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } on FileSystemException catch (e) {
+      if (mounted) {
+        setState(() => _error = 'Could not prepare the image: ${e.message}');
+      }
     } finally {
+      if (preparedAvatar != null) {
+        try {
+          await preparedAvatar.delete();
+        } on FileSystemException catch (e) {
+          if (mounted) {
+            setState(() => _error =
+                'Temporary image could not be cleaned up: ${e.message}');
+          }
+        }
+      }
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<File> _prepareAvatar(File source) async {
+    final decoded = img.decodeImage(await source.readAsBytes());
+    if (decoded == null) {
+      throw const ApiException(
+          'This image could not be opened. Try saving it as JPEG or PNG.');
+    }
+
+    final oriented = img.bakeOrientation(decoded);
+    final side =
+        oriented.width < oriented.height ? oriented.width : oriented.height;
+    final cropped = img.copyCrop(
+      oriented,
+      x: (oriented.width - side) ~/ 2,
+      y: (oriented.height - side) ~/ 2,
+      width: side,
+      height: side,
+    );
+
+    Uint8List? compressed;
+    for (final size in [512, 384, 256]) {
+      final resized = img.copyResize(cropped, width: size, height: size);
+      for (final quality in [86, 72, 58]) {
+        final encoded = img.encodeJpg(resized, quality: quality);
+        if (encoded.length <= 4500000) {
+          compressed = Uint8List.fromList(encoded);
+          break;
+        }
+      }
+      if (compressed != null) break;
+    }
+
+    if (compressed == null) {
+      throw const ApiException(
+          'This image is still too large after compression. Choose another image.');
+    }
+
+    final tempDirectory = await getTemporaryDirectory();
+    final output = File(
+        '${tempDirectory.path}${Platform.pathSeparator}avatar-${DateTime.now().microsecondsSinceEpoch}.jpg');
+    await output.writeAsBytes(compressed, flush: true);
+    return output;
   }
 
   Future<void> _signOut() async {
@@ -233,7 +298,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('JPEG, PNG, WebP, or GIF · up to 5 MB',
+                      const Text(
+                          'JPEG, PNG, WebP, or GIF · square crop · max 5 MB after compression · animated GIFs become still images',
                           style: TextStyle(fontSize: 12, color: kMuted)),
                       const SizedBox(height: 8),
                       Wrap(spacing: 8, runSpacing: 6, children: [
