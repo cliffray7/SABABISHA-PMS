@@ -22,6 +22,11 @@ export function Brand({ mobile = false }: { mobile?: boolean }) {
     </div>
   );
 }
+export function PersonAvatar({ url, fallback, className, title }: { url?: string | null; fallback: string; className: string; title?: string }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [url]);
+  return <span className={className} title={title} style={{ overflow: 'hidden', aspectRatio: '1 / 1' }}>{url && !imageFailed ? <img src={url} alt="" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} style={{ display: 'block', width: '100%', height: '100%', minWidth: 0, objectFit: 'cover', objectPosition: 'center', borderRadius: '50%' }} /> : fallback}</span>;
+}
 export function Empty({ title, children }: { title: string; children?: ReactNode }) { return <div className="empty-state"><h2>{title}</h2>{children}</div>; }
 export function useAction() {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');

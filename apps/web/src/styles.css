@@ -308,6 +308,8 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .shell:not(.admin-platform-shell) .icon-button { width: 36px; height: 36px; border: 1px solid transparent; border-radius: 8px; color: var(--overview-secondary); }
 .shell:not(.admin-platform-shell) .icon-button:hover { border-color: var(--overview-border); background: var(--overview-page); }
 .shell:not(.admin-platform-shell) .avatar { width: 34px; height: 34px; border: 0; background: #e9e6ff; color: #5548c9; font-size: 11px; font-weight: 650; }
+.admin-platform-shell .top-actions .admin-account-avatar { display:grid; width:100%; height:100%; place-items:center; border-radius:50%; }
+.profile-picture-control .settings-profile-avatar { display:grid; width:80px; height:80px; flex:0 0 80px; place-items:center; border-radius:50%; background:#e9e6ff; color:#5548c9; font-size:20px; font-weight:650; }
 .shell:not(.admin-platform-shell) .sidebar { top: 64px; width: 250px; padding: 21px 17px 16px; border-right: 1px solid var(--overview-border); background: var(--overview-card); box-shadow: none; scrollbar-width: thin; }
 .shell:not(.admin-platform-shell) .workspace-name { margin: 0 9px 16px; padding: 0; color: var(--overview-secondary); font-size: 13px; font-weight: 600; line-height: 20px; }
 .shell:not(.admin-platform-shell) .workspace-name small { margin-top: 2px; color: var(--overview-muted); font-size: 11px; font-weight: 450; }
@@ -707,6 +709,7 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .shell.tenant-workspace-shell .dashboard-workload-list { display:grid; gap:11px; }
 .shell.tenant-workspace-shell .dashboard-workload-row { display:grid; grid-template-columns:26px minmax(70px,.8fr) minmax(45px,1fr) auto; align-items:center; gap:8px; min-width:0; }
 .shell.tenant-workspace-shell .dashboard-member-avatar { display:grid; width:24px; height:24px; place-items:center; border-radius:50%; background:#eeecff; color:#5548c9; font-size:9px; font-weight:650; }
+.shell.tenant-workspace-shell .dashboard-member-avatar { flex:0 0 24px; padding:0; }
 .shell.tenant-workspace-shell .dashboard-workload-row>strong { overflow:hidden; color:var(--overview-secondary); font-size:10px; font-weight:550; text-overflow:ellipsis; white-space:nowrap; }
 .shell.tenant-workspace-shell .dashboard-workload-track { height:5px; overflow:hidden; border-radius:99px; background:#eeedf4; }
 .shell.tenant-workspace-shell .dashboard-workload-track i { display:block; height:100%; border-radius:inherit; background:#8278e3; }
@@ -855,8 +858,10 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .shell:not(.admin-platform-shell) .conversation { margin:0 24px 20px; padding:20px 0 0; border-top:1px solid var(--overview-border); }
 .shell:not(.admin-platform-shell) .conversation h3 { display:flex; align-items:center; gap:8px; margin:0 0 14px; color:var(--overview-ink); font-size:16px; font-weight:650; }
 .shell:not(.admin-platform-shell) .conversation .comment { margin:0 0 10px; padding:14px 15px; border:1px solid var(--overview-border); border-radius:9px; background:var(--overview-page); }
+.shell:not(.admin-platform-shell) .conversation .comment-header { display:flex; align-items:center; gap:9px; }
+.shell:not(.admin-platform-shell) .conversation .comment-avatar { display:grid; width:30px; height:30px; flex:0 0 30px; place-items:center; border-radius:50%; background:#eeecff; color:#5548c9; font-size:10px; font-weight:650; }
 .shell:not(.admin-platform-shell) .conversation .comment strong { color:var(--overview-ink); font-size:13px; font-weight:600; }
-.shell:not(.admin-platform-shell) .conversation .comment small { float:right; color:var(--overview-muted); font-size:11px; }
+.shell:not(.admin-platform-shell) .conversation .comment small { margin-left:auto; color:var(--overview-muted); font-size:11px; }
 .shell:not(.admin-platform-shell) .conversation .comment p { margin:9px 0 6px; color:var(--overview-secondary); font-size:13px; line-height:1.55; }
 .shell:not(.admin-platform-shell) .conversation .comment .link-button { padding:3px 0; color:#8d6262; font-size:11px; font-weight:500; }
 .shell:not(.admin-platform-shell) .conversation .comment .link-button:hover { color:#b34343; }
@@ -916,6 +921,7 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .shell:not(.admin-platform-shell) .board-team-preview { display:flex; align-items:center; gap:9px; min-width:0; }
 .shell:not(.admin-platform-shell) .board-team-avatars { display:flex; align-items:center; padding-left:2px; }
 .shell:not(.admin-platform-shell) .board-team-avatar,.shell:not(.admin-platform-shell) .board-profile-avatar { display:grid; flex:none; width:29px; height:29px; place-items:center; border:2px solid var(--overview-card); border-radius:50%; background:#eeecff; color:#5548c9; font-size:9px; font-weight:650; }
+.shell:not(.admin-platform-shell) .board-team-avatar>img,.shell:not(.admin-platform-shell) .board-profile-avatar>img { display:block; width:100%; height:100%; min-width:0; max-width:none; border-radius:50%; object-fit:cover; object-position:center; }
 .shell:not(.admin-platform-shell) .board-team-avatar { margin-left:-5px; }
 .shell:not(.admin-platform-shell) .board-team-avatar:first-child { margin-left:0; }
 .shell:not(.admin-platform-shell) .board-team-overflow { display:grid; width:25px; height:25px; place-items:center; margin-left:-4px; border:1px solid var(--overview-border); border-radius:50%; background:var(--overview-search); color:var(--overview-secondary); font-size:9px; font-weight:600; }
