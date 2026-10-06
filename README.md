@@ -64,7 +64,9 @@ dotnet run --project src/Pms.Api/Pms.Api.csproj --urls http://localhost:5141
 
 When Brevo settings are absent in Development, messages are stored in the TaskFlow Development inbox instead of being sent externally. Keep production credentials in the API host environment.
 
-Database changes are applied explicitly; the API does not auto-run SQL scripts. Before deploying this revision, apply `database/sqlserver/migrations/003_activity_events.sql` to the database used by the API. This creates the tenant-scoped workspace Activity Center store; it is separate from `002_admin_audit_events.sql` and does not backfill historical events.
+Cloudinary configuration can be provided to a local API process through the `Cloudinary__CloudName`, `Cloudinary__ApiKey`, and `Cloudinary__ApiSecret` environment variables. The Render Blueprint declares these as unsynchronized secrets; set their values in the Render dashboard. Never configure these credentials in either client.
+
+Database changes are applied explicitly; the API does not auto-run SQL scripts. Apply migrations `003_activity_events.sql`, `004_platform_auth_activity.sql`, and `005_media_and_trash.sql` in order before deploying this revision. Migration 005 adds avatar and Cloudinary metadata plus project soft-deletion support.
 
 ### Start the web client
 
@@ -92,7 +94,8 @@ The URL above is for an Android emulator. For an iOS simulator use `http://127.0
 
 - Protected API endpoints use bearer access tokens. The clients refresh a session after an authorization failure and retry the request once.
 - Organization and project routes enforce membership and role checks.
-- Tasks support multiple assignees, dates, priorities, status changes, comments, mentions, subtasks, and attachments. Web uploads are limited to 10 MB; files are stored by the API and downloaded through authenticated routes.
+- Tasks support multiple assignees, dates, priorities, status changes, comments, mentions, subtasks, and attachments. New task files (up to 10 MB) and profile pictures (up to 5 MB) are uploaded to Cloudinary by the API; attachment downloads remain behind authenticated API routes. Existing local-disk attachments retain a legacy download path.
+- Projects, tasks, comments, and attachments moved to Trash can be restored for 30 days; an API background worker then permanently removes expired database records and Cloudinary assets. Project Archive remains a separate, indefinite state. Uploads return 503 until Cloudinary is configured, and expired-media purging remains paused until it is configured.
 - Organization invitations require the invited email to accept and expire after seven days. OTP codes expire after ten minutes and are single-use.
 - `GET /api/v1/live` checks that the API process is running; `GET /api/v1/ready` checks database readiness; `GET /api/v1/health` returns application health.
 - Optional AI task suggestions use `POST /api/v1/ai/tasks/suggest`; suggestions are reviewed by the user and are not saved as tasks automatically. Configure `Gemini__ApiKey` on the API host to enable this feature.

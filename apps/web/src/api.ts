@@ -83,16 +83,17 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.';
 }
 function configUrl(error: AxiosError) { return error.config?.url?.split('?')[0]; }
-export type Person = { id: string; firstName: string; lastName: string; email: string; timezone: string };
+export type Person = { id: string; firstName: string; lastName: string; email: string; timezone: string; avatarUrl?: string | null };
 export type Organization = { id: string; name: string; slug: string; role: string };
 export type Project = { id: string; organizationId: string; name: string; description?: string; status: string; startDate?: string; dueDate?: string; role: string };
-export type Member = { id: string; userId: string; firstName: string; lastName: string; email: string; role: string };
+export type Member = { id: string; userId: string; firstName: string; lastName: string; email: string; role: string; avatarUrl?: string | null };
 export type Task = { id: string; projectId: string; parentTaskId?: string; title: string; description?: string; status: string; priority: string; startDate?: string; dueDate?: string; createdAt?: string; completedAt?: string; assigneeIds: string[]; subtaskCount?: number; completedSubtaskCount?: number };
 export type Subtask = { id: string; title: string; status: string; createdAt: string; completedAt?: string };
 export type TaskActivity = { createdAt: string; action: string; detail?: string };
 export type DashboardMetrics = { myTasks: number; overdueTasks: number; completedTasks: number; inProgressTasks: number; totalTasks: number };
 export type AiTaskSuggestion = { title: string; description: string; priority: string; subtasks: string[] };
 export type Notice = { id: string; message: string; isRead: boolean; createdAt: string; relatedId?: string; projectId?: string };
+export type TrashItem = { kind: 'project' | 'task' | 'subtask' | 'comment' | 'attachment'; id: string; parentId?: string | null; projectId: string; name: string; deletedAt: string };
 export type Invitation = { id: string; email: string; role: string; expiresAt: string };
 export type Mail = { id: string; to: string; subject: string; link: string; createdAt: string; body?: string };
 export const statuses = ['TO DO', 'IN PROGRESS', 'REVIEW', 'DONE'];

@@ -92,6 +92,27 @@ class ApiClient {
     return Account.fromJson(_json(response));
   }
 
+  Future<Account> uploadAvatar(File file) async {
+    final session = await _sessionStore.read();
+    if (session == null) {
+      throw const ApiException('Session expired.', statusCode: 401);
+    }
+    final request = http.MultipartRequest('POST', _uri('/account/avatar'));
+    request.headers['Authorization'] = 'Bearer ${session.accessToken}';
+    request.files.add(await http.MultipartFile.fromPath('file', file.path));
+    try {
+      final streamed =
+          await _http.send(request).timeout(const Duration(seconds: 60));
+      final response = await http.Response.fromStream(streamed);
+      return Account.fromJson(_json(_ensureSuccess(response)));
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      throw const ApiException(
+          'Profile picture upload failed. Check your connection.');
+    }
+  }
+
   Future<void> logout() async {
     final session = await _sessionStore.read();
     if (session != null) {
@@ -308,6 +329,45 @@ class ApiClient {
     await _authorized('DELETE', '/tasks/$taskId');
   }
 
+  Future<void> trashProject(String projectId) async {
+    await _authorized('DELETE', '/projects/$projectId/trash');
+  }
+
+  Future<List<TrashItem>> trash(String organizationId) async {
+    final response = await _authorized(
+      'GET',
+      '/trash',
+      params: {'organizationId': organizationId},
+    );
+    return _jsonList(response).map(TrashItem.fromJson).toList();
+  }
+
+  Future<void> restoreTrashItem(TrashItem item) async {
+    switch (item.kind) {
+      case 'project':
+        await _authorized('POST', '/projects/${item.id}/restore');
+        return;
+      case 'task':
+      case 'subtask':
+        await _authorized('POST', '/tasks/${item.id}/restore');
+        return;
+      case 'comment':
+        if (item.parentId == null) {
+          throw const ApiException('The deleted comment cannot be restored.');
+        }
+        await _authorized(
+          'POST',
+          '/tasks/${item.parentId}/comments/${item.id}/restore',
+        );
+        return;
+      case 'attachment':
+        await _authorized('POST', '/attachments/${item.id}/restore');
+        return;
+      default:
+        throw const ApiException('This item cannot be restored.');
+    }
+  }
+
   Future<AiTaskSuggestion> suggestTask({
     required String projectId,
     required String prompt,
@@ -413,6 +473,10 @@ class ApiClient {
   Future<String> attachmentDownloadUrl(String attachmentId) {
     // Returns the authenticated download endpoint URL.
     return Future.value('$apiBaseUrl/attachments/$attachmentId/download');
+  }
+
+  Future<void> deleteAttachment(String attachmentId) async {
+    await _authorized('DELETE', '/attachments/$attachmentId');
   }
 
   // ─── Notifications ───────────────────────────────────────────────────────

@@ -5,11 +5,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Pms.Api.Auth;
 using Pms.Api.Activity;
+using Pms.Api.Media;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 namespace Pms.Api.Controllers.Rest.V1;
 [ApiController, Authorize]
-public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment environment, IConfiguration configuration) : ControllerBase
+public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment environment, IConfiguration configuration, ICloudinaryStorage media, ILogger<CollaborationController> logger) : ControllerBase
 {
     private string UploadFolder
     {
@@ -29,7 +30,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
             join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
             where projectMember.ProjectId == task.ProjectId && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
                 && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
-                && project.ArchivedAt == null && (!write || projectMember.Role != "VIEWER")
+                && project.ArchivedAt == null && project.DeletedAt == null && (!write || projectMember.Role != "VIEWER")
             select projectMember).AnyAsync(ct)) return null;
         return task;
     }
@@ -71,54 +72,103 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Collaboration", "comment.deleted", "task", task.Id, task.Title, $"deleted a comment on task \"{task.Title}\" in project \"{project.Name}\"", ct, task.ProjectId);
         await db.SaveChangesAsync(ct); return NoContent();
     }
+    [HttpPost("/api/v1/tasks/{taskId:guid}/comments/{commentId:guid}/restore")]
+    public async Task<IActionResult> RestoreComment(Guid taskId, Guid commentId, CancellationToken ct)
+    {
+        var task = await TaskAccess(taskId, true, ct);
+        var comment = await db.Comments.SingleOrDefaultAsync(x => x.Id == commentId && x.TaskId == taskId && x.DeletedAt != null && x.DeletedAt >= DateTime.UtcNow.AddDays(-30), ct);
+        if (task is null || comment is null) return NotFound();
+        var userId = CurrentUser.Id(User);
+        if (comment.UserId != userId && !await IsManager(task.ProjectId, userId, ct)) return Forbid();
+        comment.DeletedAt = null;
+        comment.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
     [HttpGet("/api/v1/tasks/{id:guid}/attachments")]
     public async Task<IActionResult> Attachments(Guid id, CancellationToken ct)
     {
         if (await TaskAccess(id, false, ct) is null) return NotFound();
-        return Ok(await db.Attachments.Where(x => x.TaskId == id && x.DeletedAt == null).Select(x => new { x.Id, x.UploadedBy, x.FileName, x.FileSize, x.CreatedAt }).ToListAsync(ct));
+        return Ok(await db.Attachments.Where(x => x.TaskId == id && x.DeletedAt == null).Select(x => new { x.Id, x.UploadedBy, x.FileName, x.FileSize, contentType = x.FileType, x.CreatedAt }).ToListAsync(ct));
     }
     [HttpPost("/api/v1/tasks/{id:guid}/attachments"), RequestSizeLimit(11_000_000)]
     public async Task<IActionResult> Upload(Guid id, IFormFile file, CancellationToken ct)
     {
         var task = await TaskAccess(id, true, ct);
         if (task is null) return NotFound();
+        if (!media.IsConfigured) return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "File storage is not configured." });
         if (file.Length <= 0 || file.Length > 10_000_000) return BadRequest(new { message = "Choose a file between 1 byte and 10 MB." });
         var name = Path.GetFileName(file.FileName); if (name.Length > 500) return BadRequest(new { message = "File name is too long." });
-        var attachment = new Attachment { Id = Guid.NewGuid(), TaskId = id, UploadedBy = CurrentUser.Id(User), FileName = name, FileUrl = "local", FileSize = file.Length, FileType = "application/octet-stream" };
-        var folder = UploadFolder; Directory.CreateDirectory(folder);
-        var path = Path.Combine(folder, attachment.Id.ToString());
+        CloudinaryUpload uploaded;
+        try
+        {
+            await using var input = file.OpenReadStream();
+            uploaded = await media.UploadAsync(input, name, "taskflow/attachments", "raw", ct);
+        }
+        catch (CloudinaryStorageException)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = "The file could not be uploaded. Please try again." });
+        }
+        var attachment = new Attachment
+        {
+            Id = Guid.NewGuid(),
+            TaskId = id,
+            UploadedBy = CurrentUser.Id(User),
+            FileName = name,
+            FileUrl = uploaded.SecureUrl,
+            FileSize = file.Length,
+            FileType = file.ContentType,
+            CloudinaryPublicId = uploaded.PublicId,
+            CloudinaryResourceType = uploaded.ResourceType
+        };
         var recipients = await db.ProjectMembers
             .Where(member => member.ProjectId == task.ProjectId && member.Status == "active"
                 && member.UserId != attachment.UploadedBy
                 && (member.UserId == task.CreatedBy || db.TaskAssignees.Any(assignee =>
                     assignee.TaskId == id && assignee.UserId == member.UserId && assignee.Status == "active")))
             .Select(member => member.UserId).Distinct().ToListAsync(ct);
+        db.Attachments.Add(attachment);
+        foreach (var recipient in recipients)
+            db.Notifications.Add(new Notification
+            {
+                Id = Guid.NewGuid(), UserId = recipient, Type = "ATTACHMENT",
+                Message = $"A file was attached to {task.Title}.",
+                EntityType = "TASK", RelatedId = task.Id
+            });
+        var project = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
+        await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Collaboration", "attachment.uploaded", "task", task.Id, task.Title, $"attached a file to task \"{task.Title}\" in project \"{project.Name}\"", ct, task.ProjectId);
         try
         {
-            await using (var output = System.IO.File.Create(path)) await file.CopyToAsync(output, ct);
-            db.Attachments.Add(attachment);
-            foreach (var recipient in recipients)
-                db.Notifications.Add(new Notification
-                {
-                    Id = Guid.NewGuid(), UserId = recipient, Type = "ATTACHMENT",
-                    Message = $"A file was attached to {task.Title}.",
-                    EntityType = "TASK", RelatedId = task.Id
-                });
-            var project = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
-            await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Collaboration", "attachment.uploaded", "task", task.Id, task.Title, $"attached a file to task \"{task.Title}\" in project \"{project.Name}\"", ct, task.ProjectId);
-            // File metadata and notifications commit together. Failed uploads notify nobody.
             await db.SaveChangesAsync(ct);
         }
-        catch { if (System.IO.File.Exists(path)) System.IO.File.Delete(path); throw; }
-        return Ok(new { attachment.Id, attachment.FileName, attachment.FileSize });
+        catch
+        {
+            try { await media.DeleteAsync(uploaded.PublicId, uploaded.ResourceType, ct); }
+            catch (Exception cleanupError) { logger.LogError(cleanupError, "Could not remove unreferenced Cloudinary attachment {PublicId}.", uploaded.PublicId); }
+            throw;
+        }
+        return Ok(new { attachment.Id, attachment.UploadedBy, attachment.FileName, attachment.FileSize, contentType = attachment.FileType, attachment.CreatedAt });
     }
     [HttpGet("/api/v1/attachments/{id:guid}/download")]
     public async Task<IActionResult> Download(Guid id, CancellationToken ct)
     {
         var attachment = await db.Attachments.SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt == null, ct);
         if (attachment?.TaskId is not Guid taskId || await TaskAccess(taskId, false, ct) is null) return NotFound();
+        if (!string.IsNullOrWhiteSpace(attachment.CloudinaryPublicId))
+        {
+            if (!media.IsConfigured) return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "File storage is not configured." });
+            try
+            {
+                var bytes = await media.DownloadAsync(attachment.FileUrl, ct);
+                return File(bytes, attachment.FileType ?? "application/octet-stream", attachment.FileName);
+            }
+            catch (CloudinaryStorageException)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, new { message = "The requested file is not available." });
+            }
+        }
         var path = Path.Combine(UploadFolder, id.ToString());
-        return System.IO.File.Exists(path) ? PhysicalFile(path, "application/octet-stream", attachment.FileName) : NotFound();
+        return System.IO.File.Exists(path) ? PhysicalFile(path, attachment.FileType ?? "application/octet-stream", attachment.FileName) : NotFound();
     }
     [HttpDelete("/api/v1/attachments/{id:guid}")]
     public async Task<IActionResult> DeleteAttachment(Guid id, CancellationToken ct)
@@ -133,12 +183,23 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         var projectInfo = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
         await ActivityRecorder.RecordAsync(db, User, Request, projectInfo.OrganizationId, "Collaboration", "attachment.deleted", "task", task.Id, task.Title, $"removed a file from task \"{task.Title}\" in project \"{projectInfo.Name}\"", ct, task.ProjectId);
         await db.SaveChangesAsync(ct);
-        var path = Path.Combine(UploadFolder, id.ToString());
-        if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+        return NoContent();
+    }
+    [HttpPost("/api/v1/attachments/{id:guid}/restore")]
+    public async Task<IActionResult> RestoreAttachment(Guid id, CancellationToken ct)
+    {
+        var attachment = await db.Attachments.SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt != null && x.DeletedAt >= DateTime.UtcNow.AddDays(-30), ct);
+        if (attachment?.TaskId is not Guid taskId) return NotFound();
+        var task = await TaskAccess(taskId, true, ct);
+        if (task is null) return NotFound();
+        var userId = CurrentUser.Id(User);
+        if (attachment.UploadedBy != userId && !await IsManager(task.ProjectId, userId, ct)) return Forbid();
+        attachment.DeletedAt = null;
+        await db.SaveChangesAsync(ct);
         return NoContent();
     }
     [HttpGet("/api/v1/notifications")]
-    public async Task<IActionResult> Notifications(CancellationToken ct) => Ok(await db.Notifications.Where(x => x.UserId == CurrentUser.Id(User)).OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.Message, x.IsRead, x.CreatedAt, x.RelatedId, projectId = db.Tasks.Where(t => t.Id == x.RelatedId && t.DeletedAt == null).Select(t => (Guid?)t.ProjectId).FirstOrDefault() }).ToListAsync(ct));
+    public async Task<IActionResult> Notifications(CancellationToken ct) => Ok(await db.Notifications.Where(x => x.UserId == CurrentUser.Id(User)).OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.Message, x.IsRead, x.CreatedAt, x.RelatedId, projectId = db.Tasks.Where(task => task.Id == x.RelatedId && task.DeletedAt == null && db.Projects.Any(project => project.Id == task.ProjectId && project.DeletedAt == null)).Select(task => (Guid?)task.ProjectId).FirstOrDefault() }).ToListAsync(ct));
     [HttpPatch("/api/v1/notifications/read-all")]
     public async Task<IActionResult> ReadAll(CancellationToken ct) { await db.Notifications.Where(x => x.UserId == CurrentUser.Id(User) && !x.IsRead).ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRead, true), ct); return NoContent(); }
     [HttpPatch("/api/v1/notifications/{id:guid}/read")]

@@ -1,13 +1,266 @@
-import { ArrowRight, Bell, Check, ChevronRight, FolderKanban, LayoutDashboard, ListChecks, LockKeyhole, Menu, Moon, Sparkles, Sun, Users } from 'lucide-react';
-import type { ReactNode } from 'react';
+import {
+  ArrowRight,
+  Bell,
+  Check,
+  FolderKanban,
+  ListChecks,
+  LockKeyhole,
+  Moon,
+  Sparkles,
+  Sun,
+  Users,
+} from 'lucide-react';
 import './landing.css';
 
 type ColorMode = 'light' | 'dark';
-export default function LandingPage({ navigate, mode, toggleTheme }: { navigate:(route:string)=>void; mode:ColorMode; toggleTheme:()=>void }) {
-  const scroll = (id:string) => document.getElementById(id)?.scrollIntoView({ behavior:'smooth' });
-  return <div className="landing"><header className="landing-nav"><button className="landing-brand" onClick={() => scroll('top')}><img src="/taskflow-mark.svg" alt="" /><span><b>Task</b><strong>Flow</strong></span></button><nav aria-label="Public navigation"><button onClick={() => scroll('features')}>Features</button><button onClick={() => scroll('how-it-works')}>How It Works</button><button onClick={() => scroll('about')}>About</button></nav><div className="landing-actions"><button className="landing-icon" onClick={toggleTheme} aria-label={`Switch to ${mode === 'dark' ? 'light' : 'dark'} mode`}>{mode === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}</button><button className="landing-secondary" onClick={() => navigate('login')}>Sign In</button><button className="landing-primary" onClick={() => navigate('register')}>Get Started</button></div></header><main id="top"><section className="landing-hero"><div><h1>Manage work.<br/>Keep teams aligned.<br/><em>Deliver projects.</em></h1><p>TaskFlow brings projects, tasks, teams and progress together in one organized workspace.</p><div className="landing-cta"><button className="landing-primary" onClick={() => navigate('register')}>Get Started <ArrowRight size={17}/></button><button className="landing-secondary" onClick={() => navigate('login')}>Sign In</button></div><div className="landing-values">{['Organize','Collaborate','Get things done'].map(item => <span key={item}><Check size={15}/>{item}</span>)}</div></div><DashboardPreview/></section><section id="features" className="landing-section"><Eyebrow>Features</Eyebrow><h2>Everything your team needs</h2><p>Powerful features to help you plan, organize and deliver work efficiently.</p><div className="feature-grid"><Feature icon={<FolderKanban/>} title="Project Management" text="Create and manage projects with clear goals and timelines."/><Feature icon={<ListChecks/>} title="Task Management" text="Break work into tasks, assign owners and track progress."/><Feature icon={<Users/>} title="Team Collaboration" text="Work together with your team in one central place."/><Feature icon={<Bell/>} title="Notifications" text="Stay informed with real-time updates and activity alerts."/><Feature icon={<LayoutDashboard/>} title="Analytics" text="Track progress and gain insights with helpful reports."/><Feature icon={<Sparkles/>} title="AI-Assisted Task Drafting" text="Let AI help you draft task titles, descriptions and subtasks."/></div></section><section id="how-it-works" className="landing-section"><Eyebrow>How it works</Eyebrow><h2>From idea to impact</h2><p>Get your team up and running in just a few simple steps.</p><div className="steps">{[['1','Create an organization','Set up your organization and invite your team.'],['2','Create projects','Add projects with clear goals and timelines.'],['3','Add and assign tasks','Break work into tasks and assign team members.'],['4','Track progress','Monitor progress and deliver great results.']].map(([number,title,text], index) => <div className="step" key={number}><b>{number}</b><div><strong>{title}</strong><small>{text}</small></div>{index < 3 && <ChevronRight className="step-arrow"/>}</div>)}</div></section><section className="landing-product"><div><Eyebrow>A clearer way to work</Eyebrow><h2>A workspace designed for productivity</h2><p>Switch between list and board views, manage tasks, collaborate with your team and keep track of what matters most.</p><button className="landing-primary" onClick={() => navigate('register')}>See TaskFlow in action <ArrowRight size={17}/></button></div><KanbanPreview/></section><section className="ai-banner"><div className="ai-mark"><Sparkles/></div><div><Eyebrow>AI-assisted task planning</Eyebrow><h2>Get a head start with AI</h2><p>Describe what needs to be done and TaskFlow can suggest a task title, description, priority and subtasks. You review the suggestion before saving.</p></div><div className="ai-input">Create a task to design a responsive homepage for our website… <button aria-label="Example prompt"><ArrowRight size={18}/></button></div></section><section id="about" className="landing-section landing-security"><Eyebrow>Built for organized teams</Eyebrow><h2>Organized. secure. connected.</h2><p>TaskFlow helps teams work securely and efficiently.</p><div>{[[<LockKeyhole/>, 'Role-based access'],[<LockKeyhole/>, 'Secure authentication'],[<Users/>, 'Project-level permissions'],[<FolderKanban/>, 'Centralized management'],[<Bell/>, 'Real-time notifications'],[<LayoutDashboard/>, 'Reporting and analytics']].map(([icon,label]) => <span key={String(label)}>{icon as ReactNode}<small>{label as string}</small></span>)}</div></section><section className="landing-final"><div><h2>Ready to organize your team's work?</h2><p>Create your workspace and start managing projects with TaskFlow.</p></div><button className="landing-secondary" onClick={() => navigate('register')}>Get Started <ArrowRight size={17}/></button></section></main><footer className="landing-footer"><div><button className="landing-brand"><img src="/taskflow-mark.svg" alt="" /><span><b>Task</b><strong>Flow</strong></span></button><p>Projects. People. Progress.</p></div><div><strong>Product</strong><button onClick={() => scroll('features')}>Features</button><button onClick={() => scroll('how-it-works')}>How It Works</button></div><div><strong>Resources</strong><button onClick={() => scroll('about')}>About</button></div><div><strong>Account</strong><button onClick={() => navigate('login')}>Sign In</button><button onClick={() => navigate('register')}>Register</button></div><small>© 2026 TaskFlow. All rights reserved.</small></footer></div>;
+
+type LandingPageProps = {
+  navigate: (route: string) => void;
+  mode: ColorMode;
+  toggleTheme: () => void;
+};
+
+const steps = [
+  ['01', 'Create your workspace', 'Set up your organization and invite your team.'],
+  ['02', 'Plan your projects', 'Give each project a clear goal and timeline.'],
+  ['03', 'Assign the work', 'Break projects into tasks and choose owners.'],
+  ['04', 'See progress', 'Keep the whole team up to date as work moves forward.'],
+];
+
+const features = [
+  {
+    icon: <FolderKanban />,
+    title: 'Projects that stay organized',
+    text: 'Keep project goals, timelines and work together in one shared space.',
+  },
+  {
+    icon: <ListChecks />,
+    title: 'Tasks with clear ownership',
+    text: 'Create tasks, set priorities and make it easy to see what happens next.',
+  },
+  {
+    icon: <Users />,
+    title: 'One team workspace',
+    text: 'Bring people together around the projects and tasks they are working on.',
+  },
+  {
+    icon: <Bell />,
+    title: 'Updates that keep you moving',
+    text: 'Stay informed about task changes and important project activity.',
+  },
+  {
+    icon: <LockKeyhole />,
+    title: 'Access that respects roles',
+    text: 'Organization and project access keep the right work in the right hands.',
+  },
+  {
+    icon: <Sparkles />,
+    title: 'A head start from AI',
+    text: 'Draft task titles, descriptions and subtasks, then review before saving.',
+  },
+];
+
+export default function LandingPage({ navigate, mode, toggleTheme }: LandingPageProps) {
+  const scrollTo = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  return (
+    <div className="landing">
+      <header className="landing-nav">
+        <a className="landing-brand" href="#top" aria-label="TaskFlow home">
+          <span className="landing-brand-icon">
+            <img src="/mobile-taskflow-mark.svg" alt="" />
+          </span>
+          <span className="landing-wordmark"><span>Task</span><strong>Flow</strong></span>
+        </a>
+        <nav className="landing-nav-links" aria-label="Public navigation">
+          <button onClick={() => scrollTo('how-it-works')}>How it works</button>
+          <button onClick={() => scrollTo('ai-drafting')}>AI drafting</button>
+          <button onClick={() => scrollTo('faq')}>FAQ</button>
+        </nav>
+        <div className="landing-actions">
+          <button
+            className="landing-icon"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${mode === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {mode === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <button className="landing-sign-in" onClick={() => navigate('login')}>Sign in</button>
+          <button className="landing-primary landing-header-cta" onClick={() => navigate('register')}>
+            Get started
+          </button>
+        </div>
+      </header>
+
+      <main id="top">
+        <section className="landing-hero">
+          <div className="landing-hero-copy">
+            <p className="landing-eyebrow">A calmer way to work together</p>
+            <h1>Turn scattered work into finished projects.</h1>
+            <p className="landing-intro">
+              Organize projects, assign tasks, and see progress in one workspace, so your whole
+              team knows what is moving and what is next.
+            </p>
+            <div className="landing-cta">
+              <button className="landing-primary" onClick={() => navigate('register')}>
+                Create your workspace <ArrowRight size={18} />
+              </button>
+              <button className="landing-text-cta" onClick={() => scrollTo('how-it-works')}>
+                See how it works <ArrowRight size={18} />
+              </button>
+            </div>
+            <div className="landing-values" aria-label="TaskFlow benefits">
+              <span><Check size={16} /> Projects in one place</span>
+              <span><Check size={16} /> Clear task ownership</span>
+              <span><Check size={16} /> Progress at a glance</span>
+            </div>
+          </div>
+          <ProjectPreview />
+        </section>
+
+        <section id="how-it-works" className="landing-section landing-how">
+          <p className="landing-eyebrow">How it works</p>
+          <h2>From first idea to done, in four steps</h2>
+          <p className="landing-section-intro">
+            Give your team a shared place to plan the work and follow it through.
+          </p>
+          <div className="steps">
+            {steps.map(([number, title, text]) => (
+              <article className="step" key={number}>
+                <span className="step-number">{number}</span>
+                <h3>{title}</h3>
+                <p>{text}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="features" className="landing-section landing-features">
+          <p className="landing-eyebrow">One workspace, less busywork</p>
+          <h2>Everything your team needs to keep work moving</h2>
+          <p className="landing-section-intro">
+            From project planning to the last task, TaskFlow keeps the details connected.
+          </p>
+          <div className="feature-grid">
+            {features.map(({ icon, title, text }) => (
+              <article className="feature-card" key={title}>
+                <span className="feature-icon">{icon}</span>
+                <h3>{title}</h3>
+                <p>{text}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="ai-drafting" className="landing-ai">
+          <div className="ai-mark"><Sparkles size={24} /></div>
+          <div className="ai-copy">
+            <p className="landing-eyebrow">AI-assisted task drafting</p>
+            <h2>Start with a draft. Make it yours.</h2>
+            <p>
+              Describe the work and get a suggested title, description, priority and subtasks.
+              Review the draft and decide what to save.
+            </p>
+          </div>
+          <div className="ai-example" aria-label="Example task prompt">
+            <span>What needs to get done?</span>
+            <p>Prepare a launch plan for our new website</p>
+            <span className="ai-example-action"><Sparkles size={16} /> Draft a task</span>
+          </div>
+        </section>
+
+        <section id="faq" className="landing-section landing-faq">
+          <p className="landing-eyebrow">FAQ</p>
+          <h2>A few things you might be wondering</h2>
+          <div className="faq-list">
+            <details>
+              <summary>How do I get started with TaskFlow?</summary>
+              <p>Create your workspace, set up an organization, then invite your team and start a project.</p>
+            </details>
+            <details>
+              <summary>Can I organize work into projects and tasks?</summary>
+              <p>Yes. Projects bring related work together, and tasks can be assigned and tracked as they move forward.</p>
+            </details>
+            <details>
+              <summary>Do AI suggestions get saved automatically?</summary>
+              <p>No. AI helps draft task details, and you review the suggestion before choosing to save it.</p>
+            </details>
+          </div>
+        </section>
+
+        <section className="landing-final">
+          <div>
+            <p className="landing-eyebrow">Make room for the work that matters</p>
+            <h2>Ready to bring your projects together?</h2>
+          </div>
+          <button className="landing-primary" onClick={() => navigate('register')}>
+            Create your workspace <ArrowRight size={18} />
+          </button>
+        </section>
+      </main>
+
+      <footer className="landing-footer">
+        <div className="footer-brand">
+          <a className="landing-brand" href="#top" aria-label="TaskFlow home">
+            <span className="landing-brand-icon">
+              <img src="/mobile-taskflow-mark.svg" alt="" />
+            </span>
+            <span className="landing-wordmark"><span>Task</span><strong>Flow</strong></span>
+          </a>
+          <p>Projects, people and progress — together.</p>
+        </div>
+        <div className="footer-links">
+          <strong>Explore</strong>
+          <button onClick={() => scrollTo('how-it-works')}>How it works</button>
+          <button onClick={() => scrollTo('features')}>Features</button>
+          <button onClick={() => scrollTo('faq')}>FAQ</button>
+        </div>
+        <div className="footer-links">
+          <strong>Your account</strong>
+          <button onClick={() => navigate('login')}>Sign in</button>
+          <button onClick={() => navigate('register')}>Create a workspace</button>
+        </div>
+        <small>© 2026 TaskFlow. All rights reserved.</small>
+      </footer>
+    </div>
+  );
 }
-function Eyebrow({ children }:{children:ReactNode}) { return <div className="landing-eyebrow">{children}</div>; }
-function Feature({ icon, title, text }:{icon:ReactNode;title:string;text:string}) { return <article className="feature-card"><i>{icon}</i><h3>{title}</h3><p>{text}</p></article>; }
-function DashboardPreview() { return <div className="dashboard-preview"><aside><b>◆ TaskFlow</b>{['Dashboard','Board','Projects','Members','Notifications','Settings'].map((item,index) => <span className={index === 0 ? 'selected' : ''} key={item}>{item}</span>)}</aside><div className="preview-body"><div className="preview-title"><div><b>Welcome back, Sarah</b><small>Here's what's happening with your projects today.</small></div><button>Acme Corp　/　Website Redesign⌄</button></div><div className="preview-metrics">{[['Project tasks','24'],['In progress','8'],['Overdue','3'],['Completed','13']].map(([label,value]) => <div key={label}><small>{label}</small><b className={label === 'Overdue' ? 'danger' : ''}>{value}</b></div>)}</div><div className="preview-progress"><b>Project progress</b><strong>68%</strong><i><em/></i></div><div className="preview-bottom"><div><b>Upcoming deadlines</b><span>● Homepage design　 Today</span><span>● API integration　 in 2 days</span><span>● User testing　　 in 5 days</span></div><div><b>Team workload</b><span>Sarah Smith　━━━━━</span><span>John Doe　　━━━━</span><span>Emily Clark　━━━━</span></div></div></div></div>; }
-function KanbanPreview() { const columns: Array<[string, string[]]> = [['To Do',['Design homepage','Create wireframes','Prepare content']],['In Progress',['Develop UI components','Integrate API','Set up testing']],['Review',['Design system','User feedback']],['Done',['Project setup','Requirements']]]; return <div className="kanban-preview"><header><b>Website Redesign</b><button>＋ New task</button></header><nav>Board　 List　 Timeline</nav><div>{columns.map(([column,tasks]) => <section key={column}><b>{column}</b>{tasks.map((task,index) => <article key={task}>{task}<small className={index === 0 ? 'high' : index === 1 ? 'medium' : 'low'}>● {index === 0 ? 'High' : index === 1 ? 'Medium' : 'Low'}</small></article>)}</section>)}</div></div>; }
+
+function ProjectPreview() {
+  const columns = [
+    { name: 'To do', color: 'muted', tasks: ['Write FAQ copy', 'Update pricing page'] },
+    { name: 'In progress', color: 'orange', tasks: ['Build new homepage', 'Review checkout flow'] },
+    { name: 'Done', color: 'blue', tasks: ['Approve brand colors', 'Set up analytics'] },
+  ];
+
+  return (
+    <div className="project-preview" aria-label="TaskFlow project board preview">
+      <div className="preview-topline">
+        <img src="/Mobile%20launcher.svg" alt="" />
+        <div>
+          <p>Team workspace</p>
+          <h2>Website relaunch</h2>
+        </div>
+        <span className="preview-switch">Website team <span aria-hidden="true">⌄</span></span>
+      </div>
+      <div className="preview-progress">
+        <div><span>Due Nov 28 · 8 of 14 tasks done</span><strong>57%</strong></div>
+        <span className="progress-track"><span /></span>
+      </div>
+      <div className="preview-columns">
+        {columns.map(({ name, color, tasks }) => (
+          <section className="preview-column" key={name}>
+            <h3><span className={`column-dot ${color}`} />{name}</h3>
+            {tasks.map(task => <article className="preview-task" key={task}>{task}</article>)}
+          </section>
+        ))}
+      </div>
+      <div className="preview-caption">
+        <span><span className="caption-dot orange" /> Work in progress</span>
+        <span><Check size={14} /> Shared with your team</span>
+      </div>
+    </div>
+  );
+}

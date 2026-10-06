@@ -537,6 +537,16 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .brand-lockup { display:block; width:min(190px, 100%); height:auto; }
 .brand-icon-crop { display:none; }
 .auth-card .brand-lockup { width:min(330px, 100%); }
+.auth-card .brand-mobile { gap:10px; margin-bottom:38px; font-family:inherit; font-size:22px; letter-spacing:-.8px; }
+.brand-mobile-icon { display:grid; width:42px; height:42px; flex:none; place-items:center; padding:5px; border-radius:12px; background:#1e2944; }
+.brand-mobile-icon img { display:block; width:100%; height:100%; object-fit:contain; }
+.brand-mobile-wordmark { display:inline-flex; align-items:baseline; color:var(--ink); font-weight:800; line-height:1; }
+.brand-mobile-wordmark strong { color:var(--violet); }
+.sidebar .brand-mobile { gap:9px; font-size:18px; }
+.sidebar .brand-mobile-icon { width:34px; height:34px; padding:4px; border-radius:10px; }
+.shell.sidebar-collapsed .sidebar .brand-mobile { display:grid; width:34px; height:34px; place-items:center; padding:0; border:0; background:transparent; }
+.shell.sidebar-collapsed .sidebar .brand-mobile-icon { width:34px; height:34px; }
+.shell.sidebar-collapsed .sidebar .brand-mobile-wordmark { display:none; }
 .shell.tenant-workspace-shell.sidebar-collapsed .tenant-sidebar-brand .brand-lockup,
 .admin-platform-shell.sidebar-collapsed .admin-sidebar-brand-row .brand-lockup { display:none; }
 .shell.tenant-workspace-shell.sidebar-collapsed .tenant-sidebar-brand .brand-icon-crop,

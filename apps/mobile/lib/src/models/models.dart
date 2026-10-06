@@ -35,12 +35,14 @@ class Account {
     required this.lastName,
     required this.email,
     this.timezone = 'UTC',
+    this.avatarUrl,
   });
   final String id;
   final String firstName;
   final String lastName;
   final String email;
   final String timezone;
+  final String? avatarUrl;
 
   factory Account.fromJson(Map<String, dynamic> json) => Account(
         id: json['id'] as String? ?? '',
@@ -48,6 +50,7 @@ class Account {
         lastName: json['lastName'] as String,
         email: json['email'] as String,
         timezone: json['timezone'] as String? ?? 'UTC',
+        avatarUrl: json['avatarUrl'] as String?,
       );
 }
 
@@ -59,11 +62,13 @@ class Organization {
     required this.name,
     required this.slug,
     required this.role,
+    this.avatarUrl,
   });
   final String id;
   final String name;
   final String slug;
   final String role;
+  final String? avatarUrl;
 
   bool get isAdminOrOwner => role == 'OWNER' || role == 'ADMIN';
 
@@ -211,6 +216,7 @@ class Member {
     required this.lastName,
     required this.email,
     required this.role,
+    this.avatarUrl,
   });
   final String id;
   final String userId;
@@ -218,6 +224,7 @@ class Member {
   final String lastName;
   final String email;
   final String role;
+  final String? avatarUrl;
 
   String get initials =>
       (firstName.isNotEmpty ? firstName[0] : '') +
@@ -231,6 +238,33 @@ class Member {
         lastName: json['lastName'] as String,
         email: json['email'] as String,
         role: json['role'] as String? ?? 'MEMBER',
+        avatarUrl: json['avatarUrl'] as String?,
+      );
+}
+
+class TrashItem {
+  const TrashItem({
+    required this.kind,
+    required this.id,
+    required this.projectId,
+    required this.name,
+    required this.deletedAt,
+    this.parentId,
+  });
+  final String kind;
+  final String id;
+  final String? parentId;
+  final String projectId;
+  final String name;
+  final DateTime deletedAt;
+
+  factory TrashItem.fromJson(Map<String, dynamic> json) => TrashItem(
+        kind: json['kind'] as String,
+        id: json['id'] as String,
+        parentId: json['parentId'] as String?,
+        projectId: json['projectId'] as String,
+        name: json['name'] as String,
+        deletedAt: DateTime.parse(json['deletedAt'] as String),
       );
 }
 
@@ -317,12 +351,14 @@ class Comment {
 class Attachment {
   const Attachment({
     required this.id,
+    required this.uploadedBy,
     required this.fileName,
     required this.fileSize,
     required this.contentType,
     required this.createdAt,
   });
   final String id;
+  final String uploadedBy;
   final String fileName;
   final int fileSize;
   final String contentType;
@@ -330,7 +366,8 @@ class Attachment {
 
   factory Attachment.fromJson(Map<String, dynamic> json) => Attachment(
         id: json['id'] as String,
-        fileName: json['fileName'] as String,
+    uploadedBy: json['uploadedBy'] as String? ?? '',
+    fileName: json['fileName'] as String,
         fileSize: json['fileSize'] as int? ?? 0,
         contentType: json['contentType'] as String? ?? '',
         createdAt: json['createdAt'] as String,

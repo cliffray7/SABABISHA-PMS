@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Pms.Api.Auth;
 using Pms.Api;
+using Pms.Api.Media;
 using Pms.Api.GraphQL.Queries;
 using Pms.Application.Ai;
 using Pms.Infrastructure.Ai;
@@ -36,6 +37,8 @@ builder.Services.AddHttpClient("Brevo", client =>
     client.BaseAddress = new Uri("https://api.brevo.com/");
     client.Timeout = TimeSpan.FromSeconds(15);
 });
+builder.Services.AddHttpClient<ICloudinaryStorage, CloudinaryStorage>(client =>
+    client.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddSingleton<AppMail>();
 builder.Services.AddRateLimiter(options => options.AddPolicy("auth", context =>
     System.Threading.RateLimiting.RateLimitPartition.GetSlidingWindowLimiter(
@@ -81,6 +84,7 @@ builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database", tag
 builder.Services.AddScoped<DashboardRepository>();
 builder.Services.AddHttpClient("Gemini", client => client.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddHostedService<KeepAliveService>();
+builder.Services.AddHostedService<DeletedContentPurger>();
 builder.Services.AddScoped<IAiTaskService>(services => new GeminiTaskService(
     services.GetRequiredService<IHttpClientFactory>().CreateClient("Gemini"),
     new GeminiSettings(builder.Configuration["Gemini:ApiKey"], builder.Configuration["Gemini:Model"]),

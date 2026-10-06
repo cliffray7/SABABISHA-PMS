@@ -11,6 +11,7 @@ BEGIN
         COALESCE(SUM(CASE WHEN t.status = 'IN PROGRESS' THEN 1 ELSE 0 END), 0) AS InProgressTasks,
         COUNT(*) AS TotalTasks
     FROM tasks t
+    INNER JOIN projects p ON p.id = t.project_id AND p.deleted_at IS NULL
     INNER JOIN task_assignees ta ON ta.task_id = t.id AND ta.user_id = @UserId AND ta.status = 'active'
     WHERE t.deleted_at IS NULL AND (@ProjectId IS NULL OR t.project_id = @ProjectId);
 END;

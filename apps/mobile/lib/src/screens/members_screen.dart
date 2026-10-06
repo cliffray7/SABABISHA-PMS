@@ -602,7 +602,11 @@ class _MemberRow extends StatelessWidget {
       ),
       child: Row(children: [
         // Avatar
-        AvatarChip(initials: member.initials, size: 40),
+        AvatarChip(
+          initials: member.initials,
+          size: 40,
+          avatarUrl: member.avatarUrl,
+        ),
         const SizedBox(width: 12),
         // Name + email
         Expanded(

@@ -84,6 +84,9 @@ How cross-tenant access is prevented: API routes and database queries must valid
 |---------|---------|------------------|
 | Brevo | Sending emails/OTP | Log failure, notify user |
 | Gemini API | AI capabilities | Graceful degradation if AI is down |
+| Cloudinary | Profile pictures and new task attachments | Server-side signed uploads; authenticated API download proxy; uploads and media purge require configured credentials |
+
+New profile images and task attachments are stored in Cloudinary; older local-disk attachments remain downloadable through the legacy path. Cloudinary credentials are API-host secrets and are never sent to clients. Soft-deleted projects, tasks, comments, and attachments remain recoverable for 30 days, after which the hosted purge worker deletes their records and associated Cloudinary assets. Project archiving remains separate and has no automatic retention purge.
 
 ## 12. Security & Operational Boundaries
 - Client is untrusted.
@@ -98,5 +101,4 @@ These rules MUST NEVER be violated:
 - **Do not expose API keys** or database credentials to the browser/frontend code.
 - **Administrative actions must be logged** to the append-only audit trail once the capability is deployed.
 - **Do not generate mock success states** for endpoints that are absent or denied.
-
 

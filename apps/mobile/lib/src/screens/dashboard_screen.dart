@@ -632,7 +632,11 @@ class _TeamWorkload extends StatelessWidget {
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              AvatarChip(initials: m.initials, size: 26),
+              AvatarChip(
+                initials: m.initials,
+                size: 26,
+                avatarUrl: m.avatarUrl,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1272,7 +1276,9 @@ Future<void> _showCreateTaskDialog(BuildContext context, AppState state) async {
           width: 520,
           child: ConstrainedBox(
             constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(dialogContext).height * .72),
+                maxHeight: (MediaQuery.sizeOf(dialogContext).height -
+                        MediaQuery.viewInsetsOf(dialogContext).bottom) *
+                    .72),
             child: Form(
               key: formKey,
               child: SingleChildScrollView(

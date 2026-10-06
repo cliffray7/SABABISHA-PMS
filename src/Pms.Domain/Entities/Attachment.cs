@@ -9,6 +9,8 @@ public sealed class Attachment
     public required string FileName { get; set; }
     public required string FileUrl { get; set; }
     public string? FileType { get; set; }
+    public string? CloudinaryPublicId { get; set; }
+    public string? CloudinaryResourceType { get; set; }
     public long FileSize { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? DeletedAt { get; set; }

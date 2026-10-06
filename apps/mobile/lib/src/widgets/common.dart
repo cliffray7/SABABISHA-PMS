@@ -60,9 +60,15 @@ Color statusColor(String status, BuildContext context) {
 // Matches web .task-assignee and .avatar: #DCD5FF bg, #4D40ED text, circular
 
 class AvatarChip extends StatelessWidget {
-  const AvatarChip({super.key, required this.initials, this.size = 32});
+  const AvatarChip({
+    super.key,
+    required this.initials,
+    this.size = 32,
+    this.avatarUrl,
+  });
   final String initials;
   final double size;
+  final String? avatarUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -75,15 +81,33 @@ class AvatarChip extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,
-      child: Text(
-        initials.toUpperCase(),
-        style: TextStyle(
-          fontSize: fontSize,
-          fontWeight: FontWeight.w700,
-          color: kViolet,
-          height: 1,
-        ),
-      ),
+      child: avatarUrl == null || avatarUrl!.isEmpty
+          ? Text(
+              initials.toUpperCase(),
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w700,
+                color: kViolet,
+                height: 1,
+              ),
+            )
+          : ClipOval(
+              child: Image.network(
+                avatarUrl!,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Text(
+                  initials.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    fontWeight: FontWeight.w700,
+                    color: kViolet,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
     );
   }
 }

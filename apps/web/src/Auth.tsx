@@ -123,7 +123,7 @@ export function Auth({ route, navigate, onLogin, localMail }: { route: string; n
     navigate(`login?email=${encodeURIComponent(otpEmail)}`);
   });
 
-  return <main className="auth-page"><div className="auth-card"><Brand/><h1>{register ? 'Create your account' : reset ? 'Set a new password' : forgot ? 'Forgot your password?' : otp ? 'Verify your email' : 'Welcome back'}</h1><p className="auth-lede">{reset ? "Choose a strong password you haven't used before." : forgot ? "Enter your email and we'll send you a reset link." : register ? 'Start managing projects with your team.' : otp ? `Enter the six-digit code sent to ${otpEmail}.` : 'Log in to your workspace to continue.'}</p>
+  return <main className="auth-page"><div className="auth-card"><Brand mobile/><h1>{register ? 'Create your account' : reset ? 'Set a new password' : forgot ? 'Forgot your password?' : otp ? 'Verify your email' : 'Welcome back'}</h1><p className="auth-lede">{reset ? "Choose a strong password you haven't used before." : forgot ? "Enter your email and we'll send you a reset link." : register ? 'Start managing projects with your team.' : otp ? `Enter the six-digit code sent to ${otpEmail}.` : 'Log in to your workspace to continue.'}</p>
     {message ? <><p className="success-message" role="status">{message}</p><button className="primary wide" onClick={() => navigate('login')}>Back to log in</button></> : otp ? <>
       <OtpInput busy={action.busy} onComplete={submitOtp} />
       <OtpCountdown seconds={otpSeconds} busy={action.busy} email={otpEmail} onResend={resendOtp} />
@@ -167,4 +167,3 @@ export function Inbox({ navigate }: { navigate: (route: string) => void }) {
     </article>;
   })}<button className="text-button inbox-back" onClick={() => navigate('dashboard')}>Back to TaskFlow</button></main>;
 }
-

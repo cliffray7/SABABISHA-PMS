@@ -241,11 +241,16 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
             icon: CircleAvatar(
               radius: 14,
               backgroundColor: _kVioletLight,
-              child: Text(initials.toLowerCase(),
-                  style: const TextStyle(
-                      fontSize: 9,
-                      color: _kViolet,
-                      fontWeight: FontWeight.w700)),
+              backgroundImage: account?.avatarUrl == null
+                  ? null
+                  : NetworkImage(account!.avatarUrl!),
+              child: account?.avatarUrl == null
+                  ? Text(initials.toLowerCase(),
+                      style: const TextStyle(
+                          fontSize: 9,
+                          color: _kViolet,
+                          fontWeight: FontWeight.w700))
+                  : null,
             ),
           ),
         ],
@@ -336,9 +341,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                         backgroundColor: isDark
                             ? const Color(0xFF35313E)
                             : const Color(0xFFEAE5DC),
-                        child: Text(initials.toLowerCase(),
-                            style:
-                                const TextStyle(fontSize: 9, color: _kMuted)),
+                        backgroundImage: account?.avatarUrl == null
+                            ? null
+                            : NetworkImage(account!.avatarUrl!),
+                        child: account?.avatarUrl == null
+                            ? Text(initials.toLowerCase(),
+                                style: const TextStyle(
+                                    fontSize: 9, color: _kMuted))
+                            : null,
                       ),
                       const SizedBox(width: 9),
                       Expanded(

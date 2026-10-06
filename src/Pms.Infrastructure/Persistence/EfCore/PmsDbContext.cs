@@ -78,6 +78,13 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
         });
         modelBuilder.Entity<ProjectMember>().HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
         modelBuilder.Entity<CommentMention>().HasOne<Comment>().WithMany().HasForeignKey(x => x.CommentId).OnDelete(DeleteBehavior.NoAction);
+        modelBuilder.Entity<Project>().HasMany<WorkTask>().WithOne().HasForeignKey(task => task.ProjectId).OnDelete(DeleteBehavior.NoAction);
+        modelBuilder.Entity<WorkTask>().HasOne<WorkTask>().WithMany().HasForeignKey(task => task.ParentTaskId).OnDelete(DeleteBehavior.NoAction);
+        modelBuilder.Entity<Comment>().HasOne<Comment>().WithMany().HasForeignKey(comment => comment.ParentCommentId).OnDelete(DeleteBehavior.NoAction);
+        modelBuilder.Entity<Comment>().HasOne<WorkTask>().WithMany().HasForeignKey(comment => comment.TaskId).OnDelete(DeleteBehavior.NoAction);
+        modelBuilder.Entity<Attachment>().HasOne<WorkTask>().WithMany().HasForeignKey(attachment => attachment.TaskId).OnDelete(DeleteBehavior.NoAction);
+        modelBuilder.Entity<Attachment>().HasOne<Comment>().WithMany().HasForeignKey(attachment => attachment.CommentId).OnDelete(DeleteBehavior.NoAction);
+        modelBuilder.Entity<Attachment>().HasOne<User>().WithMany().HasForeignKey(attachment => attachment.UploadedBy).OnDelete(DeleteBehavior.NoAction);
         modelBuilder.Entity<User>(entity =>
         {
             entity.ToTable("users");
@@ -85,6 +92,8 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
             entity.HasIndex(user => user.Email).IsUnique();
             entity.Property(user => user.Email).HasMaxLength(320).IsRequired();
             entity.Property(user => user.PasswordHash).HasMaxLength(500).IsRequired();
+            entity.Property(user => user.AvatarUrl).HasMaxLength(2000);
+            entity.Property(user => user.AvatarPublicId).HasMaxLength(500);
         });
 
         modelBuilder.Entity<RefreshToken>(entity =>
@@ -187,6 +196,8 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
             entity.HasIndex(attachment => attachment.CommentId);
             entity.Property(attachment => attachment.FileName).HasMaxLength(500).IsRequired();
             entity.Property(attachment => attachment.FileUrl).HasMaxLength(2000).IsRequired();
+            entity.Property(attachment => attachment.CloudinaryPublicId).HasMaxLength(500);
+            entity.Property(attachment => attachment.CloudinaryResourceType).HasMaxLength(20);
         });
 
         modelBuilder.Entity<Notification>(entity =>

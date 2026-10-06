@@ -357,7 +357,11 @@ class _BoardPageHeading extends StatelessWidget {
               for (final member in members.take(4))
                 Padding(
                     padding: const EdgeInsets.only(left: 3),
-                    child: AvatarChip(initials: member.initials, size: 23)),
+                    child: AvatarChip(
+                      initials: member.initials,
+                      size: 23,
+                      avatarUrl: member.avatarUrl,
+                    )),
               if (members.length > 4)
                 Padding(
                     padding: const EdgeInsets.only(left: 3),
@@ -682,7 +686,11 @@ class _TaskCard extends StatelessWidget {
                 final m = members.where((x) => x.userId == id).firstOrNull;
                 return Padding(
                   padding: const EdgeInsets.only(right: 3),
-                  child: AvatarChip(initials: m?.initials ?? '?', size: 22),
+                  child: AvatarChip(
+                    initials: m?.initials ?? '?',
+                    size: 22,
+                    avatarUrl: m?.avatarUrl,
+                  ),
                 );
               }),
             const Spacer(),

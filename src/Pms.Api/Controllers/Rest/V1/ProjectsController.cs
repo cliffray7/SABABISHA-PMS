@@ -11,7 +11,7 @@ namespace Pms.Api.Controllers.Rest.V1;
 public sealed class ProjectsController(PmsDbContext db) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> List(Guid organizationId, CancellationToken ct) => Ok(await (from p in db.Projects join m in db.ProjectMembers on p.Id equals m.ProjectId join om in db.OrganizationMembers on p.OrganizationId equals om.OrganizationId where p.OrganizationId == organizationId && p.ArchivedAt == null && m.UserId == CurrentUser.Id(User) && m.Status == "active" && om.UserId == CurrentUser.Id(User) && om.Status == "active" select new { p.Id, p.OrganizationId, p.Name, p.Description, p.Status, p.StartDate, p.DueDate, m.Role }).ToListAsync(ct));
+    public async Task<IActionResult> List(Guid organizationId, CancellationToken ct) => Ok(await (from p in db.Projects join m in db.ProjectMembers on p.Id equals m.ProjectId join om in db.OrganizationMembers on p.OrganizationId equals om.OrganizationId where p.OrganizationId == organizationId && p.ArchivedAt == null && p.DeletedAt == null && m.UserId == CurrentUser.Id(User) && m.Status == "active" && om.UserId == CurrentUser.Id(User) && om.Status == "active" select new { p.Id, p.OrganizationId, p.Name, p.Description, p.Status, p.StartDate, p.DueDate, m.Role }).ToListAsync(ct));
     [HttpPost]
     public async Task<IActionResult> Create(CreateProjectRequest request, CancellationToken ct)
     {
@@ -24,7 +24,7 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
     }
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
-    { if (!await Member(id, ct)) return Forbid(); return Ok(await db.Projects.SingleAsync(x => x.Id == id, ct)); }
+    { if (!await Member(id, ct)) return Forbid(); return Ok(await db.Projects.SingleAsync(x => x.Id == id && x.DeletedAt == null, ct)); }
     [HttpPatch("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, ProjectDetails request, CancellationToken ct)
     {
@@ -41,7 +41,7 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
     public async Task<IActionResult> Archive(Guid id, CancellationToken ct)
     {
         if (!await Manager(id, ct)) return Forbid();
-        var project = await db.Projects.SingleAsync(x => x.Id == id, ct);
+        var project = await db.Projects.SingleAsync(x => x.Id == id && x.DeletedAt == null, ct);
         project.ArchivedAt = DateTime.UtcNow;
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Projects", "project.archived", "project", project.Id, project.Name, $"archived project \"{project.Name}\"", ct, project.Id);
         await db.SaveChangesAsync(ct); return NoContent();
@@ -49,18 +49,40 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
     [HttpPost("{id:guid}/restore")]
     public async Task<IActionResult> Restore(Guid id, CancellationToken ct)
     {
-        if (!await Manager(id, ct)) return Forbid();
-        var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id && x.ArchivedAt != null, ct);
+        var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id
+            && (x.DeletedAt != null ? x.DeletedAt >= DateTime.UtcNow.AddDays(-30) : x.ArchivedAt != null), ct);
         if (project is null) return NotFound();
-        project.ArchivedAt = null; project.UpdatedAt = DateTime.UtcNow;
+        if (project.DeletedAt is not null)
+        {
+            if (!await CanManageDeletedProject(project.Id, ct)) return Forbid();
+            project.DeletedAt = null;
+        }
+        else
+        {
+            if (!await Manager(id, ct)) return Forbid();
+            project.ArchivedAt = null;
+        }
+        project.UpdatedAt = DateTime.UtcNow;
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Projects", "project.restored", "project", project.Id, project.Name, $"restored project \"{project.Name}\"", ct, project.Id);
         await db.SaveChangesAsync(ct); return NoContent();
+    }
+    [HttpDelete("{id:guid}/trash")]
+    public async Task<IActionResult> MoveToTrash(Guid id, CancellationToken ct)
+    {
+        if (!await Manager(id, ct)) return Forbid();
+        var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt == null, ct);
+        if (project is null) return NotFound();
+        project.DeletedAt = DateTime.UtcNow;
+        project.UpdatedAt = DateTime.UtcNow;
+        await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Projects", "project.deleted", "project", project.Id, project.Name, $"moved project \"{project.Name}\" to Trash", ct, project.Id);
+        await db.SaveChangesAsync(ct);
+        return NoContent();
     }
     [HttpGet("{id:guid}/members")]
     public async Task<IActionResult> Members(Guid id, CancellationToken ct)
     {
         if (!await Member(id, ct)) return Forbid();
-        return Ok(await (from m in db.ProjectMembers join u in db.Users on m.UserId equals u.Id where m.ProjectId == id && m.Status == "active" select new { m.Id, m.UserId, u.FirstName, u.LastName, u.Email, m.Role }).ToListAsync(ct));
+        return Ok(await (from m in db.ProjectMembers join u in db.Users on m.UserId equals u.Id where m.ProjectId == id && m.Status == "active" select new { m.Id, m.UserId, u.FirstName, u.LastName, u.Email, u.AvatarUrl, m.Role }).ToListAsync(ct));
     }
     [HttpPost("{id:guid}/members")]
     public async Task<IActionResult> AddMember(Guid id, AddProjectMemberRequest request, CancellationToken ct)
@@ -97,9 +119,16 @@ public sealed class ProjectsController(PmsDbContext db) : ControllerBase
         join project in db.Projects on projectMember.ProjectId equals project.Id
         join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
         where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
-            && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
+            && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active" && project.DeletedAt == null
         select projectMember).AnyAsync(ct);
     private Task<bool> Manager(Guid id, CancellationToken ct) => (from projectMember in db.ProjectMembers
+        join project in db.Projects on projectMember.ProjectId equals project.Id
+        join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
+        where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
+            && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
+            && organizationMember.Role != "GUEST" && project.DeletedAt == null && (projectMember.Role == "PROJECT_MANAGER" || projectMember.Role == "TEAM_LEAD")
+        select projectMember).AnyAsync(ct);
+    private Task<bool> CanManageDeletedProject(Guid id, CancellationToken ct) => (from projectMember in db.ProjectMembers
         join project in db.Projects on projectMember.ProjectId equals project.Id
         join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
         where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"

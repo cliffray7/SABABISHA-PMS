@@ -17,7 +17,7 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
         join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
         where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
             && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
-            && project.ArchivedAt == null && (!write || projectMember.Role != "VIEWER")
+            && project.ArchivedAt == null && project.DeletedAt == null && (!write || projectMember.Role != "VIEWER")
         select projectMember).AnyAsync(ct);
     [HttpGet]
     public async Task<IActionResult> List(Guid projectId, CancellationToken ct)
@@ -137,6 +137,7 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
             join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
             where projectMember.ProjectId == task.ProjectId && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
                 && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active" && organizationMember.Role != "GUEST"
+                && project.ArchivedAt == null && project.DeletedAt == null
                 && (projectMember.Role == "PROJECT_MANAGER" || projectMember.Role == "TEAM_LEAD")
             select projectMember).AnyAsync(ct)) return Forbid();
         task.DeletedAt = DateTime.UtcNow;
@@ -146,14 +147,14 @@ public sealed class TasksController(PmsDbContext db, AppMail mail) : ControllerB
     [HttpPost("{id:guid}/restore")]
     public async Task<IActionResult> Restore(Guid id, CancellationToken ct)
     {
-        var task = await db.Tasks.SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt != null, ct);
+        var task = await db.Tasks.SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt != null && x.DeletedAt >= DateTime.UtcNow.AddDays(-30), ct);
         if (task is null) return NotFound();
         if (!await (from projectMember in db.ProjectMembers
             join project in db.Projects on projectMember.ProjectId equals project.Id
             join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
             where projectMember.ProjectId == task.ProjectId && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
                 && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active" && organizationMember.Role != "GUEST"
-                && project.ArchivedAt == null && (projectMember.Role == "PROJECT_MANAGER" || projectMember.Role == "TEAM_LEAD")
+                && project.ArchivedAt == null && project.DeletedAt == null && (projectMember.Role == "PROJECT_MANAGER" || projectMember.Role == "TEAM_LEAD")
             select projectMember).AnyAsync(ct)) return Forbid();
         task.DeletedAt = null; task.UpdatedAt = DateTime.UtcNow;
         await RecordActivityAsync(task, "Tasks", "task.restored", $"restored task \"{task.Title}\"", ct);

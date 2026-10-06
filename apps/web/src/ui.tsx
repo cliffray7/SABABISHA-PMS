@@ -1,7 +1,18 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { errorMessage } from './api';
-export function Brand() {
+export function Brand({ mobile = false }: { mobile?: boolean }) {
+  if (mobile) {
+    return (
+      <div className="brand brand-mobile" role="img" aria-label="TaskFlow">
+        <span className="brand-mobile-icon" aria-hidden="true">
+          <img src="/mobile-taskflow-mark.svg" alt="" />
+        </span>
+        <span className="brand-mobile-wordmark"><span>Task</span><strong>Flow</strong></span>
+      </div>
+    );
+  }
+
   return (
     <div className="brand" role="img" aria-label="TaskFlow">
       <img className="brand-lockup" src="/Primary%20lockup.svg" alt="" />

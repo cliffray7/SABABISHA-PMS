@@ -416,12 +416,13 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
             Owner = db.OrganizationMembers.Where(member => member.OrganizationId == organization.Id && member.Role == "OWNER")
                 .Join(db.Users, member => member.UserId, user => user.Id, (_, user) => user.FirstName + " " + user.LastName).FirstOrDefault(),
             MemberCount = db.OrganizationMembers.Count(member => member.OrganizationId == organization.Id && member.Status == "active"),
-            ProjectCount = db.Projects.Count(project => project.OrganizationId == organization.Id)
+            ProjectCount = db.Projects.Count(project => project.OrganizationId == organization.Id && project.DeletedAt == null)
         }).ToListAsync(cancellationToken));
 
     [HttpGet("projects")]
     public async Task<IActionResult> GetProjects(CancellationToken cancellationToken) => Ok(await db.Projects
         .AsNoTracking()
+        .Where(project => project.DeletedAt == null)
         .OrderByDescending(project => project.CreatedAt)
         .Select(project => new
         {
@@ -450,22 +451,24 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
 
             TotalProjects = await db.Projects
                 .AsNoTracking()
-                .CountAsync(cancellationToken),
+                .CountAsync(project => project.DeletedAt == null, cancellationToken),
 
             TotalTasks = await db.Tasks
                 .AsNoTracking()
-                .CountAsync(t => t.ParentTaskId == null && t.DeletedAt == null, cancellationToken),
+                .CountAsync(task => task.ParentTaskId == null && task.DeletedAt == null
+                    && db.Projects.Any(project => project.Id == task.ProjectId && project.DeletedAt == null), cancellationToken),
 
             CompletedTasks = await db.Tasks
                 .AsNoTracking()
                 .CountAsync(
-                    t => t.Status == "DONE" && t.ParentTaskId == null && t.DeletedAt == null,
+                    task => task.Status == "DONE" && task.ParentTaskId == null && task.DeletedAt == null
+                        && db.Projects.Any(project => project.Id == task.ProjectId && project.DeletedAt == null),
                     cancellationToken),
 
             ActiveProjects = await db.Projects
                 .AsNoTracking()
                 .CountAsync(
-                    p => p.Status == "ACTIVE" && p.ArchivedAt == null,
+                    project => project.Status == "ACTIVE" && project.ArchivedAt == null && project.DeletedAt == null,
                     cancellationToken)
         };
 
@@ -511,7 +514,7 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
 
         var projectGrowth = await db.Projects
             .AsNoTracking()
-            .Where(p =>
+            .Where(p => p.DeletedAt == null &&
                 p.CreatedAt >= fromDate &&
                 p.CreatedAt <= toDate)
             .GroupBy(p => p.CreatedAt.Date)
@@ -525,7 +528,8 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
 
         var tasksByStatus = await db.Tasks
             .AsNoTracking()
-            .Where(t =>
+            .Where(t => t.DeletedAt == null &&
+                db.Projects.Any(project => project.Id == t.ProjectId && project.DeletedAt == null) &&
                 t.CreatedAt >= fromDate &&
                 t.CreatedAt <= toDate)
             .GroupBy(t => t.Status)
@@ -539,7 +543,8 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
 
         var tasksByPriority = await db.Tasks
             .AsNoTracking()
-            .Where(t =>
+            .Where(t => t.DeletedAt == null &&
+                db.Projects.Any(project => project.Id == t.ProjectId && project.DeletedAt == null) &&
                 t.CreatedAt >= fromDate &&
                 t.CreatedAt <= toDate)
             .GroupBy(t => t.Priority)
@@ -609,11 +614,14 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
 
         var projects = await db.Projects
             .AsNoTracking()
+            .Where(project => project.DeletedAt == null)
             .Select(p => new PlatformProjectReport(p.Id, p.OrganizationId, p.Name, p.Status, p.CreatedAt))
             .ToListAsync(cancellationToken);
 
         var tasks = await db.Tasks
             .AsNoTracking()
+            .Where(task => task.DeletedAt == null
+                && db.Projects.Any(project => project.Id == task.ProjectId && project.DeletedAt == null))
             .Select(t => new PlatformTaskReport(t.Id, t.ProjectId, t.Title, t.Status, t.Priority, t.DueDate, t.CreatedAt))
             .ToListAsync(cancellationToken);
         var generatedAt = DateTime.UtcNow;

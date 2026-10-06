@@ -31,7 +31,7 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
     public async Task<IActionResult> Members(Guid id, CancellationToken ct)
     {
         if (!await Member(id, ct)) return Forbid();
-        return Ok(await (from m in db.OrganizationMembers join u in db.Users on m.UserId equals u.Id where m.OrganizationId == id && m.Status == "active" select new { m.Id, m.UserId, u.FirstName, u.LastName, u.Email, m.Role }).ToListAsync(ct));
+        return Ok(await (from m in db.OrganizationMembers join u in db.Users on m.UserId equals u.Id where m.OrganizationId == id && m.Status == "active" select new { m.Id, m.UserId, u.FirstName, u.LastName, u.Email, u.AvatarUrl, m.Role }).ToListAsync(ct));
     }
     [HttpPatch("{id:guid}/members/{userId:guid}")]
     public async Task<IActionResult> Role(Guid id, Guid userId, UpdateRoleRequest request, CancellationToken ct)

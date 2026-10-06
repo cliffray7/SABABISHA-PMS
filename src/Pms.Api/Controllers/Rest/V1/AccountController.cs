@@ -7,12 +7,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Pms.Api.Auth;
+using Pms.Api.Media;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 namespace Pms.Api.Controllers.Rest.V1;
 
 [ApiController, Route("api/v1")]
-public sealed class AccountController(PmsDbContext db, TokenService tokens, IPasswordHasher<User> hasher, AppMail mail, IWebHostEnvironment environment) : ControllerBase
+public sealed class AccountController(PmsDbContext db, TokenService tokens, IPasswordHasher<User> hasher, AppMail mail, IWebHostEnvironment environment, ICloudinaryStorage media, ILogger<AccountController> logger) : ControllerBase
 {
     [HttpGet("auth/mail-mode")]
     public IActionResult MailMode() => Ok(new { local = environment.IsDevelopment() && mail.IsLocal });
@@ -52,7 +53,7 @@ public sealed class AccountController(PmsDbContext db, TokenService tokens, IPas
         });
     }
     [Authorize, HttpGet("account")]
-    public async Task<IActionResult> Me(CancellationToken ct) => Ok(await db.Users.Where(x => x.Id == CurrentUser.Id(User)).Select(x => new { x.Id, x.FirstName, x.LastName, x.Email, x.Timezone }).SingleAsync(ct));
+    public async Task<IActionResult> Me(CancellationToken ct) => Ok(await db.Users.Where(x => x.Id == CurrentUser.Id(User)).Select(x => new { x.Id, x.FirstName, x.LastName, x.Email, x.Timezone, x.AvatarUrl }).SingleAsync(ct));
     [Authorize, HttpPatch("account")]
     public async Task<IActionResult> Profile(ProfileRequest request, CancellationToken ct)
     {
@@ -60,6 +61,51 @@ public sealed class AccountController(PmsDbContext db, TokenService tokens, IPas
         var user = await db.Users.SingleAsync(x => x.Id == CurrentUser.Id(User), ct);
         user.FirstName = request.FirstName.Trim(); user.LastName = request.LastName.Trim(); user.Timezone = request.Timezone; user.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct); return await Me(ct);
+    }
+    [Authorize, HttpPost("account/avatar"), RequestSizeLimit(5_250_000)]
+    public async Task<IActionResult> UploadAvatar(IFormFile file, CancellationToken ct)
+    {
+        if (!media.IsConfigured) return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Profile picture storage is not configured." });
+        if (file.Length is <= 0 or > 5_000_000)
+            return BadRequest(new { message = "Choose an image between 1 byte and 5 MB." });
+        var extension = System.IO.Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif" }.Contains(extension)
+            || !new[] { "image/jpeg", "image/png", "image/webp", "image/gif" }.Contains(file.ContentType.ToLowerInvariant()))
+            return BadRequest(new { message = "Choose a JPEG, PNG, WebP, or GIF image." });
+
+        var user = await db.Users.SingleAsync(x => x.Id == CurrentUser.Id(User), ct);
+        CloudinaryUpload uploaded;
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            uploaded = await media.UploadAsync(stream, file.FileName, $"taskflow/avatars/{user.Id:N}", "image", ct);
+        }
+        catch (CloudinaryStorageException)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = "The profile picture could not be uploaded. Please try again." });
+        }
+
+        var oldPublicId = user.AvatarPublicId;
+        user.AvatarUrl = uploaded.SecureUrl;
+        user.AvatarPublicId = uploaded.PublicId;
+        user.UpdatedAt = DateTime.UtcNow;
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            try { await media.DeleteAsync(uploaded.PublicId, uploaded.ResourceType, ct); }
+            catch (Exception cleanupError) { logger.LogError(cleanupError, "Could not remove the unreferenced Cloudinary avatar {PublicId}.", uploaded.PublicId); }
+            throw;
+        }
+
+        if (!string.IsNullOrWhiteSpace(oldPublicId))
+        {
+            try { await media.DeleteAsync(oldPublicId, "image", ct); }
+            catch (CloudinaryStorageException cleanupError) { logger.LogError(cleanupError, "Could not remove the replaced Cloudinary avatar {PublicId}.", oldPublicId); }
+        }
+        return await Me(ct);
     }
     [Authorize, HttpPost("auth/logout")]
     public async Task<IActionResult> Logout(RefreshRequest request, CancellationToken ct)

@@ -22,6 +22,12 @@ services:
         sync: false
       - key: Gemini__Model
         value: gemini-3.8-flash
+      - key: Cloudinary__CloudName
+        sync: false
+      - key: Cloudinary__ApiKey
+        sync: false
+      - key: Cloudinary__ApiSecret
+        sync: false
       - key: Brevo__From
         sync: false
       - key: Brevo__FromName

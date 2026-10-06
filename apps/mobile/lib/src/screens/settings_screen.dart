@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
@@ -41,12 +44,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     final account = context.read<AppState>().account;
-    _firstName =
-        TextEditingController(text: account?.firstName ?? '');
-    _lastName =
-        TextEditingController(text: account?.lastName ?? '');
-    _timezone =
-        TextEditingController(text: account?.timezone ?? 'UTC');
+    _firstName = TextEditingController(text: account?.firstName ?? '');
+    _lastName = TextEditingController(text: account?.lastName ?? '');
+    _timezone = TextEditingController(text: account?.timezone ?? 'UTC');
   }
 
   @override
@@ -121,6 +121,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _trashProject(AppState state) async {
+    final project = state.selectedProject;
+    if (project == null) return;
+    final ok = await confirmDialog(
+      context,
+      title: 'Move project to Trash',
+      message:
+          'Move ${project.name} to Trash? You can restore it for 30 days. Archiving remains separate.',
+      confirmLabel: 'Move to Trash',
+      destructive: true,
+    );
+    if (!ok) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await state.api.trashProject(project.id);
+      await state.loadOrganizations();
+      if (mounted) setState(() => _success = 'Project moved to Trash.');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _chooseAvatar() async {
+    final state = context.read<AppState>();
+    setState(() {
+      _busy = true;
+      _error = null;
+      _success = null;
+    });
+    try {
+      final image = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 88,
+      );
+      if (image == null) return;
+      if (!mounted) return;
+      await state.api.uploadAvatar(File(image.path));
+      await state.loadAccount();
+      if (mounted) setState(() => _success = 'Profile picture updated.');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _signOut() async {
     setState(() => _busy = true);
     final state = context.read<AppState>();
@@ -147,8 +200,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         // ── Feedback banners ───────────────────────────────────────────────
         if (_error != null)
-          ErrorBanner(_error!,
-              onDismiss: () => setState(() => _error = null)),
+          ErrorBanner(_error!, onDismiss: () => setState(() => _error = null)),
         if (_success != null)
           SuccessBanner(_success!,
               onDismiss: () => setState(() => _success = null)),
@@ -164,38 +216,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         const SizedBox(height: 20),
 
+        if (account != null) ...[
+          _SettingsCard(
+            title: 'Profile picture',
+            child: Row(children: [
+              AvatarChip(
+                initials:
+                    account.firstName.isNotEmpty && account.lastName.isNotEmpty
+                        ? '${account.firstName[0]}${account.lastName[0]}'
+                        : account.firstName,
+                size: 72,
+                avatarUrl: account.avatarUrl,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('JPEG, PNG, WebP, or GIF · up to 5 MB',
+                          style: TextStyle(fontSize: 12, color: kMuted)),
+                      const SizedBox(height: 8),
+                      Wrap(spacing: 8, runSpacing: 6, children: [
+                        OutlinedButton(
+                          onPressed: _busy ? null : _chooseAvatar,
+                          child: const Text('Choose picture'),
+                        ),
+                      ]),
+                    ]),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 16),
+        ],
+
         // ── Your account card ─────────────────────────────────────────────
         // Web .settings-panel: .list-panel with h2 "Your account"
         _SettingsCard(
           title: 'Your account',
           child: Form(
             key: _formKey,
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               // Two-col name row — web .two-col
               Row(children: [
                 Expanded(
                   child: TextFormField(
                     controller: _firstName,
-                    decoration:
-                        const InputDecoration(labelText: 'First name'),
+                    decoration: const InputDecoration(labelText: 'First name'),
                     validator: (v) =>
-                        v == null || v.trim().isEmpty
-                            ? 'Required.'
-                            : null,
+                        v == null || v.trim().isEmpty ? 'Required.' : null,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: TextFormField(
                     controller: _lastName,
-                    decoration:
-                        const InputDecoration(labelText: 'Last name'),
+                    decoration: const InputDecoration(labelText: 'Last name'),
                     validator: (v) =>
-                        v == null || v.trim().isEmpty
-                            ? 'Required.'
-                            : null,
+                        v == null || v.trim().isEmpty ? 'Required.' : null,
                   ),
                 ),
               ]),
@@ -205,8 +283,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (account != null)
                 TextFormField(
                   initialValue: account.email,
-                  decoration:
-                      const InputDecoration(labelText: 'Email address'),
+                  decoration: const InputDecoration(labelText: 'Email address'),
                   enabled: false,
                   style: const TextStyle(color: kMuted),
                 ),
@@ -216,8 +293,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               TextFormField(
                 controller: _timezone,
                 decoration: const InputDecoration(
-                    labelText: 'Timezone',
-                    hintText: 'Africa/Nairobi'),
+                    labelText: 'Timezone', hintText: 'Africa/Nairobi'),
                 validator: (v) =>
                     v == null || v.trim().isEmpty ? 'Required.' : null,
               ),
@@ -257,14 +333,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
 
+        if (state.selectedOrg != null) ...[
+          const SizedBox(height: 16),
+          _TrashSection(organizationId: state.selectedOrg!.id),
+        ],
+
         // ── Project settings card ─────────────────────────────────────────
         if (project != null && project.isManagerOrLead) ...[
           const SizedBox(height: 16),
           _SettingsCard(
             title: 'Project settings',
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(
                 '${project.name} · ${project.status}',
                 style: const TextStyle(fontSize: 14, color: kMuted),
@@ -275,8 +355,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: OutlinedButton(
                     onPressed: _busy
                         ? null
-                        : () => _showEditProjectDialog(
-                            context, state, project),
+                        : () => _showEditProjectDialog(context, state, project),
                     child: const Text('Edit project'),
                   ),
                 ),
@@ -286,12 +365,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: OutlinedButton.styleFrom(
                         foregroundColor: kDanger,
                         side: const BorderSide(color: kDanger)),
-                    onPressed:
-                        _busy ? null : () => _archiveProject(state),
+                    onPressed: _busy ? null : () => _archiveProject(state),
                     child: const Text('Archive project'),
                   ),
                 ),
               ]),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: kDanger,
+                      side: const BorderSide(color: kDanger)),
+                  onPressed: _busy ? null : () => _trashProject(state),
+                  child: const Text('Move project to Trash'),
+                ),
+              ),
             ]),
           ),
         ],
@@ -311,15 +400,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                Text(
-                  isDark ? 'Dark mode' : 'Light mode',
-                  style: const TextStyle(fontSize: 14),
-                ),
-                Text(
-                  isDark ? 'Switch to light mode' : 'Switch to dark mode',
-                  style: const TextStyle(fontSize: 12, color: kMuted),
-                ),
-              ]),
+                    Text(
+                      isDark ? 'Dark mode' : 'Light mode',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    Text(
+                      isDark ? 'Switch to light mode' : 'Switch to dark mode',
+                      style: const TextStyle(fontSize: 12, color: kMuted),
+                    ),
+                  ]),
             ),
             Switch(
               value: isDark,
@@ -351,6 +440,106 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
+class _TrashSection extends StatefulWidget {
+  const _TrashSection({required this.organizationId});
+  final String organizationId;
+
+  @override
+  State<_TrashSection> createState() => _TrashSectionState();
+}
+
+class _TrashSectionState extends State<_TrashSection> {
+  List<TrashItem> _items = [];
+  bool _loading = true;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final items =
+          await context.read<AppState>().api.trash(widget.organizationId);
+      if (mounted) setState(() => _items = items);
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _restore(TrashItem item) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final state = context.read<AppState>();
+      await state.api.restoreTrashItem(item);
+      await state.loadOrganizations();
+      await state.refreshTasks();
+      await _load();
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => _SettingsCard(
+        title: 'Recently deleted',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Items are permanently removed after 30 days.',
+              style: TextStyle(fontSize: 12, color: kMuted),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              ErrorBanner(_error!),
+            ],
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_items.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text('Trash is empty.',
+                    style: TextStyle(fontSize: 13, color: kMuted)),
+              )
+            else
+              ..._items.map((item) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      '${item.kind[0].toUpperCase()}${item.kind.substring(1)} · ${item.name.length > 72 ? '${item.name.substring(0, 72)}…' : item.name}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      'Deleted ${dateLabel(item.deletedAt.toIso8601String())}',
+                    ),
+                    trailing: TextButton(
+                      onPressed: _busy ? null : () => _restore(item),
+                      child: const Text('Restore'),
+                    ),
+                  )),
+          ],
+        ),
+      );
+}
+
 // ─── Settings card ────────────────────────────────────────────────────────────
 // Web .list-panel.settings-panel: white card, h2 heading, content
 
@@ -380,9 +569,7 @@ class _SettingsCard extends StatelessWidget {
                 )
               ],
       ),
-      child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(
           title,
           style: GoogleFonts.dmSans(
@@ -403,8 +590,7 @@ class _SettingsCard extends StatelessWidget {
 Future<void> _showEditProjectDialog(
     BuildContext context, AppState state, Project project) async {
   final nameCtrl = TextEditingController(text: project.name);
-  final descCtrl =
-      TextEditingController(text: project.description ?? '');
+  final descCtrl = TextEditingController(text: project.description ?? '');
   String status = project.status;
   final formKey = GlobalKey<FormState>();
   String? error;
@@ -419,20 +605,17 @@ Future<void> _showEditProjectDialog(
             key: formKey,
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               if (error != null)
-                ErrorBanner(error!,
-                    onDismiss: () => set(() => error = null)),
+                ErrorBanner(error!, onDismiss: () => set(() => error = null)),
               TextFormField(
                 controller: nameCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Name *'),
+                decoration: const InputDecoration(labelText: 'Name *'),
                 validator: (v) =>
                     v == null || v.trim().isEmpty ? 'Required.' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: descCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Description'),
+                decoration: const InputDecoration(labelText: 'Description'),
                 maxLines: 3,
               ),
               const SizedBox(height: 12),
@@ -440,8 +623,7 @@ Future<void> _showEditProjectDialog(
                 initialValue: status,
                 decoration: const InputDecoration(labelText: 'Status'),
                 items: projectStatuses
-                    .map((s) =>
-                        DropdownMenuItem(value: s, child: Text(s)))
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                     .toList(),
                 onChanged: (v) => set(() => status = v!),
               ),
@@ -450,8 +632,7 @@ Future<void> _showEditProjectDialog(
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
               if (!(formKey.currentState?.validate() ?? false)) return;

@@ -18,7 +18,7 @@ public sealed class DashboardController(PmsDbContext db, DashboardRepository das
                 join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
                 where projectMember.ProjectId == selectedProject && projectMember.UserId == CurrentUser.Id(User)
                     && projectMember.Status == "active" && organizationMember.UserId == CurrentUser.Id(User)
-                    && organizationMember.Status == "active" && project.ArchivedAt == null
+                    && organizationMember.Status == "active" && project.ArchivedAt == null && project.DeletedAt == null
                 select projectMember).AnyAsync(ct)) return Forbid();
 
         return Ok(await dashboard.GetMetrics(CurrentUser.Id(User), projectId, ct));

@@ -19,7 +19,7 @@ public sealed class AiController(PmsDbContext db, IAiTaskService tasks) : Contro
                              join organizationMember in db.OrganizationMembers on candidate.OrganizationId equals organizationMember.OrganizationId
                              where candidate.Id == input.ProjectId && member.UserId == CurrentUser.Id(User) && member.Status == "active"
                                  && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
-                                 && candidate.ArchivedAt == null && member.Role != "VIEWER"
+                                 && candidate.ArchivedAt == null && candidate.DeletedAt == null && member.Role != "VIEWER"
                              select candidate).SingleOrDefaultAsync(cancellationToken);
         if (project is null) return Forbid();
 

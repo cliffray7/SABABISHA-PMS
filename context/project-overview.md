@@ -40,12 +40,14 @@ Organization → Project → Task → Assignment → Work → Completion
 - Authentication (OTP/JWT)
 - Multi-Tenant Organizations
 - Project & Task Management
+- User profile pictures, Cloudinary-backed task attachments, and recoverable Trash
 - SuperAdmin Dashboard & Analytics
 - Administrative Audit Logging
 - AI-Assisted Workflows (Gemini)
 
 ## 8. Business Rules
 - Data must be strictly isolated between organizations (tenants).
+- Soft-deleted projects, tasks, comments, and attachments are recoverable for 30 days before permanent purge; project archiving remains separate and indefinite.
 - Administrative actions (user suspension, deletion) must be securely audited.
 - Refresh tokens can be revoked instantly; access tokens expire after 15 minutes.
 
@@ -69,4 +71,3 @@ Organization → Project → Task → Assignment → Work → Completion
 - **Project**: A collection of tasks within an organization.
 - **Task**: An actionable item belonging to a project.
 - **SuperAdmin**: Hardcoded platform administrators (defined in `Operations:AdminUserIds`).
-

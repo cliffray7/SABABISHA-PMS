@@ -8,6 +8,7 @@ public sealed class User
     public required string Email { get; set; }
     public required string PasswordHash { get; set; }
     public string? AvatarUrl { get; set; }
+    public string? AvatarPublicId { get; set; }
     public string Timezone { get; set; } = "UTC";
     public string Status { get; set; } = "active";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
