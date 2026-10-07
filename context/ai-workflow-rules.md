@@ -113,3 +113,7 @@ Report:
 - Build result
 - Known limitations
 - Next recommended task
+
+## 15. Product-improvement roadmap
+
+For the proposed CRUD, role management, project assignment, and progress work, use `docs/product-improvements-roadmap.md` as planning context. Start with the inventory and accepted requirements; do not treat roadmap proposals as approved business rules. Custom permissions or schema changes require a feature specification and, where architecture changes, an ADR before implementation.

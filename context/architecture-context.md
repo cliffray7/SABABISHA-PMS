@@ -104,3 +104,13 @@ These rules MUST NEVER be violated:
 - **Administrative actions must be logged** to the append-only audit trail once the capability is deployed.
 - **Do not generate mock success states** for endpoints that are absent or denied.
 
+## 14. Safe evolution constraints for planned improvements
+
+- Treat `docs/product-improvements-roadmap.md` as planning guidance; do not infer permission, status, assignment, or progress rules from the feedback alone.
+- Prefer additive REST response/API changes and additive SQL Server migrations. Keep older Web/Flutter clients functional during staged releases.
+- Keep progress calculations server-authoritative and document one shared formula before exposing it to clients.
+- Do not replace active membership checks with client-side role checks. Any role/permission change must cover API endpoints, project membership validation, and realtime hub group authorization.
+- Preserve existing lifecycle distinctions: project archive is indefinite; Trash is recoverable for 30 days; permanent purge is a separate worker action.
+- Keep activity and administrative audit records append-only. “CRUD for every table” must not be interpreted as permission to edit/delete these records.
+- A custom role/permission model requires an ADR, permission matrix, data migration/backfill plan, revocation/freshness design, tenant-isolation tests, and coordinated client rollout before implementation.
+

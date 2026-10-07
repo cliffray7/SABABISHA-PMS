@@ -54,8 +54,15 @@ Organization → Project → Task → Assignment → Work → Completion
 ## 9. In Scope
 - Core backend APIs (.NET / Pms.Api)
 - React Web App (`apps/web`)
+- Flutter mobile app (`apps/mobile`)
 - SuperAdmin console improvements (Phase 1 & 2)
 - Strict server-side authorization
+
+## 9.1 Planned Product Improvements
+- Safe, inventory-led completion of CRUD interactions for agreed user-facing modules.
+- Clearer project membership/ownership and project/task progress visibility using approved business rules.
+- Review of current fixed-role assignment before considering custom roles and permissions.
+- Planning reference: `docs/product-improvements-roadmap.md`. This roadmap does not authorize schema or permission changes; those require an accepted feature specification.
 
 ## 10. Out of Scope
 - Time-limited support impersonation (unless explicitly built securely).
