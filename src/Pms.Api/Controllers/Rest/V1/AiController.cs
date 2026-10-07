@@ -14,13 +14,11 @@ public sealed class AiController(PmsDbContext db, IAiTaskService tasks) : Contro
     [HttpPost("tasks/suggest")]
     public async Task<IActionResult> SuggestTask(AiTaskSuggestionInput input, CancellationToken cancellationToken)
     {
-        var project = await (from member in db.ProjectMembers
-                             join candidate in db.Projects on member.ProjectId equals candidate.Id
-                             join organizationMember in db.OrganizationMembers on candidate.OrganizationId equals organizationMember.OrganizationId
-                             where candidate.Id == input.ProjectId && member.UserId == CurrentUser.Id(User) && member.Status == "active"
-                                 && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
-                                 && candidate.ArchivedAt == null && candidate.DeletedAt == null && member.Role != "VIEWER"
-                             select candidate).SingleOrDefaultAsync(cancellationToken);
+        if (!await WorkspaceAuthorization.CanAccessProjectAsync(
+                db, input.ProjectId, CurrentUser.Id(User), write: true, cancellationToken)) return Forbid();
+        var project = await db.Projects.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == input.ProjectId
+                && candidate.ArchivedAt == null && candidate.DeletedAt == null, cancellationToken);
         if (project is null) return Forbid();
 
         var titles = await db.Tasks.AsNoTracking().Where(task => task.ProjectId == project.Id && task.DeletedAt == null)
