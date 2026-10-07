@@ -13,13 +13,8 @@ public sealed class TasksController(PmsDbContext db, AppMail mail, RealtimePubli
 {
     private static readonly string[] Statuses = ["TO DO", "IN PROGRESS", "REVIEW", "DONE"];
     private static readonly string[] Priorities = ["URGENT", "HIGH", "MEDIUM", "LOW"];
-    private Task<bool> Access(Guid id, bool write, CancellationToken ct) => (from projectMember in db.ProjectMembers
-        join project in db.Projects on projectMember.ProjectId equals project.Id
-        join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
-        where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
-            && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
-            && project.ArchivedAt == null && project.DeletedAt == null && (!write || projectMember.Role != "VIEWER")
-        select projectMember).AnyAsync(ct);
+    private Task<bool> Access(Guid id, bool write, CancellationToken ct) =>
+        WorkspaceAuthorization.CanAccessProjectAsync(db, id, CurrentUser.Id(User), write, ct);
     [HttpGet]
     public async Task<IActionResult> List(Guid projectId, CancellationToken ct)
     {

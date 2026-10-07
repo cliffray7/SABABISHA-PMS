@@ -26,13 +26,8 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
     private async Task<WorkTask?> TaskAccess(Guid id, bool write, CancellationToken ct)
     {
         var task = await db.Tasks.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.DeletedAt == null, ct);
-        if (task is null || !await (from projectMember in db.ProjectMembers
-            join project in db.Projects on projectMember.ProjectId equals project.Id
-            join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
-            where projectMember.ProjectId == task.ProjectId && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
-                && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
-                && project.ArchivedAt == null && project.DeletedAt == null && (!write || projectMember.Role != "VIEWER")
-            select projectMember).AnyAsync(ct)) return null;
+        if (task is null || !await WorkspaceAuthorization.CanAccessProjectAsync(
+            db, task.ProjectId, CurrentUser.Id(User), write, ct)) return null;
         return task;
     }
     [HttpGet("/api/v1/tasks/{id:guid}/comments")]
