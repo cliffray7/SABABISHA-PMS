@@ -1,6 +1,7 @@
 ## Activity screens
 
 - Shared-data workspace screens (dashboard, task board/detail, notifications, activity, members, project lists, and Trash) refresh when a same-organization/project change arrives. Events invalidate data; clients fetch authoritative data through authenticated REST. Keep reconnect/focus refresh and a visible-screen polling fallback on mobile.
+- Project members show an inline role selector only to organization admins/owners and project managers. Guests remain viewer-only; non-grantors do not receive a Project Manager option. Keep the project-members tab selected while role updates reload authoritative membership data, disable its selector during writes, and show stable API errors beside the affected member while restoring the last confirmed role on failure.
 
 - Admin platform activity follows a compact, card-based layout: page header, search + organization/date controls, range selector, filter chips, and data table/timeline rows.
 - The activity view should use a clean purple accent palette for active filter pills and keep controls aligned with the platform admin shell.

@@ -89,6 +89,7 @@ Expected responses:
 - `204 No Content` on success.
 - `400 Bad Request` with a stable `code` for an invalid role, disallowed self-role change, guest assigned a non-viewer role, or a role change that would leave zero active project managers.
 - `403 Forbidden` with a stable `code` when actor lacks active organization admin/owner or project manager authority, or has guest organization membership; manager grants are separately coded.
+- `409 Conflict` with `project_role_update_conflict` if bounded SQL Server transient retries are exhausted during a role change or project-member removal; clients may retry.
 - `404 Not Found` when project or target active membership is not available within the actor's authorized scope; do not leak cross-tenant membership existence.
 
 Role-unchanged requests return `204 No Content` without writing an audit event. A project manager may demote themselves if another active manager remains; the same transactional manager guard rejects self-demotion of the last active manager. The route is additive and does not change existing endpoint response shapes.

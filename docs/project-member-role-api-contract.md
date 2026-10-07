@@ -34,6 +34,7 @@ The request accepts exactly `PROJECT_MANAGER`, `TEAM_LEAD`, `CONTRIBUTOR`, and `
 - `403 Forbidden` with `{ "code": "...", "message": "..." }`:
   - `project_role_update_forbidden`: actor lacks organization-admin or project-manager permission, has a guest organization role, or an inactive account/membership.
   - `project_manager_grant_forbidden`: caller is not an organization admin/owner or project manager granting `PROJECT_MANAGER`.
+- `409 Conflict` with `{ "code": "project_role_update_conflict", "message": "..." }`: SQL Server exhausted its bounded transient retry attempts while changing a role or removing a project member. The client should refresh authoritative member data and may retry.
 - `404 Not Found`: project or target membership is not available within the authorized tenant scope.
 
 ## Manager invariant
@@ -46,7 +47,7 @@ After every role change and project-member removal, at least one project manager
 
 Both endpoints evaluate the resulting count inside a SQL Server serializable transaction. The API enforces the invariant; clients only mirror the server response.
 
-The query executes within the same transaction as the membership change and reads the project's `project_members`, its organization's `organization_members`, and matching `users` rows. The SQL Server unique index on `(project_id, user_id)` gives the project-member predicate a project-scoped key range; serializable isolation holds the read/range locks through commit. A simultaneous change may be rejected or selected as a deadlock victim; either way, transactions do not both commit a manager-less result.
+The query executes within the same transaction as the membership change and reads the project's `project_members`, its organization's `organization_members`, and matching `users` rows. The SQL Server unique index on `(project_id, user_id)` gives the project-member predicate a project-scoped key range; serializable isolation holds the read/range locks through commit. A simultaneous change may be rejected or selected as a deadlock victim; either way, transactions do not both commit a manager-less result. The SQL Server provider retries transient failures up to six times (configured in `Program.cs`, in addition to the initial attempt). If the retry limit is exhausted, the role-update and member-removal actions return the documented `409` response rather than an unhandled server error.
 
 ## Audit and atomicity
 
