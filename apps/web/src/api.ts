@@ -94,6 +94,22 @@ export function errorMessage(error: unknown): string {
   }
   return error instanceof Error ? error.message : 'Something went wrong.';
 }
+const projectRoleErrorMessages: Record<string, string> = {
+  invalid_project_role: 'Choose one of the supported project roles.',
+  self_role_change_not_allowed: 'You cannot change your own project role this way.',
+  guest_project_role_must_be_viewer: 'Organization guests can only have the Viewer project role.',
+  project_must_retain_manager: 'This project must keep at least one active project manager.',
+  project_role_update_forbidden: 'You do not have permission to change project member roles.',
+  project_manager_grant_forbidden: 'Only organization admins and project managers can grant the Project Manager role.',
+  project_role_update_conflict: 'The project is busy. Refresh the member list, then try again.'
+};
+export function projectRoleErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data;
+    if (typeof data?.code === 'string' && projectRoleErrorMessages[data.code]) return projectRoleErrorMessages[data.code];
+  }
+  return errorMessage(error);
+}
 function configUrl(error: AxiosError) { return error.config?.url?.split('?')[0]; }
 export type Person = { id: string; firstName: string; lastName: string; email: string; timezone: string; avatarUrl?: string | null };
 export type Organization = { id: string; name: string; slug: string; role: string };

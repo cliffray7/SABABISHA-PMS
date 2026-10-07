@@ -1053,3 +1053,5 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
   .shell:not(.admin-platform-shell) .activity-center-pagination { align-items:flex-start; flex-direction:column; gap:8px; }
   .shell:not(.admin-platform-shell) .activity-center-pagination>div { width:100%; justify-content:space-between; }
 }
+
+.project-role-control{display:grid;gap:4px;min-width:160px}.project-role-control select{width:100%}.project-role-error{max-width:240px;color:#b42318;font-size:11px;line-height:1.35}

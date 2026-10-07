@@ -3,12 +3,14 @@ using System.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Pms.Api.Auth;
 using Pms.Api.Activity;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 using Pms.Api.Realtime;
 namespace Pms.Api.Controllers.Rest.V1;
+
 [ApiController, Authorize, Route("api/v1/projects")]
 public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realtime) : ControllerBase
 {
@@ -108,130 +110,147 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
     public async Task<IActionResult> RemoveMember(Guid id, Guid userId, CancellationToken ct)
     {
         var strategy = db.Database.CreateExecutionStrategy();
-        return await strategy.ExecuteAsync<IActionResult>(async () =>
+        try
         {
-            // A transient SQL Server deadlock retries this delegate on the same DbContext.
-            // Discard tracked mutations from the rolled-back attempt before re-reading state.
-            db.ChangeTracker.Clear();
-            await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-            if (!await Manager(id, ct)) return Forbid();
-            if (userId == CurrentUser.Id(User)) return BadRequest(new { message = "You cannot remove yourself from the project." });
-            var member = await db.ProjectMembers.SingleOrDefaultAsync(x => x.ProjectId == id && x.UserId == userId && x.Status == "active", ct);
-            if (member is null) return NotFound();
-            var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id && x.ArchivedAt == null && x.DeletedAt == null, ct);
-            if (project is null) return NotFound();
-            var activeManagers = await ActiveManagerCount(id, project.OrganizationId, ct);
-            var removedManagerIsActive = member.Role == "PROJECT_MANAGER"
-                && await db.OrganizationMembers.AnyAsync(x => x.OrganizationId == project.OrganizationId
-                    && x.UserId == userId && x.Status == "active", ct)
-                && await db.Users.AnyAsync(x => x.Id == userId && x.Status == "active", ct);
-            if (activeManagers - (removedManagerIsActive ? 1 : 0) < 1)
-                return RoleUpdateError(StatusCodes.Status400BadRequest, "project_must_retain_manager",
-                    "The project must retain at least one active project manager.");
-            member.Status = "inactive";
-            var removedUser = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
-            var removedName = $"{removedUser.FirstName} {removedUser.LastName}";
-            await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "People", "project.member_removed", "user", userId, removedName, $"removed {removedName} from project \"{project.Name}\"", ct, project.Id);
-            await db.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
-            await realtime.ProjectChanged(project.OrganizationId, project.Id, "members", ct);
-            return NoContent();
-        });
+            return await strategy.ExecuteAsync<IActionResult>(async () =>
+            {
+                // A transient SQL Server deadlock retries this delegate on the same DbContext.
+                // Discard tracked mutations from the rolled-back attempt before re-reading state.
+                db.ChangeTracker.Clear();
+                await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+                if (!await Manager(id, ct)) return Forbid();
+                if (userId == CurrentUser.Id(User)) return BadRequest(new { message = "You cannot remove yourself from the project." });
+                var member = await db.ProjectMembers.SingleOrDefaultAsync(x => x.ProjectId == id && x.UserId == userId && x.Status == "active", ct);
+                if (member is null) return NotFound();
+                var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id && x.ArchivedAt == null && x.DeletedAt == null, ct);
+                if (project is null) return NotFound();
+                var activeManagers = await ActiveManagerCount(id, project.OrganizationId, ct);
+                var removedManagerIsActive = member.Role == "PROJECT_MANAGER"
+                    && await db.OrganizationMembers.AnyAsync(x => x.OrganizationId == project.OrganizationId
+                        && x.UserId == userId && x.Status == "active", ct)
+                    && await db.Users.AnyAsync(x => x.Id == userId && x.Status == "active", ct);
+                if (activeManagers - (removedManagerIsActive ? 1 : 0) < 1)
+                    return RoleUpdateError(StatusCodes.Status400BadRequest, "project_must_retain_manager",
+                        "The project must retain at least one active project manager.");
+                member.Status = "inactive";
+                var removedUser = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
+                var removedName = $"{removedUser.FirstName} {removedUser.LastName}";
+                await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "People", "project.member_removed", "user", userId, removedName, $"removed {removedName} from project \"{project.Name}\"", ct, project.Id);
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                await realtime.ProjectChanged(project.OrganizationId, project.Id, "members", ct);
+                return NoContent();
+            });
+        }
+        catch (RetryLimitExceededException)
+        {
+            return RoleRetryConflict();
+        }
     }
 
     [HttpPatch("{id:guid}/members/{userId:guid}")]
     public async Task<IActionResult> UpdateMemberRole(Guid id, Guid userId, UpdateProjectMemberRoleRequest request, CancellationToken ct)
     {
         var strategy = db.Database.CreateExecutionStrategy();
-        return await strategy.ExecuteAsync<IActionResult>(async () =>
+        try
         {
-            db.ChangeTracker.Clear();
-            await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-            var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id && x.ArchivedAt == null && x.DeletedAt == null, ct);
-            if (project is null) return NotFound();
-            var actorId = CurrentUser.Id(User);
-            var actor = await (from organizationMember in db.OrganizationMembers
-                               join actorUser in db.Users on organizationMember.UserId equals actorUser.Id
-                               where organizationMember.OrganizationId == project.OrganizationId
-                                   && organizationMember.UserId == actorId && organizationMember.Status == "active"
-                                   && actorUser.Status == "active"
-                               select new { organizationMember.Role }).SingleOrDefaultAsync(ct);
-            if (actor is null || actor.Role == "GUEST")
-                return RoleUpdateError(StatusCodes.Status403Forbidden, "project_role_update_forbidden",
-                    "You do not have permission to change project member roles.");
-            var organizationAdmin = actor.Role is "OWNER" or "ADMIN";
-            var projectManager = await db.ProjectMembers.AnyAsync(x => x.ProjectId == id && x.UserId == actorId
-                && x.Status == "active" && x.Role == "PROJECT_MANAGER", ct);
-            if (request.Role == "PROJECT_MANAGER" && !organizationAdmin && !projectManager)
-                return RoleUpdateError(StatusCodes.Status403Forbidden, "project_manager_grant_forbidden",
-                    "Only organization admins or project managers can grant the project manager role.");
-            if (!organizationAdmin && !projectManager)
-                return RoleUpdateError(StatusCodes.Status403Forbidden, "project_role_update_forbidden",
-                    "You do not have permission to change project member roles.");
-            if (!ProjectRoles.Contains(request.Role))
-                return RoleUpdateError(StatusCodes.Status400BadRequest, "invalid_project_role", "Invalid project role.");
-
-            var target = await (from projectMember in db.ProjectMembers
-                                join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
-                                where projectMember.ProjectId == id && projectMember.UserId == userId && projectMember.Status == "active"
-                                    && organizationMember.UserId == userId && organizationMember.Status == "active"
-                                select new { ProjectMember = projectMember, OrganizationRole = organizationMember.Role })
-                .SingleOrDefaultAsync(ct);
-            if (target is null) return NotFound();
-            if (target.OrganizationRole == "GUEST" && request.Role != "VIEWER")
-                return RoleUpdateError(StatusCodes.Status400BadRequest, "guest_project_role_must_be_viewer",
-                    "Organization guests can only have the viewer project role.");
-            var previousRole = target.ProjectMember.Role;
-            if (previousRole == request.Role)
+            return await strategy.ExecuteAsync<IActionResult>(async () =>
             {
+                db.ChangeTracker.Clear();
+                await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+                var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id && x.ArchivedAt == null && x.DeletedAt == null, ct);
+                if (project is null) return NotFound();
+                var actorId = CurrentUser.Id(User);
+                var actor = await (from organizationMember in db.OrganizationMembers
+                                   join actorUser in db.Users on organizationMember.UserId equals actorUser.Id
+                                   where organizationMember.OrganizationId == project.OrganizationId
+                                       && organizationMember.UserId == actorId && organizationMember.Status == "active"
+                                       && actorUser.Status == "active"
+                                   select new { organizationMember.Role }).SingleOrDefaultAsync(ct);
+                if (actor is null || actor.Role == "GUEST")
+                    return RoleUpdateError(StatusCodes.Status403Forbidden, "project_role_update_forbidden",
+                        "You do not have permission to change project member roles.");
+                var organizationAdmin = actor.Role is "OWNER" or "ADMIN";
+                var projectManager = await db.ProjectMembers.AnyAsync(x => x.ProjectId == id && x.UserId == actorId
+                    && x.Status == "active" && x.Role == "PROJECT_MANAGER", ct);
+                if (request.Role == "PROJECT_MANAGER" && !organizationAdmin && !projectManager)
+                    return RoleUpdateError(StatusCodes.Status403Forbidden, "project_manager_grant_forbidden",
+                        "Only organization admins or project managers can grant the project manager role.");
+                if (!organizationAdmin && !projectManager)
+                    return RoleUpdateError(StatusCodes.Status403Forbidden, "project_role_update_forbidden",
+                        "You do not have permission to change project member roles.");
+                if (!ProjectRoles.Contains(request.Role))
+                    return RoleUpdateError(StatusCodes.Status400BadRequest, "invalid_project_role", "Invalid project role.");
+
+                var target = await (from projectMember in db.ProjectMembers
+                                    join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
+                                    where projectMember.ProjectId == id && projectMember.UserId == userId && projectMember.Status == "active"
+                                        && organizationMember.UserId == userId && organizationMember.Status == "active"
+                                    select new { ProjectMember = projectMember, OrganizationRole = organizationMember.Role })
+                    .SingleOrDefaultAsync(ct);
+                if (target is null) return NotFound();
+                if (target.OrganizationRole == "GUEST" && request.Role != "VIEWER")
+                    return RoleUpdateError(StatusCodes.Status400BadRequest, "guest_project_role_must_be_viewer",
+                        "Organization guests can only have the viewer project role.");
+                var previousRole = target.ProjectMember.Role;
+                if (previousRole == request.Role)
+                {
+                    await tx.CommitAsync(ct);
+                    return NoContent();
+                }
+                if (userId == actorId && previousRole != "PROJECT_MANAGER")
+                    return RoleUpdateError(StatusCodes.Status400BadRequest, "self_role_change_not_allowed",
+                        "You may only demote yourself from project manager when another active manager remains.");
+                var activeManagers = await ActiveManagerCount(id, project.OrganizationId, ct);
+                var targetUserIsActive = await db.Users.AnyAsync(x => x.Id == userId && x.Status == "active", ct);
+                var targetIsCountedManager = previousRole == "PROJECT_MANAGER" && targetUserIsActive;
+                var managerCountAfterChange = activeManagers - (targetIsCountedManager ? 1 : 0)
+                    + (request.Role == "PROJECT_MANAGER" && targetUserIsActive ? 1 : 0);
+                if (managerCountAfterChange < 1)
+                    return RoleUpdateError(StatusCodes.Status400BadRequest, "project_must_retain_manager",
+                        "The project must retain at least one active project manager.");
+
+                target.ProjectMember.Role = request.Role;
+                var targetUser = await db.Users.AsNoTracking().Where(x => x.Id == userId)
+                    .Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
+                var actorName = await db.Users.AsNoTracking().Where(x => x.Id == actorId)
+                    .Select(x => x.FirstName + " " + x.LastName).SingleAsync(ct);
+                var correlationId = Request.Headers["X-Correlation-ID"].FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(correlationId) || correlationId.Length > 128)
+                    correlationId = HttpContext.TraceIdentifier;
+                db.AdminAuditEvents.Add(new AdminAuditEvent
+                {
+                    Id = Guid.NewGuid(),
+                    ActorId = actorId,
+                    ActorDisplayName = actorName,
+                    Action = "project.member_role_changed",
+                    TargetType = "user",
+                    TargetId = userId,
+                    TargetDisplayName = $"{targetUser.FirstName} {targetUser.LastName} in {project.Name}: {previousRole} -> {request.Role}",
+                    Outcome = "succeeded",
+                    Reason = $"project_id={project.Id}; old_role={previousRole}; new_role={request.Role}",
+                    CorrelationId = correlationId,
+                    OccurredAt = DateTimeOffset.UtcNow
+                });
+                await db.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
+                await realtime.ProjectChanged(project.OrganizationId, project.Id, "members", ct);
                 return NoContent();
-            }
-            if (userId == actorId && previousRole != "PROJECT_MANAGER")
-                return RoleUpdateError(StatusCodes.Status400BadRequest, "self_role_change_not_allowed",
-                    "You may only demote yourself from project manager when another active manager remains.");
-            var activeManagers = await ActiveManagerCount(id, project.OrganizationId, ct);
-            var targetUserIsActive = await db.Users.AnyAsync(x => x.Id == userId && x.Status == "active", ct);
-            var targetIsCountedManager = previousRole == "PROJECT_MANAGER" && targetUserIsActive;
-            var managerCountAfterChange = activeManagers - (targetIsCountedManager ? 1 : 0)
-                + (request.Role == "PROJECT_MANAGER" && targetUserIsActive ? 1 : 0);
-            if (managerCountAfterChange < 1)
-                return RoleUpdateError(StatusCodes.Status400BadRequest, "project_must_retain_manager",
-                    "The project must retain at least one active project manager.");
-
-            target.ProjectMember.Role = request.Role;
-            var targetUser = await db.Users.AsNoTracking().Where(x => x.Id == userId)
-                .Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
-            var actorName = await db.Users.AsNoTracking().Where(x => x.Id == actorId)
-                .Select(x => x.FirstName + " " + x.LastName).SingleAsync(ct);
-            var correlationId = Request.Headers["X-Correlation-ID"].FirstOrDefault();
-            if (string.IsNullOrWhiteSpace(correlationId) || correlationId.Length > 128)
-                correlationId = HttpContext.TraceIdentifier;
-            db.AdminAuditEvents.Add(new AdminAuditEvent
-            {
-                Id = Guid.NewGuid(),
-                ActorId = actorId,
-                ActorDisplayName = actorName,
-                Action = "project.member_role_changed",
-                TargetType = "user",
-                TargetId = userId,
-                TargetDisplayName = $"{targetUser.FirstName} {targetUser.LastName} in {project.Name}: {previousRole} -> {request.Role}",
-                Outcome = "succeeded",
-                Reason = $"project_id={project.Id}; old_role={previousRole}; new_role={request.Role}",
-                CorrelationId = correlationId,
-                OccurredAt = DateTimeOffset.UtcNow
             });
-            await db.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
-            await realtime.ProjectChanged(project.OrganizationId, project.Id, "members", ct);
-            return NoContent();
-        });
+        }
+        catch (RetryLimitExceededException)
+        {
+            return RoleRetryConflict();
+        }
     }
 
     private static readonly string[] ProjectRoles = ["PROJECT_MANAGER", "TEAM_LEAD", "CONTRIBUTOR", "VIEWER"];
 
     private ObjectResult RoleUpdateError(int statusCode, string code, string message) =>
         StatusCode(statusCode, new { code, message });
+
+    private ObjectResult RoleRetryConflict() => RoleUpdateError(StatusCodes.Status409Conflict,
+        "project_role_update_conflict", "The project is busy. Refresh member data, then retry.");
 
     private Task<int> ActiveManagerCount(Guid projectId, Guid organizationId, CancellationToken ct) =>
         (from projectMember in db.ProjectMembers
@@ -242,25 +261,25 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
              && organizationMember.Status == "active" && user.Status == "active"
          select projectMember.UserId).Distinct().CountAsync(ct);
     private Task<bool> Member(Guid id, CancellationToken ct) => (from projectMember in db.ProjectMembers
-        join project in db.Projects on projectMember.ProjectId equals project.Id
-        join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
-        where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
-            && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active" && project.DeletedAt == null
-        select projectMember).AnyAsync(ct);
+                                                                 join project in db.Projects on projectMember.ProjectId equals project.Id
+                                                                 join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
+                                                                 where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
+                                                                     && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active" && project.DeletedAt == null
+                                                                 select projectMember).AnyAsync(ct);
     private Task<bool> Manager(Guid id, CancellationToken ct) => (from projectMember in db.ProjectMembers
-        join project in db.Projects on projectMember.ProjectId equals project.Id
-        join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
-        where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
-            && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
-            && organizationMember.Role != "GUEST" && project.DeletedAt == null && (projectMember.Role == "PROJECT_MANAGER" || projectMember.Role == "TEAM_LEAD")
-        select projectMember).AnyAsync(ct);
+                                                                  join project in db.Projects on projectMember.ProjectId equals project.Id
+                                                                  join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
+                                                                  where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
+                                                                      && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
+                                                                      && organizationMember.Role != "GUEST" && project.DeletedAt == null && (projectMember.Role == "PROJECT_MANAGER" || projectMember.Role == "TEAM_LEAD")
+                                                                  select projectMember).AnyAsync(ct);
     private Task<bool> CanManageDeletedProject(Guid id, CancellationToken ct) => (from projectMember in db.ProjectMembers
-        join project in db.Projects on projectMember.ProjectId equals project.Id
-        join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
-        where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
-            && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
-            && organizationMember.Role != "GUEST" && (projectMember.Role == "PROJECT_MANAGER" || projectMember.Role == "TEAM_LEAD")
-        select projectMember).AnyAsync(ct);
+                                                                                  join project in db.Projects on projectMember.ProjectId equals project.Id
+                                                                                  join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
+                                                                                  where projectMember.ProjectId == id && projectMember.UserId == CurrentUser.Id(User) && projectMember.Status == "active"
+                                                                                      && organizationMember.UserId == CurrentUser.Id(User) && organizationMember.Status == "active"
+                                                                                      && organizationMember.Role != "GUEST" && (projectMember.Role == "PROJECT_MANAGER" || projectMember.Role == "TEAM_LEAD")
+                                                                                  select projectMember).AnyAsync(ct);
     private static bool Valid(string name, string status, DateTime? start, DateTime? due) => !string.IsNullOrWhiteSpace(name) && new[] { "PLANNING", "ACTIVE", "ON_HOLD", "COMPLETED" }.Contains(status) && !(due < start);
 }
 public sealed record CreateProjectRequest(Guid OrganizationId, [Required, StringLength(200)] string Name, string? Description, DateTime? StartDate = null, DateTime? DueDate = null, string Status = "PLANNING");
