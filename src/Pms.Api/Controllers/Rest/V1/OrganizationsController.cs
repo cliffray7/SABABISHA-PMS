@@ -121,8 +121,39 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
             var membership = await db.OrganizationMembers.SingleOrDefaultAsync(x => x.OrganizationId == invitation.OrganizationId && x.UserId == user.Id, ct);
             if (membership is null) db.OrganizationMembers.Add(new OrganizationMember { Id = Guid.NewGuid(), OrganizationId = invitation.OrganizationId, UserId = user.Id, Role = invitation.Role });
             else { membership.Status = "active"; membership.Role = invitation.Role; }
-            await db.ProjectMembers.Where(x => x.UserId == user.Id && x.Status == "inactive" && db.Projects.Any(project => project.Id == x.ProjectId && project.OrganizationId == invitation.OrganizationId))
-                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, "active"), ct);
+            var reactivatedMemberships = await (from projectMember in db.ProjectMembers
+                                                join project in db.Projects on projectMember.ProjectId equals project.Id
+                                                where projectMember.UserId == user.Id && projectMember.Status == "inactive"
+                                                    && project.OrganizationId == invitation.OrganizationId
+                                                select new { Member = projectMember, project.Name, project.Id })
+                .ToListAsync(ct);
+            foreach (var reactivated in reactivatedMemberships)
+            {
+                var oldRole = reactivated.Member.Role;
+                reactivated.Member.Status = "active";
+                if (invitation.Role == "GUEST" && oldRole != "VIEWER")
+                {
+                    reactivated.Member.Role = "VIEWER";
+                    var actorName = $"{user.FirstName} {user.LastName}";
+                    var correlationId = Request.Headers["X-Correlation-ID"].FirstOrDefault();
+                    if (string.IsNullOrWhiteSpace(correlationId) || correlationId.Length > 128)
+                        correlationId = HttpContext.TraceIdentifier;
+                    db.AdminAuditEvents.Add(new AdminAuditEvent
+                    {
+                        Id = Guid.NewGuid(),
+                        ActorId = user.Id,
+                        ActorDisplayName = actorName,
+                        Action = "project.member_guest_role_clamped",
+                        TargetType = "user",
+                        TargetId = user.Id,
+                        TargetDisplayName = $"{actorName} in {reactivated.Name}: {oldRole} -> VIEWER",
+                        Outcome = "succeeded",
+                        Reason = $"project_id={reactivated.Id}; organization invitation reactivation; old_role={oldRole}; new_role=VIEWER",
+                        CorrelationId = correlationId,
+                        OccurredAt = DateTimeOffset.UtcNow
+                    });
+                }
+            }
             invitation.AcceptedAt = DateTime.UtcNow;
             var organization = await db.Organizations.SingleAsync(x => x.Id == invitation.OrganizationId, ct);
             await ActivityRecorder.RecordAsync(db, User, Request, invitation.OrganizationId, "People", "organization.invitation_accepted", "organization", organization.Id, organization.Name, $"joined organization \"{organization.Name}\"", ct);

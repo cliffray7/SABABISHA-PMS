@@ -24,7 +24,7 @@ This proposal does not introduce custom roles or permissions, organization role 
 
 ## 3. Decisions
 
-**Approved by owner on 2026-10-07.** These decisions supersede conflicting proposals elsewhere in this draft. Implementation remains gated on Slice 0 completion and green backend tests.
+**Approved by owner on 2026-10-07.** These decisions supersede conflicting proposals elsewhere in this draft. Slice 0 is committed and its backend suite passed; the AI authorization follow-up is separately committed and its targeted test passed.
 
 1. **Granting project manager:** Granting `PROJECT_MANAGER` is limited to active organization admins/owners and existing project managers. Team leads cannot promote anyone to project manager.
 2. **At least one manager:** A project must always retain at least one active project manager. “Active” means the project membership has `Status == "active"`, the user has an active membership in the project's organization, and the user account is not suspended/deactivated. The API rejects any role change or member removal that would leave zero managers meeting this definition. This is enforced server-side; the UI only mirrors it. Role-change and removal endpoints must use the same predicate.
@@ -41,7 +41,7 @@ This proposal does not introduce custom roles or permissions, organization role 
 - Organization guests may only have the `VIEWER` project role. Changing a guest to a write-capable role is denied.
 - Only an organization admin/owner or an existing project manager may grant `PROJECT_MANAGER`.
 - Every role update and project-member removal must preserve at least one active project manager; the server is authoritative for this invariant.
-- A project manager/team lead cannot change a target member's organization role.
+- Role changes do not change a target member's organization role.
 - Project role changes do not alter organization membership or role.
 
 ### Role values
@@ -73,6 +73,8 @@ No new or custom role values are introduced. No limit is set on the number of ma
 
 ## 5. API contract proposal
 
+The approved implementation contract is documented in [`docs/project-member-role-api-contract.md`](../../docs/project-member-role-api-contract.md).
+
 Proposed additive route:
 
 ```http
@@ -89,15 +91,15 @@ Expected responses:
 - `403 Forbidden` when actor lacks active organization admin/owner or project manager authority, or has guest organization membership.
 - `404 Not Found` when project or target active membership is not available within the actor's authorized scope; do not leak cross-tenant membership existence.
 
-This contract is a proposal. Route and status-code conventions must be checked against API client error handling before implementation.
+Role-unchanged requests return `204 No Content` without writing an audit event. The route is additive and does not change existing response shapes.
 
 ## 6. Tenant and security requirements
 
 - Resolve project, target membership, and actor's active organization membership in the same organization-scoped authorization path.
 - Never authorize by client-supplied organization ID or UI state.
-- Reject inactive actor project membership when authorization relies on project-manager role, inactive actor organization membership, archived/deleted projects, cross-tenant target IDs, guests as actors, and all project roles other than project manager.
+- Reject inactive actor project membership when authorization relies on project-manager role, inactive actor organization membership, archived/deleted projects, cross-tenant target IDs, guests as actors, and project roles other than project manager unless the actor is authorized as an organization admin/owner.
 - Apply guest target restriction based on current active organization role at update time.
-- Audit organization guests whose active project role is above `VIEWER`; decide per affected row between migration clamp and manual-review flag before rollout. Clamp roles to `VIEWER` when reactivating project membership for a guest.
+- Audit organization guests whose project role is above `VIEWER`. Clamp roles to `VIEWER` when reactivating a guest's project membership and record an audit event when an elevated role is changed. A historical-data migration is conditional on read-only audit results and owner approval.
 - Enforce the at-least-one-manager invariant transactionally for role update and member removal to avoid concurrent changes leaving the project without a manager.
 - Do not place mutable project roles in long-lived authorization claims; current server-side membership lookup remains authoritative.
 - Add regression coverage for allowed and denied role transitions, manager invariant under concurrent changes, and organization guests with historical/reactivated project-member rows.
@@ -121,10 +123,10 @@ Implementation order is mandatory:
 
 Keep these changes in reviewable commits. Slice 1 is dependent on Slice 0 completion and green backend tests.
 
-Before enabling Slice 1, audit affected existing memberships. The approved remediation is to clamp affected guest memberships to `VIEWER` in invitation reactivation code and with a one-time migration only if the read-only data audit finds affected rows. Do not add or run that migration before the owner reviews the query results. The AI suggestion endpoint is an authoring aid and will use the same shared write-level project access check; its test and fix are tracked as a separate commit.
+Before enabling Slice 1, audit affected existing memberships. The approved remediation is to clamp affected guest memberships to `VIEWER` in invitation reactivation code and with a one-time migration only if the read-only data audit finds affected rows. Do not add or run that migration before the owner reviews the read-only audit results. The AI suggestion endpoint now uses the shared write-level project access check; its test and fix are in a separate commit.
 
 - Slice 0 API tests: for guest memberships at viewer and any legacy/reactivated role above viewer, verify every reachable task/collaboration write is denied; run relevant existing backend tests.
-- Slice 1 API tests: organization admin/owner and project manager permitted for authorized changes; team lead cannot grant manager; other unauthorized roles denied; self-change denied; invalid role rejected; target guest remains viewer-only; zero-manager transition and member removal rejected; inactive and cross-tenant memberships denied; archived/deleted project denied.
+- Slice 1 API tests: organization admin/owner and project manager permitted for authorized changes; team leads and other unauthorized roles denied; self-change denied; invalid/unknown role rejected; target guest remains viewer-only; no-op returns success without audit; zero-manager role change and removal rejected; inactive and cross-tenant memberships denied; archived/deleted project denied.
 - Verify the admin audit event has actor, target member, project, old role, and new role, and is atomic with the membership change. Workspace activity is optional. Verify realtime `members` event occurs only after save.
 - Web and Flutter checks: role selector visibility, loading/disabled state, success reload, API error retention, and no change to add/remove/invitation behavior.
 - Run API tests/build, Web typecheck/build, Flutter analyze/tests/build, and `git diff --check`; report any inconclusive tool invocation accurately.

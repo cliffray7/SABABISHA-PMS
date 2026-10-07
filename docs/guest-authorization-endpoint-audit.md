@@ -45,7 +45,7 @@
 | `DELETE /api/v1/organizations/{id}/members/{userId}` remove organization member | `Admin`; self/owner removal rejected; deactivates project memberships and revokes refresh tokens. | No | Guest denied. |
 | `POST /api/v1/organizations/{id}/invitations` invite | `Admin`; role restricted to ADMIN/MEMBER/GUEST. | No | Guest denied. |
 | `DELETE /api/v1/organizations/{id}/invitations/{invitationId}` revoke invite | `Admin`. | No | Guest denied. |
-| `POST /api/v1/organizations/invitations/accept` accept invitation | Authenticated actor must match invited email; membership changes are transactional. Reactivates prior inactive project membership rows without changing their stored project role. | No | A guest can carry a legacy elevated project role after reactivation. Shared task/collaboration writes deny it; Slice 1 must clamp to viewer during reactivation. |
+| `POST /api/v1/organizations/invitations/accept` accept invitation | Authenticated actor must match invited email; membership changes are transactional. Reactivates prior inactive project membership rows; guest invitations clamp elevated project roles to viewer and add an audit event in the same transaction. | No | Implemented in Slice 1; regression coverage verifies the clamp and audit. |
 | `POST /api/v1/account/auth/forgot-password` | Public, rate-limited; creates reset token for a matching account. | No | Authentication lifecycle, not project-scoped. |
 | `POST /api/v1/account/auth/reset-password` | Public, rate-limited; validates one-time token and rotates credentials transactionally. | No | Authentication lifecycle. |
 | `PATCH /api/v1/account/account` update own profile | `[Authorize]`; selects current user ID from claims. | No | Self-scoped. |
@@ -57,11 +57,11 @@
 
 ## Non-mutating POST with a related guest check
 
-`POST /api/v1/ai/tasks/suggest` does not persist a task. It reads project details and task titles and sends context to the configured AI service. Its former local authorization check did not reject organization role `GUEST`, so a legacy guest with a project role above viewer could trigger AI work. Decision: gate this authoring aid through `WorkspaceAuthorization.CanAccessProjectAsync(..., write: true, ...)`, with endpoint regression coverage, in a separate commit.
+`POST /api/v1/ai/tasks/suggest` does not persist a task. It reads project details and task titles and sends context to the configured AI service. Its former local authorization check did not reject organization role `GUEST`, so a legacy guest with a project role above viewer could trigger AI work. This authoring aid now uses `WorkspaceAuthorization.CanAccessProjectAsync(..., write: true, ...)`; `AiGuestAuthorizationTests` verifies a legacy elevated guest is forbidden before the AI service is called. The fix is in a separate commit.
 
 ## Read-only historical data audit query
 
-The following SQL Server query is provided for an authorized backup or read replica only. It is not to be run against production by the implementation agent. It returns two summary counts and a record-level result for review. The affected population is active organization guests with an active project membership above `VIEWER`; authored task/comment records are scoped to those memberships' project and organization.
+The following SQL Server query is provided for an authorized backup or read replica only. It is not to be run against production by the implementation agent. It returns two summary counts and a record-level result for review. The affected population includes organization membership rows with role `GUEST`, even if inactive, and any project membership above `VIEWER`, including inactive project membership rows; authored task/comment records are scoped to those memberships' project and organization.
 
 ```sql
 WITH affected_guest_memberships AS (
@@ -72,9 +72,7 @@ WITH affected_guest_memberships AS (
     FROM organization_members AS om
     INNER JOIN project_members AS pm ON pm.user_id = om.user_id
     INNER JOIN projects AS p ON p.id = pm.project_id AND p.organization_id = om.organization_id
-    WHERE om.status = N'active'
-      AND om.role = N'GUEST'
-      AND pm.status = N'active'
+    WHERE om.role = N'GUEST'
       AND pm.role IN (N'PROJECT_MANAGER', N'TEAM_LEAD', N'CONTRIBUTOR')
 ),
 authored_records AS (
@@ -102,8 +100,7 @@ WITH affected_guest_memberships AS (
     FROM organization_members AS om
     INNER JOIN project_members AS pm ON pm.user_id = om.user_id
     INNER JOIN projects AS p ON p.id = pm.project_id AND p.organization_id = om.organization_id
-    WHERE om.status = N'active' AND om.role = N'GUEST'
-      AND pm.status = N'active'
+    WHERE om.role = N'GUEST'
       AND pm.role IN (N'PROJECT_MANAGER', N'TEAM_LEAD', N'CONTRIBUTOR')
 )
 SELECT agm.organization_id, agm.project_id, agm.user_id,
@@ -118,6 +115,12 @@ INNER JOIN tasks AS t ON t.project_id = agm.project_id
 INNER JOIN comments AS c ON c.task_id = t.id AND c.user_id = agm.user_id
 ORDER BY organization_id, project_id, user_id, record_type, record_id;
 ```
+
+## Slice 1 API contract
+
+`PATCH /api/v1/projects/{projectId}/members/{userId}` accepts `{ "role": "CONTRIBUTOR" }` and returns `204 No Content` for a change or a no-op. Active organization owners/admins and existing project managers may change roles; team leads cannot use this endpoint. Only those same actors can grant `PROJECT_MANAGER`. Cross-organization/project targets are returned as not found. Invalid roles, self-change, guest promotion above viewer, and a transition/removal that would leave zero active managers are rejected. The manager count requires an active project membership, active organization membership in that project’s organization, and an active user account.
+
+Each actual role change inserts one `admin_audit_events` record in the same serializable transaction as the `project_members.role` update. Its actor is the acting user; target is the affected user; `reason` carries project ID and old/new roles; `action` is `project.member_role_changed`. Invitation reactivation of a guest that clamps an elevated project role also inserts an audit row atomically with the membership reactivation. No schema migration has been added.
 
 ## Labels, tags, and other project mutations
 

@@ -62,7 +62,7 @@ Start with a read-only project tracking view using existing project status, task
 
 If the need is to assign existing roles, improve the member-management UI and guardrails for current organization/project roles. Preserve owner protections, self-change restrictions, guest restrictions, and server checks. This delivers role administration without creating a custom permissions engine.
 
-First candidate slice spec: `context/feature-specs/project-member-role-management.md` (approved 2026-10-07; Slice 0 remains a prerequisite).
+First candidate slice spec: `context/feature-specs/project-member-role-management.md` (approved 2026-10-07; Slice 0 is committed and its tests passed).
 
 Required implementation order:
 
