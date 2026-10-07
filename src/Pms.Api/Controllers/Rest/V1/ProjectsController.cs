@@ -110,6 +110,9 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
         var strategy = db.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync<IActionResult>(async () =>
         {
+            // A transient SQL Server deadlock retries this delegate on the same DbContext.
+            // Discard tracked mutations from the rolled-back attempt before re-reading state.
+            db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
             if (!await Manager(id, ct)) return Forbid();
             if (userId == CurrentUser.Id(User)) return BadRequest(new { message = "You cannot remove yourself from the project." });
@@ -123,7 +126,8 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
                     && x.UserId == userId && x.Status == "active", ct)
                 && await db.Users.AnyAsync(x => x.Id == userId && x.Status == "active", ct);
             if (activeManagers - (removedManagerIsActive ? 1 : 0) < 1)
-                return BadRequest(new { message = "The project must retain at least one active project manager." });
+                return RoleUpdateError(StatusCodes.Status400BadRequest, "project_must_retain_manager",
+                    "The project must retain at least one active project manager.");
             member.Status = "inactive";
             var removedUser = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
             var removedName = $"{removedUser.FirstName} {removedUser.LastName}";
@@ -141,6 +145,7 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
         var strategy = db.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync<IActionResult>(async () =>
         {
+            db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
             var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id && x.ArchivedAt == null && x.DeletedAt == null, ct);
             if (project is null) return NotFound();
@@ -151,15 +156,20 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
                                    && organizationMember.UserId == actorId && organizationMember.Status == "active"
                                    && actorUser.Status == "active"
                                select new { organizationMember.Role }).SingleOrDefaultAsync(ct);
-            if (actor is null || actor.Role == "GUEST") return Forbid();
+            if (actor is null || actor.Role == "GUEST")
+                return RoleUpdateError(StatusCodes.Status403Forbidden, "project_role_update_forbidden",
+                    "You do not have permission to change project member roles.");
             var organizationAdmin = actor.Role is "OWNER" or "ADMIN";
             var projectManager = await db.ProjectMembers.AnyAsync(x => x.ProjectId == id && x.UserId == actorId
                 && x.Status == "active" && x.Role == "PROJECT_MANAGER", ct);
-            if (!organizationAdmin && !projectManager) return Forbid();
-            if (userId == actorId) return BadRequest(new { message = "You cannot change your own project role." });
-            if (!ProjectRoles.Contains(request.Role)) return BadRequest(new { message = "Invalid project role." });
             if (request.Role == "PROJECT_MANAGER" && !organizationAdmin && !projectManager)
-                return BadRequest(new { message = "Only organization admins or project managers can grant the project manager role." });
+                return RoleUpdateError(StatusCodes.Status403Forbidden, "project_manager_grant_forbidden",
+                    "Only organization admins or project managers can grant the project manager role.");
+            if (!organizationAdmin && !projectManager)
+                return RoleUpdateError(StatusCodes.Status403Forbidden, "project_role_update_forbidden",
+                    "You do not have permission to change project member roles.");
+            if (!ProjectRoles.Contains(request.Role))
+                return RoleUpdateError(StatusCodes.Status400BadRequest, "invalid_project_role", "Invalid project role.");
 
             var target = await (from projectMember in db.ProjectMembers
                                 join organizationMember in db.OrganizationMembers on project.OrganizationId equals organizationMember.OrganizationId
@@ -169,20 +179,25 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
                 .SingleOrDefaultAsync(ct);
             if (target is null) return NotFound();
             if (target.OrganizationRole == "GUEST" && request.Role != "VIEWER")
-                return BadRequest(new { message = "Organization guests can only have the viewer project role." });
+                return RoleUpdateError(StatusCodes.Status400BadRequest, "guest_project_role_must_be_viewer",
+                    "Organization guests can only have the viewer project role.");
             var previousRole = target.ProjectMember.Role;
             if (previousRole == request.Role)
             {
                 await tx.CommitAsync(ct);
                 return NoContent();
             }
+            if (userId == actorId && previousRole != "PROJECT_MANAGER")
+                return RoleUpdateError(StatusCodes.Status400BadRequest, "self_role_change_not_allowed",
+                    "You may only demote yourself from project manager when another active manager remains.");
             var activeManagers = await ActiveManagerCount(id, project.OrganizationId, ct);
             var targetUserIsActive = await db.Users.AnyAsync(x => x.Id == userId && x.Status == "active", ct);
             var targetIsCountedManager = previousRole == "PROJECT_MANAGER" && targetUserIsActive;
             var managerCountAfterChange = activeManagers - (targetIsCountedManager ? 1 : 0)
                 + (request.Role == "PROJECT_MANAGER" && targetUserIsActive ? 1 : 0);
             if (managerCountAfterChange < 1)
-                return BadRequest(new { message = "The project must retain at least one active project manager." });
+                return RoleUpdateError(StatusCodes.Status400BadRequest, "project_must_retain_manager",
+                    "The project must retain at least one active project manager.");
 
             target.ProjectMember.Role = request.Role;
             var targetUser = await db.Users.AsNoTracking().Where(x => x.Id == userId)
@@ -214,6 +229,9 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
     }
 
     private static readonly string[] ProjectRoles = ["PROJECT_MANAGER", "TEAM_LEAD", "CONTRIBUTOR", "VIEWER"];
+
+    private ObjectResult RoleUpdateError(int statusCode, string code, string message) =>
+        StatusCode(statusCode, new { code, message });
 
     private Task<int> ActiveManagerCount(Guid projectId, Guid organizationId, CancellationToken ct) =>
         (from projectMember in db.ProjectMembers

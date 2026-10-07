@@ -44,7 +44,7 @@ public sealed class ProjectMemberRoleUpdateTests
         }
         else
         {
-            Assert.IsType<ForbidResult>(result);
+            AssertError(result, "project_role_update_forbidden");
             Assert.Empty(await database.Context.AdminAuditEvents.ToListAsync());
         }
     }
@@ -86,8 +86,8 @@ public sealed class ProjectMemberRoleUpdateTests
         var f = await Seed(database.Context, "MEMBER", expected == "bad-request" ? "PROJECT_MANAGER" : "TEAM_LEAD");
         var result = await Controller(database.Context, f.ActorId).UpdateMemberRole(f.ProjectId, f.TargetId,
             new UpdateProjectMemberRoleRequest(role), CancellationToken.None);
-        if (expected == "bad-request") Assert.IsType<BadRequestObjectResult>(result);
-        else Assert.IsType<ForbidResult>(result);
+        if (expected == "bad-request") AssertError(result, "invalid_project_role");
+        else AssertError(result, "project_manager_grant_forbidden");
         Assert.Empty(await database.Context.AdminAuditEvents.ToListAsync());
     }
 
@@ -99,8 +99,9 @@ public sealed class ProjectMemberRoleUpdateTests
     {
         await using var database = await TestDatabase.Create();
         var guest = await Seed(database.Context, "MEMBER", "PROJECT_MANAGER", targetOrganizationRole: "GUEST");
-        Assert.IsType<BadRequestObjectResult>(await Controller(database.Context, guest.ActorId).UpdateMemberRole(
-            guest.ProjectId, guest.TargetId, new UpdateProjectMemberRoleRequest(requestedRole), CancellationToken.None));
+        var result = await Controller(database.Context, guest.ActorId).UpdateMemberRole(
+            guest.ProjectId, guest.TargetId, new UpdateProjectMemberRoleRequest(requestedRole), CancellationToken.None);
+        AssertError(result, "guest_project_role_must_be_viewer");
         Assert.Empty(await database.Context.AdminAuditEvents.ToListAsync());
     }
 
@@ -108,10 +109,53 @@ public sealed class ProjectMemberRoleUpdateTests
     public async Task RoleUpdate_RejectsLastManagerDemotion()
     {
         await using var lastManagerDb = await TestDatabase.Create();
-        var manager = await Seed(lastManagerDb.Context, "MEMBER", "PROJECT_MANAGER", targetRole: "PROJECT_MANAGER");
-        Assert.IsType<BadRequestObjectResult>(await Controller(lastManagerDb.Context, manager.TargetId).UpdateMemberRole(
-            manager.ProjectId, manager.TargetId, new UpdateProjectMemberRoleRequest("TEAM_LEAD"), CancellationToken.None));
+        var manager = await Seed(lastManagerDb.Context, "MEMBER", "TEAM_LEAD", targetRole: "PROJECT_MANAGER");
+        var result = await Controller(lastManagerDb.Context, manager.TargetId).UpdateMemberRole(
+            manager.ProjectId, manager.TargetId, new UpdateProjectMemberRoleRequest("TEAM_LEAD"), CancellationToken.None);
+        AssertError(result, "project_must_retain_manager");
         Assert.Empty(await lastManagerDb.Context.AdminAuditEvents.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ProjectManagerMayDemoteThemselvesWhenAnotherActiveManagerRemains()
+    {
+        await using var database = await TestDatabase.Create();
+        var f = await Seed(database.Context, "MEMBER", "PROJECT_MANAGER");
+        var otherManagerId = Guid.NewGuid();
+        database.Context.Users.Add(User(otherManagerId, "Other", $"{otherManagerId}@example.test"));
+        var organizationId = await database.Context.Projects.Where(x => x.Id == f.ProjectId)
+            .Select(x => x.OrganizationId).SingleAsync();
+        database.Context.OrganizationMembers.Add(new OrganizationMember
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, UserId = otherManagerId, Role = "MEMBER"
+        });
+        database.Context.ProjectMembers.Add(new ProjectMember
+        {
+            Id = Guid.NewGuid(), ProjectId = f.ProjectId, UserId = otherManagerId, Role = "PROJECT_MANAGER"
+        });
+        await database.Context.SaveChangesAsync();
+
+        var result = await Controller(database.Context, f.ActorId).UpdateMemberRole(f.ProjectId, f.ActorId,
+            new UpdateProjectMemberRoleRequest("CONTRIBUTOR"), CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal("CONTRIBUTOR", (await database.Context.ProjectMembers.SingleAsync(x => x.UserId == f.ActorId)).Role);
+        Assert.Equal(1, await database.Context.ProjectMembers.CountAsync(x => x.ProjectId == f.ProjectId
+            && x.Role == "PROJECT_MANAGER" && x.Status == "active"));
+        Assert.Single(await database.Context.AdminAuditEvents.ToListAsync());
+    }
+
+    [Fact]
+    public async Task LowerRoleCannotDemoteAProjectManager()
+    {
+        await using var database = await TestDatabase.Create();
+        var f = await Seed(database.Context, "MEMBER", "TEAM_LEAD", targetRole: "PROJECT_MANAGER");
+
+        var result = await Controller(database.Context, f.ActorId).UpdateMemberRole(f.ProjectId, f.TargetId,
+            new UpdateProjectMemberRoleRequest("CONTRIBUTOR"), CancellationToken.None);
+
+        AssertError(result, "project_role_update_forbidden");
+        Assert.Equal("PROJECT_MANAGER", (await database.Context.ProjectMembers.SingleAsync(x => x.UserId == f.TargetId)).Role);
     }
 
     [Fact]
@@ -131,11 +175,23 @@ public sealed class ProjectMemberRoleUpdateTests
             Id = Guid.NewGuid(), OrganizationId = foreignOrganizationId, UserId = foreignUserId, Role = "MEMBER"
         });
         await database.Context.SaveChangesAsync();
-        Assert.IsType<BadRequestObjectResult>(await Controller(database.Context, f.ActorId).UpdateMemberRole(
-            f.ProjectId, f.ActorId, new UpdateProjectMemberRoleRequest("CONTRIBUTOR"), CancellationToken.None));
+        AssertError(await Controller(database.Context, f.ActorId).UpdateMemberRole(
+            f.ProjectId, f.ActorId, new UpdateProjectMemberRoleRequest("CONTRIBUTOR"), CancellationToken.None),
+            "project_must_retain_manager");
         Assert.IsType<NotFoundResult>(await Controller(database.Context, f.ActorId).UpdateMemberRole(
             f.ProjectId, foreignUserId, new UpdateProjectMemberRoleRequest("CONTRIBUTOR"), CancellationToken.None));
         Assert.Empty(await database.Context.AdminAuditEvents.ToListAsync());
+    }
+
+    [Fact]
+    public async Task NonManagerCannotChangeOwnRoleEvenWhenOrganizationAdmin()
+    {
+        await using var database = await TestDatabase.Create();
+        var f = await Seed(database.Context, "ADMIN", "CONTRIBUTOR", targetRole: "CONTRIBUTOR");
+        var result = await Controller(database.Context, f.ActorId).UpdateMemberRole(f.ProjectId, f.ActorId,
+            new UpdateProjectMemberRoleRequest("VIEWER"), CancellationToken.None);
+        AssertError(result, "self_role_change_not_allowed");
+        Assert.Equal("CONTRIBUTOR", (await database.Context.ProjectMembers.SingleAsync(x => x.UserId == f.ActorId)).Role);
     }
 
     [Fact]
@@ -144,7 +200,7 @@ public sealed class ProjectMemberRoleUpdateTests
         await using var database = await TestDatabase.Create();
         var f = await Seed(database.Context, "MEMBER", "TEAM_LEAD", targetRole: "PROJECT_MANAGER");
         var result = await Controller(database.Context, f.ActorId).RemoveMember(f.ProjectId, f.TargetId, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result);
+        AssertError(result, "project_must_retain_manager");
         Assert.Equal("active", (await database.Context.ProjectMembers.SingleAsync(x => x.UserId == f.TargetId)).Status);
     }
 
@@ -174,7 +230,7 @@ public sealed class ProjectMemberRoleUpdateTests
 
         var result = await Controller(database.Context, f.ActorId).RemoveMember(f.ProjectId, f.TargetId, CancellationToken.None);
 
-        Assert.IsType<BadRequestObjectResult>(result);
+        AssertError(result, "project_must_retain_manager");
         Assert.Equal("active", (await database.Context.ProjectMembers.SingleAsync(x => x.UserId == f.TargetId)).Status);
     }
 
@@ -216,6 +272,12 @@ public sealed class ProjectMemberRoleUpdateTests
         http.TraceIdentifier = Guid.NewGuid().ToString();
         controller.ControllerContext = new ControllerContext { HttpContext = http };
         return controller;
+    }
+
+    private static void AssertError(IActionResult result, string expectedCode)
+    {
+        var response = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(expectedCode, response.Value?.GetType().GetProperty("code")?.GetValue(response.Value));
     }
 
     private static async Task<Fixture> Seed(PmsDbContext db, string actorOrganizationRole, string actorProjectRole,

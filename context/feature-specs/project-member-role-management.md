@@ -36,7 +36,7 @@ This proposal does not introduce custom roles or permissions, organization role 
 ### Actor permissions
 
 - Only an active organization admin/owner or an active project manager with an active organization membership may change another member's project role. Organization guests cannot act as role administrators. Team leads cannot change roles through this endpoint.
-- Users may not change their own project role through this action.
+- Users may not change their own project role through this action, except that a project manager may demote themselves when another active project manager will remain.
 - The action may not create a project membership; the target must already be active in the same project and organization.
 - Organization guests may only have the `VIEWER` project role. Changing a guest to a write-capable role is denied.
 - Only an organization admin/owner or an existing project manager may grant `PROJECT_MANAGER`.
@@ -65,7 +65,7 @@ No new or custom role values are introduced. No limit is set on the number of ma
 
 ### Client behavior
 
-- Web and Flutter project-member views show a role selector only to authorized organization admins/owners and project managers, and only for other members.
+- Web and Flutter project-member views show a role selector only to authorized organization admins/owners and project managers. A project manager may also use it on their own row to demote themselves, subject to the server-enforced last-manager rule.
 - The control uses the existing role list and current role as its value.
 - On success, reload project member data from the API; do not rely on local-only role mutation.
 - On failure, show the server error and retain the last confirmed role.
@@ -87,11 +87,11 @@ Content-Type: application/json
 Expected responses:
 
 - `204 No Content` on success.
-- `400 Bad Request` for an invalid role, self-role change, guest assigned a non-viewer role, or a role change that would leave zero active project managers.
-- `403 Forbidden` when actor lacks active organization admin/owner or project manager authority, or has guest organization membership.
+- `400 Bad Request` with a stable `code` for an invalid role, disallowed self-role change, guest assigned a non-viewer role, or a role change that would leave zero active project managers.
+- `403 Forbidden` with a stable `code` when actor lacks active organization admin/owner or project manager authority, or has guest organization membership; manager grants are separately coded.
 - `404 Not Found` when project or target active membership is not available within the actor's authorized scope; do not leak cross-tenant membership existence.
 
-Role-unchanged requests return `204 No Content` without writing an audit event. The route is additive and does not change existing response shapes.
+Role-unchanged requests return `204 No Content` without writing an audit event. A project manager may demote themselves if another active manager remains; the same transactional manager guard rejects self-demotion of the last active manager. The route is additive and does not change existing endpoint response shapes.
 
 ## 6. Tenant and security requirements
 
@@ -126,7 +126,7 @@ Keep these changes in reviewable commits. Slice 1 is dependent on Slice 0 comple
 Before enabling Slice 1, audit affected existing memberships. The approved remediation is to clamp affected guest memberships to `VIEWER` in invitation reactivation code and with a one-time migration only if the read-only data audit finds affected rows. Do not add or run that migration before the owner reviews the read-only audit results. The AI suggestion endpoint now uses the shared write-level project access check; its test and fix are in a separate commit.
 
 - Slice 0 API tests: for guest memberships at viewer and any legacy/reactivated role above viewer, verify every reachable task/collaboration write is denied; run relevant existing backend tests.
-- Slice 1 API tests: organization admin/owner and project manager permitted for authorized changes; team leads and other unauthorized roles denied; self-change denied; invalid/unknown role rejected; target guest remains viewer-only; no-op returns success without audit; zero-manager role change and removal rejected; inactive and cross-tenant memberships denied; archived/deleted project denied.
+- Slice 1 API tests: organization admin/owner and project manager permitted for authorized changes; team leads and other unauthorized roles denied; manager self-demotion permitted only when another active manager remains; other self-changes denied; invalid/unknown role rejected; target guest remains viewer-only; no-op returns success without audit; zero-manager role change and removal rejected; inactive and cross-tenant memberships denied; archived/deleted project denied.
 - Verify the admin audit event has actor, target member, project, old role, and new role, and is atomic with the membership change. Workspace activity is optional. Verify realtime `members` event occurs only after save.
 - Web and Flutter checks: role selector visibility, loading/disabled state, success reload, API error retention, and no change to add/remove/invitation behavior.
 - Run API tests/build, Web typecheck/build, Flutter analyze/tests/build, and `git diff --check`; report any inconclusive tool invocation accurately.
