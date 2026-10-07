@@ -1,5 +1,24 @@
 # Progress tracker
 
+## 2026-10-07
+
+- Set the SuperAdmin mobile theme default to light while keeping the existing SuperAdmin-local light/dark toggle. Removed the EAT text from the Overview heading while retaining EAT time calculations, and styled its live status as the green pill beside the greeting used by the web dashboard. `git diff --check` passed; Flutter analyzer/build verification was not run.
+- Standardized the SuperAdmin mobile date/time calculations and displayed timestamps on EAT (UTC+3), including greetings, analytics windows, activity/audit ranges, health check times, and export filenames. This is independent of the device timezone; no workspace screens or backend date semantics changed. `git diff --check` passed; Dart formatting was attempted but stalled without output.
+- Aligned the SuperAdmin mobile Overview with the web dashboard: six KPI cards, user/project 30-day trend totals and sparklines, 7/30/90-day project-growth selection and total, task-status donut, recent project table with organization/task/status/created fields, live indicator, and PDF save dialog. Kept the selected chart period when periodic/manual refresh runs. `git diff --check` passed; Dart formatting/analysis verification remains pending.
+- Extended the SuperAdmin mobile/web parity work: Analytics now uses growth line charts, task status bars, and priority distribution charts; Reports offers PDF/XLSX/CSV export; Activity supports category, organization, search, date filters, and cursor paging; Organizations adds owner filtering, details, and CSV export; Projects adds sorting and details. Added visible-page refresh intervals to Overview (15s), Analytics (30s), Users/Organizations/Projects (15s), Activity (15s), and System Health (30s). All changes are scoped to the SuperAdmin Flutter screen/client behavior and its UI context. `git diff --check` and source formatting verification are pending; Flutter analyzer previously stalled.
+
+## 2026-10-06
+
+- Restored SuperAdmin mobile navigation as a left-side drawer and added the missing Audit Trail page. Activity and Audit Trail consume paged admin APIs with pull-to-refresh. Authorization and backend contracts are unchanged. `git diff --check` passed; analyzer/test status at that point was inconclusive because Flutter tooling stalled.
+
+## 2026-10-07
+
+- Restructured only the mobile SuperAdmin experience to match the supplied web mobile references: compact platform header with admin page search, avatar and SuperAdmin-local dark/light control; two-column dashboard and analytics metric grids; overview project growth and task status charts; and two-column recent-project cards. Overview reuses the authenticated admin dashboard, analytics, and projects endpoints. Updated `ui-context.md`; no workspace UI or backend files were changed for this layout work. `dart format` formatted the changed Dart files; it exited nonzero afterward because Dart telemetry could not update a user-profile file outside the workspace. `git diff --check` passed. Dart analysis remains inconclusive because it stalls in the current environment.
+
+## 2026-10-06
+
+- Added a mobile-first unauthenticated launcher screen with TaskFlow branding, concise product copy, compact board preview, and create-account/login actions. Reused the existing auth flow for both actions and preserved signed-in workspace routing. Verification started: `dart format`, targeted `flutter analyze`, `flutter test`, and Android debug build have not returned output yet in this environment; `git diff --check` passes.
+
 ## 2026-10-06
 
 - Added a one-time left-to-right clip reveal to the landing-page hero headline (850ms, ease-in-out curve), with a reduced-motion fallback that displays the full text immediately. `git diff --check` passed; browser rendering was not verified.
@@ -33,6 +52,8 @@
 - Replaced the hand-built web mark with the supplied Figma `Primary lockup.svg` and `Mobile launcher.svg` assets across landing, auth/admin/workspace surfaces, development email preview, and favicon; `npm.cmd run build --prefix apps/web` passes (with the existing large-chunk warning).
 
 ## 2026-10-06
+
+- Restored the SuperAdmin mobile navigation as a left-side drawer, matching the mobile drawer pattern, and added the missing Audit Trail destination. Replaced the obsolete Activity placeholder with authenticated, paged platform activity data and added a paged administrative Audit Trail view; both support pull-to-refresh. Updated mobile DTO parsing for platform-scoped activity and synced the UI context. `git diff --check` passed. Dart formatting and Flutter analysis were attempted but stalled without output and were stopped, so analyzer/build verification remains pending.
 
 - Added a standalone responsive TaskFlow landing page at `apps/web/public/taskflow/index.html` based on `apps/web/public/TaskFlow — Logo System v2/`, reusing the supplied mark, product launcher visual, blue/orange palette, and statement-led layout. Includes workflow, features, AI drafting, FAQ, and links to existing registration/sign-in routes. Static content checks and `git diff --check` passed. `npm.cmd run build` was started but stalled without output and was interrupted; build result is unverified.
 

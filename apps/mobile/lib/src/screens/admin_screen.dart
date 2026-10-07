@@ -1,7 +1,9 @@
-import 'dart:io';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
@@ -19,6 +21,25 @@ const _kSuccess = Color(0xFF22C55E);
 const _kMuted = Color(0xFF9EA3B0);
 const _kLine = Color(0xFFE5E7EB);
 const _kLineDark = Color(0xFF343845);
+const _eatOffset = Duration(hours: 3);
+
+DateTime _eatNow() => DateTime.now().toUtc().add(_eatOffset);
+
+DateTime _dateInEat(String value) {
+  if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) {
+    return DateTime.parse(value);
+  }
+  final parsed = DateTime.parse(value);
+  if (!RegExp(r'(?:Z|[+-]\d{2}:?\d{2})$', caseSensitive: false)
+      .hasMatch(value)) {
+    return DateTime(parsed.year, parsed.month, parsed.day, parsed.hour,
+        parsed.minute, parsed.second, parsed.millisecond, parsed.microsecond);
+  }
+  return parsed.toUtc().add(_eatOffset);
+}
+
+String _dateOnly(DateTime value) =>
+    '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Section enum — mirrors web AdminNav exactly
@@ -31,6 +52,7 @@ enum _AdminSection {
   organizations,
   projects,
   activity,
+  audit,
   health,
   reports,
   platformSettings,
@@ -52,6 +74,8 @@ extension _AdminSectionExt on _AdminSection {
         return 'Projects';
       case _AdminSection.activity:
         return 'Activity';
+      case _AdminSection.audit:
+        return 'Audit Trail';
       case _AdminSection.health:
         return 'System Health';
       case _AdminSection.reports:
@@ -77,6 +101,8 @@ extension _AdminSectionExt on _AdminSection {
         return Icons.folder_outlined;
       case _AdminSection.activity:
         return Icons.show_chart;
+      case _AdminSection.audit:
+        return Icons.history;
       case _AdminSection.health:
         return Icons.favorite_border;
       case _AdminSection.reports:
@@ -102,6 +128,8 @@ extension _AdminSectionExt on _AdminSection {
         return Icons.folder;
       case _AdminSection.activity:
         return Icons.show_chart;
+      case _AdminSection.audit:
+        return Icons.history;
       case _AdminSection.health:
         return Icons.favorite;
       case _AdminSection.reports:
@@ -122,7 +150,8 @@ const _navGroups = [
     _AdminSection.organizations,
     _AdminSection.projects
   ]),
-  _NavGroup('MONITORING', [_AdminSection.activity, _AdminSection.health]),
+  _NavGroup('MONITORING',
+      [_AdminSection.activity, _AdminSection.audit, _AdminSection.health]),
   _NavGroup('REPORTING', [_AdminSection.reports]),
   _NavGroup('ADMINISTRATION', [_AdminSection.platformSettings]),
   _NavGroup('ACCOUNT', [_AdminSection.accountSettings]),
@@ -158,91 +187,125 @@ class AdminScreen extends StatefulWidget {
 }
 
 class _AdminScreenState extends State<AdminScreen> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   _AdminSection _section = _AdminSection.overview;
+  ThemeMode _adminThemeMode = ThemeMode.light;
+
+  void _toggleAdminTheme() {
+    setState(() {
+      _adminThemeMode =
+          _adminThemeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+    });
+  }
 
   void _navigate(_AdminSection s) {
     setState(() => _section = s);
-    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    _scaffoldKey.currentState?.closeDrawer();
+  }
+
+  Future<void> _signOut() async {
+    await context.read<AppState>().api.logout();
+    widget.onSignedOut();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDark = _adminThemeMode == ThemeMode.dark;
     final bg = isDark ? const Color(0xFF13151F) : const Color(0xFFF4F5FA);
     final border = isDark ? _kLineDark : _kLine;
+    final baseTheme = Theme.of(context);
 
-    return Scaffold(
-      backgroundColor: bg,
+    return Theme(
+      data: baseTheme.copyWith(
+        brightness: isDark ? Brightness.dark : Brightness.light,
+        scaffoldBackgroundColor: bg,
+        colorScheme: baseTheme.colorScheme.copyWith(
+          brightness: isDark ? Brightness.dark : Brightness.light,
+          surface: isDark ? const Color(0xFF1B1D2A) : Colors.white,
+        ),
+      ),
+      child: Scaffold(
+        key: _scaffoldKey,
+        backgroundColor: bg,
 
-      // ── AppBar ─────────────────────────────────────────────────────────────
-      appBar: AppBar(
-        backgroundColor: isDark ? const Color(0xFF1B1D2A) : Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        toolbarHeight: 56,
-        automaticallyImplyLeading: false,
-        shape: Border(bottom: BorderSide(color: border, width: 1)),
+        // ── AppBar ─────────────────────────────────────────────────────────────
+        appBar: AppBar(
+          backgroundColor: isDark ? const Color(0xFF1B1D2A) : Colors.white,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          toolbarHeight: 56,
+          automaticallyImplyLeading: true,
+          shape: Border(bottom: BorderSide(color: border, width: 1)),
 
-        // Left: logo mark + section breadcrumb
-        title: Row(
-          children: [
-            const TaskFlowBrand(
-              iconSize: 30,
-              textSize: 15,
-              showWordmark: false,
+          // Compact platform breadcrumb mirrors the web admin mobile header.
+          title: Row(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Platform',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                      color: _kViolet,
+                    ),
+                  ),
+                  Text(
+                    _section.label,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white : const Color(0xFF1A1D2E),
+                      height: 1.1,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          actions: [
+            IconButton(
+              tooltip: 'Search admin pages',
+              onPressed: () => _showAdminPageSearch(context),
+              icon: const Icon(Icons.search),
             ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Super Admin',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.8,
-                    color: _kViolet,
-                  ),
+            IconButton(
+              tooltip: isDark ? 'Use light theme' : 'Use dark theme',
+              onPressed: _toggleAdminTheme,
+              icon: Icon(isDark
+                  ? Icons.light_mode_outlined
+                  : Icons.dark_mode_outlined),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: GestureDetector(
+                onTap: () => _navigate(_AdminSection.accountSettings),
+                child: AvatarChip(
+                  initials: _accountInitials(context.watch<AppState>().account),
+                  avatarUrl: context.watch<AppState>().account?.avatarUrl,
+                  size: 34,
                 ),
-                Text(
-                  _section.label,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? Colors.white : const Color(0xFF1A1D2E),
-                    height: 1.1,
-                  ),
-                ),
-              ],
+              ),
             ),
           ],
         ),
 
-        actions: [
-          // Menu button — opens the side nav drawer
-          Builder(
-            builder: (ctx) => IconButton(
-              icon: Icon(Icons.menu_rounded,
-                  size: 22,
-                  color: isDark ? Colors.white70 : const Color(0xFF4A4F6A)),
-              onPressed: () => Scaffold.of(ctx).openEndDrawer(),
-              tooltip: 'Navigation',
-            ),
-          ),
-          const SizedBox(width: 4),
-        ],
-      ),
+        // ── Side drawer ────────────────────────────────────────────────────────
+        drawer: _AdminDrawer(
+          current: _section,
+          onNavigate: _navigate,
+          isDark: isDark,
+          account: context.watch<AppState>().account,
+          onSignedOut: _signOut,
+        ),
 
-      // ── Side drawer ────────────────────────────────────────────────────────
-      endDrawer: _AdminDrawer(
-        current: _section,
-        onNavigate: _navigate,
-        isDark: isDark,
+        // ── Content ────────────────────────────────────────────────────────────
+        body: _buildSection(),
       ),
-
-      // ── Content ────────────────────────────────────────────────────────────
-      body: _buildSection(),
     );
   }
 
@@ -260,6 +323,8 @@ class _AdminScreenState extends State<AdminScreen> {
         return const _AdminProjects();
       case _AdminSection.activity:
         return const _AdminActivity();
+      case _AdminSection.audit:
+        return const _AdminAuditTrail();
       case _AdminSection.health:
         return const _AdminHealth();
       case _AdminSection.reports:
@@ -269,10 +334,74 @@ class _AdminScreenState extends State<AdminScreen> {
       case _AdminSection.accountSettings:
         return SettingsScreen(
           onSignedOut: widget.onSignedOut,
-          onToggleTheme: widget.onToggleTheme,
-          themeMode: widget.themeMode,
+          onToggleTheme: _toggleAdminTheme,
+          themeMode: _adminThemeMode,
         );
     }
+  }
+
+  Future<void> _showAdminPageSearch(BuildContext context) async {
+    final searchController = TextEditingController();
+    final sections = _navGroups.expand((group) => group.items).toList();
+    final section = await showDialog<_AdminSection>(
+      context: context,
+      builder: (dialogContext) => Theme(
+        data: Theme.of(context).copyWith(
+          brightness: _adminThemeMode == ThemeMode.dark
+              ? Brightness.dark
+              : Brightness.light,
+          colorScheme: Theme.of(context).colorScheme.copyWith(
+                brightness: _adminThemeMode == ThemeMode.dark
+                    ? Brightness.dark
+                    : Brightness.light,
+              ),
+        ),
+        child: StatefulBuilder(
+          builder: (context, setDialogState) {
+            final query = searchController.text.trim().toLowerCase();
+            final results = sections
+                .where((item) => item.label.toLowerCase().contains(query))
+                .toList();
+            return AlertDialog(
+              title: const Text('Search platform pages'),
+              content: SizedBox(
+                width: 380,
+                height: 360,
+                child: Column(children: [
+                  TextField(
+                    controller: searchController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search pages and tools',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (_) => setDialogState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: results.isEmpty
+                        ? const Center(child: Text('No pages found.'))
+                        : ListView.builder(
+                            itemCount: results.length,
+                            itemBuilder: (context, index) {
+                              final item = results[index];
+                              return ListTile(
+                                leading: Icon(item.icon),
+                                title: Text(item.label),
+                                onTap: () => Navigator.pop(dialogContext, item),
+                              );
+                            },
+                          ),
+                  ),
+                ]),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    searchController.dispose();
+    if (section != null && mounted) _navigate(section);
   }
 }
 
@@ -285,11 +414,15 @@ class _AdminDrawer extends StatelessWidget {
     required this.current,
     required this.onNavigate,
     required this.isDark,
+    required this.account,
+    required this.onSignedOut,
   });
 
   final _AdminSection current;
   final void Function(_AdminSection) onNavigate;
   final bool isDark;
+  final Account? account;
+  final VoidCallback onSignedOut;
 
   @override
   Widget build(BuildContext context) {
@@ -308,16 +441,8 @@ class _AdminDrawer extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
               child: Row(children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: _kViolet,
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: const Icon(Icons.shield_outlined,
-                      color: Colors.white, size: 20),
-                ),
+                const TaskFlowBrand(
+                    iconSize: 36, textSize: 15, showWordmark: false),
                 const SizedBox(width: 12),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -330,10 +455,10 @@ class _AdminDrawer extends StatelessWidget {
                         color: isDark ? Colors.white : const Color(0xFF1A1D2E),
                       ),
                     ),
-                    const Text(
-                      'Platform Administration',
-                      style: TextStyle(fontSize: 11, color: _kMuted),
-                    ),
+                    Text('Super Admin',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: isDark ? Colors.white60 : _kMuted)),
                   ],
                 ),
               ]),
@@ -344,7 +469,7 @@ class _AdminDrawer extends StatelessWidget {
             // ── Nav groups ──────────────────────────────────────────────────
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
                 children: [
                   for (final group in _navGroups) ...[
                     Padding(
@@ -352,7 +477,7 @@ class _AdminDrawer extends StatelessWidget {
                       child: Text(
                         group.label,
                         style: const TextStyle(
-                          fontSize: 9.5,
+                          fontSize: 10,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 1.1,
                           color: _kMuted,
@@ -373,12 +498,50 @@ class _AdminDrawer extends StatelessWidget {
 
             // ── Version footer ──────────────────────────────────────────────
             Divider(height: 1, color: border),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 12, 20, 12),
-              child: Text(
-                'Sababisha PMS · v0.1.0',
-                style: TextStyle(fontSize: 11, color: _kMuted),
-              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      AvatarChip(
+                          initials: account == null
+                              ? 'SA'
+                              : '${account!.firstName.isNotEmpty ? account!.firstName[0] : ''}${account!.lastName.isNotEmpty ? account!.lastName[0] : ''}',
+                          avatarUrl: account?.avatarUrl,
+                          size: 34),
+                      const SizedBox(width: 10),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text(
+                                account == null
+                                    ? 'Super Admin'
+                                    : '${account!.firstName} ${account!.lastName}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: isDark
+                                        ? Colors.white
+                                        : const Color(0xFF1A1D2E))),
+                            Text(account?.email ?? 'Platform administrator',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 10, color: _kMuted)),
+                          ])),
+                      IconButton(
+                          tooltip: 'Sign out',
+                          onPressed: onSignedOut,
+                          icon: const Icon(Icons.logout, size: 18)),
+                    ]),
+                    const SizedBox(height: 8),
+                    const Text('TaskFlow · Platform console',
+                        style: TextStyle(fontSize: 10, color: _kMuted)),
+                  ]),
             ),
           ],
         ),
@@ -490,11 +653,13 @@ class _PageHeader extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.action,
+    this.badge,
   });
 
   final String title;
   final String subtitle;
   final Widget? action;
+  final Widget? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -507,9 +672,21 @@ class _PageHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 22, fontWeight: FontWeight.w700)),
+                if (badge == null)
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 22, fontWeight: FontWeight.w700))
+                else
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 10,
+                    children: [
+                      Text(title,
+                          style: const TextStyle(
+                              fontSize: 22, fontWeight: FontWeight.w700)),
+                      badge!,
+                    ],
+                  ),
                 const SizedBox(height: 3),
                 Text(subtitle,
                     style: const TextStyle(fontSize: 13, color: _kMuted)),
@@ -530,6 +707,49 @@ class _PageHeader extends StatelessWidget {
 // SECTION 1 — Overview
 // ═══════════════════════════════════════════════════════════════════════════════
 
+class _LiveBadge extends StatelessWidget {
+  const _LiveBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = isDark ? const Color(0xFF8BD3B1) : const Color(0xFF5A9D78);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 23),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1D332B) : const Color(0xFFF4FAF6),
+        border: Border.all(
+          color: isDark ? const Color(0xFF315B49) : const Color(0xFFDCEEE4),
+        ),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: const Color(0xFF62BD8B),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: isDark
+                    ? const Color(0xFF315B49)
+                    : const Color(0xFFE9F7EF),
+                spreadRadius: 3,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text('Live',
+            style: TextStyle(
+                color: color, fontSize: 10, fontWeight: FontWeight.w600)),
+      ]),
+    );
+  }
+}
+
 class _AdminOverview extends StatefulWidget {
   const _AdminOverview();
 
@@ -541,12 +761,28 @@ class _AdminOverviewState extends State<_AdminOverview> {
   bool _downloading = false;
   String? _downloadMsg;
   bool _downloadSuccess = false;
+  int _days = 30;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-        (_) => context.read<AppState>().loadAdminDashboard());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reloadOverview());
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (!mounted) return;
+      final state = context.read<AppState>();
+      if (!state.loadingAdminMetrics &&
+          !state.loadingAdminAnalytics &&
+          !state.loadingAdminProjects) {
+        _reloadOverview();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _downloadReport() async {
@@ -555,17 +791,22 @@ class _AdminOverviewState extends State<_AdminOverview> {
       _downloadMsg = null;
     });
     try {
-      final bytes = await context.read<AppState>().api.adminReport();
-      final dir = await getTemporaryDirectory();
-      final now = DateTime.now();
+      final bytes = await context.read<AppState>().api.adminReport(format: 'pdf');
+      final now = _eatNow();
       final name =
-          'taskflow-report-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.csv';
-      final file = File('${dir.path}/$name');
-      await file.writeAsBytes(bytes);
+          'taskflow-platform-report-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.pdf';
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save platform report',
+        fileName: name,
+        type: FileType.custom,
+        allowedExtensions: const ['pdf'],
+        bytes: Uint8List.fromList(bytes),
+      );
       if (mounted) {
         setState(() {
-          _downloadSuccess = true;
-          _downloadMsg = 'Saved to ${file.path}';
+          _downloadSuccess = path != null;
+          _downloadMsg =
+              path == null ? 'Report save was cancelled.' : 'PDF report saved.';
           _downloading = false;
         });
       }
@@ -588,30 +829,56 @@ class _AdminOverviewState extends State<_AdminOverview> {
     }
   }
 
+  Future<void> _reloadOverview() async {
+    final now = _eatNow();
+    final state = context.read<AppState>();
+    await Future.wait<void>([
+      state.loadAdminDashboard(),
+      state.loadAdminAnalytics(
+        from: _dateOnly(now.subtract(Duration(days: _days))),
+        to: _dateOnly(now),
+      ),
+      state.loadAdminProjects(),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final m = state.adminMetrics;
+    final analytics = state.adminAnalytics;
 
     final cards = [
-      _MetricDef('Total Users', Icons.people_outlined, m?.totalUsers),
+      _MetricDef('Total users', Icons.people_outlined, m?.totalUsers),
       _MetricDef(
           'Organizations', Icons.business_outlined, m?.totalOrganizations),
-      _MetricDef('Total Projects', Icons.folder_outlined, m?.totalProjects),
-      _MetricDef('Total Tasks', Icons.format_list_bulleted, m?.totalTasks),
+      _MetricDef('Projects', Icons.folder_outlined, m?.totalProjects),
+      _MetricDef('Tasks', Icons.format_list_bulleted, m?.totalTasks),
       _MetricDef(
-          'Completed Tasks', Icons.check_circle_outline, m?.completedTasks),
-      _MetricDef('Active Projects', Icons.show_chart, m?.activeProjects),
+          'Completed tasks', Icons.check_circle_outline, m?.completedTasks),
+      _MetricDef('Active projects', Icons.show_chart, m?.activeProjects),
     ];
+    final userGrowth = analytics?.userGrowth ?? const <AdminGrowthPoint>[];
+    final projectGrowth = analytics?.projectGrowth ?? const <AdminGrowthPoint>[];
+    final userTrend = _trendCount(userGrowth, 30);
+    final projectTrend = _trendCount(projectGrowth, 30);
+    final projectsCreatedInPeriod =
+        projectGrowth.fold<int>(0, (sum, point) => sum + point.count);
+    final recentProjects = [...state.adminProjects]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final statusPoints = (analytics?.tasksByStatus ?? const <AdminStatusPoint>[])
+        .where((point) => point.count > 0)
+        .toList();
 
     return _SectionPage(
-      onRefresh: () => context.read<AppState>().loadAdminDashboard(),
+      onRefresh: _reloadOverview,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _PageHeader(
-            title: 'Super Admin Dashboard',
-            subtitle: 'System-wide overview of TaskFlow.',
+            title: _greeting(),
+            subtitle: 'Usage and delivery across your platform.',
+            badge: const _LiveBadge(),
             action: FilledButton.icon(
               onPressed: _downloading ? null : _downloadReport,
               icon: _downloading
@@ -621,7 +888,7 @@ class _AdminOverviewState extends State<_AdminOverview> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.file_download_outlined, size: 17),
-              label: Text(_downloading ? 'Saving…' : 'Download Report',
+              label: Text(_downloading ? 'Preparing…' : 'Download report',
                   style: const TextStyle(fontSize: 12)),
               style: FilledButton.styleFrom(
                   padding:
@@ -645,13 +912,111 @@ class _AdminOverviewState extends State<_AdminOverview> {
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                mainAxisExtent: 108,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                mainAxisExtent: 120,
               ),
               itemCount: cards.length,
-              itemBuilder: (_, i) => _MetricCard(def: cards[i]),
+              itemBuilder: (_, i) => _MetricCard(
+                def: cards[i],
+                trend: i == 0 ? userTrend : i == 2 ? projectTrend : null,
+                growth: i == 0 ? userGrowth : i == 2 ? projectGrowth : null,
+                trendLabel: i == 0 || i == 2 ? 'created · 30d' : null,
+              ),
             ),
+
+          if (analytics == null && state.loadingAdminAnalytics)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (analytics != null) ...[
+            const SizedBox(height: 18),
+            _AdminPeriodSelector(
+              days: _days,
+              onChanged: (days) {
+                setState(() => _days = days);
+                _reloadOverview();
+              },
+            ),
+            const SizedBox(height: 12),
+            _ChartCard(
+              title: 'Project growth',
+              subtitle: 'Projects created in the last $_days days',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('$projectsCreatedInPeriod created',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          color: _kMuted,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  _AdminLineChart(
+                    data: analytics.projectGrowth,
+                    color: _kViolet,
+                    unit: 'projects',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _ChartCard(
+              title: 'Task status',
+              subtitle: 'Current status of tasks created in this period',
+              child: _AdminStatusDonut(data: statusPoints),
+            ),
+          ] else
+            const _ErrorBanner('Could not load platform analytics.'),
+
+          if (state.loadingAdminProjects && state.adminProjects.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else ...[
+            const SizedBox(height: 12),
+            _ChartCard(
+              title: 'Recent projects',
+              subtitle: 'Latest platform projects',
+              child: recentProjects.isEmpty && !state.loadingAdminProjects
+                  ? const Text('No projects have been created yet.',
+                      style: TextStyle(color: _kMuted))
+                  : recentProjects.isEmpty
+                      ? const Center(child: CircularProgressIndicator())
+                      : SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: DataTable(
+                        columnSpacing: 20,
+                        horizontalMargin: 0,
+                        columns: const [
+                          DataColumn(label: Text('Project')),
+                          DataColumn(label: Text('Organization')),
+                          DataColumn(label: Text('Tasks')),
+                          DataColumn(label: Text('Status')),
+                          DataColumn(label: Text('Created')),
+                        ],
+                        rows: recentProjects.take(5).map((project) {
+                          return DataRow(cells: [
+                            DataCell(SizedBox(
+                                width: 130,
+                                child: Text(project.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis))),
+                            DataCell(SizedBox(
+                                width: 110,
+                                child: Text(project.organizationName ?? '—',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis))),
+                            DataCell(Text('${project.taskCount}')),
+                            DataCell(Text(_prettyLabel(project.displayStatus))),
+                            DataCell(Text(_fmtDate(project.createdAt))),
+                          ]);
+                        }).toList(),
+                      ),
+                    ),
+            ),
+          ],
 
           // Download feedback
           if (_downloadMsg != null) ...[
@@ -660,26 +1025,48 @@ class _AdminOverviewState extends State<_AdminOverview> {
           ],
 
           // Hint
-          if (m != null) ...[
-            const SizedBox(height: 16),
-            RichText(
-              text: const TextSpan(
-                style: TextStyle(fontSize: 12, color: _kMuted),
-                children: [
-                  TextSpan(text: 'For charts open '),
-                  TextSpan(
-                      text: 'Analytics',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w700, color: _kViolet)),
-                  TextSpan(text: ' from the menu. Metrics refresh every 30 s.'),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
+
+  String _greeting() {
+    final hour = _eatNow().hour;
+    final firstName = context.read<AppState>().account?.firstName;
+    final greeting = hour < 12
+        ? 'Good morning'
+        : hour < 18
+            ? 'Good afternoon'
+            : 'Good evening';
+    return firstName == null || firstName.isEmpty
+        ? greeting
+        : '$greeting, $firstName';
+  }
+
+  int _trendCount(List<AdminGrowthPoint> points, int days) {
+    final now = _eatNow();
+    final today = DateTime.utc(now.year, now.month, now.day);
+    final start = today.subtract(Duration(days: days - 1));
+    return points.where((point) {
+      DateTime date;
+      try {
+        date = _dateInEat(point.date);
+      } catch (_) {
+        return false;
+      }
+      final dateKey = DateTime.utc(date.year, date.month, date.day);
+      return !dateKey.isBefore(start) &&
+          dateKey.isBefore(today.add(const Duration(days: 1)));
+    }).fold<int>(0, (sum, point) => sum + point.count);
+  }
+}
+
+String _accountInitials(Account? account) {
+  if (account == null) return 'SA';
+  final first = account.firstName.isNotEmpty ? account.firstName[0] : '';
+  final last = account.lastName.isNotEmpty ? account.lastName[0] : '';
+  final initials = '$first$last';
+  return initials.isEmpty ? 'SA' : initials;
 }
 
 class _MetricDef {
@@ -690,8 +1077,11 @@ class _MetricDef {
 }
 
 class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.def});
+  const _MetricCard({required this.def, this.trend, this.growth, this.trendLabel});
   final _MetricDef def;
+  final int? trend;
+  final List<AdminGrowthPoint>? growth;
+  final String? trendLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -705,36 +1095,129 @@ class _MetricCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: _kVioletLight,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(def.icon, size: 17, color: _kViolet),
-            ),
-            const SizedBox(width: 8),
+          Row(children: [
             Expanded(
               child: Text(
                 def.label,
                 style: const TextStyle(
-                    fontSize: 11, color: _kMuted, fontWeight: FontWeight.w500),
+                    fontSize: 12, color: _kMuted, fontWeight: FontWeight.w500),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            const SizedBox(width: 8),
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: _kViolet.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(def.icon, size: 17, color: const Color(0xFFB9AEFF)),
+            ),
           ]),
-          const SizedBox(height: 10),
           Text(
-            def.value != null ? '${def.value}' : '—',
-            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+            def.value?.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',') ?? '—',
+            style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w700),
           ),
+          if (trend != null) Row(children: [
+            Expanded(child: Text('+$trend $trendLabel', style: const TextStyle(fontSize: 10, color: _kMuted), overflow: TextOverflow.ellipsis)),
+            SizedBox(
+              width: 58,
+              height: 22,
+              child: CustomPaint(
+                painter: _SparklinePainter(
+                  values: (growth ?? const <AdminGrowthPoint>[])
+                      .map((point) => point.count)
+                      .toList()
+                      .skip((growth?.length ?? 0) > 7
+                          ? (growth!.length - 7)
+                          : 0)
+                      .toList(),
+                  color: _kViolet,
+                ),
+              ),
+            ),
+          ]),
         ],
       ),
+    );
+  }
+}
+
+class _SparklinePainter extends CustomPainter {
+  const _SparklinePainter({required this.values, required this.color});
+  final List<int> values;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.isEmpty) return;
+    final maxValue = values.fold<int>(1, (max, value) => value > max ? value : max);
+    final points = <Offset>[];
+    for (var i = 0; i < values.length; i++) {
+      final x = values.length < 2 ? size.width / 2 : i * size.width / (values.length - 1);
+      final y = size.height - (values[i] / maxValue) * (size.height - 3) - 1.5;
+      points.add(Offset(x, y));
+    }
+    if (points.length == 1) {
+      canvas.drawCircle(points.single, 1.5, Paint()..color = color);
+      return;
+    }
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final point in points.skip(1)) {
+      path.lineTo(point.dx, point.dy);
+    }
+    canvas.drawPath(path, Paint()
+      ..color = color
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter oldDelegate) =>
+      oldDelegate.values != values || oldDelegate.color != color;
+}
+
+class _AnalyticsMetricCard extends StatelessWidget {
+  const _AnalyticsMetricCard(
+      {required this.label,
+      required this.value,
+      required this.period,
+      this.suffix});
+  final String label;
+  final int value;
+  final int period;
+  final String? suffix;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1B1D2A) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: isDark ? _kLineDark : _kLine),
+      ),
+      child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: _kMuted)),
+            Text('$value',
+                style:
+                    const TextStyle(fontSize: 27, fontWeight: FontWeight.w700)),
+            Text(suffix ?? 'in $period days',
+                style: const TextStyle(fontSize: 11, color: _kMuted)),
+          ]),
     );
   }
 }
@@ -752,21 +1235,29 @@ class _AdminAnalytics extends StatefulWidget {
 
 class _AdminAnalyticsState extends State<_AdminAnalytics> {
   int _days = 30;
+  Timer? _refreshTimer;
 
   String _from(int d) {
-    final dt = DateTime.now().subtract(Duration(days: d));
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+    return _dateOnly(_eatNow().subtract(Duration(days: d)));
   }
 
   String get _today {
-    final dt = DateTime.now();
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+    return _dateOnly(_eatNow());
   }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && !context.read<AppState>().loadingAdminAnalytics) _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   void _load() => context
@@ -782,6 +1273,17 @@ class _AdminAnalyticsState extends State<_AdminAnalytics> {
             a.projectGrowth.isNotEmpty ||
             a.tasksByStatus.isNotEmpty ||
             a.tasksByPriority.isNotEmpty);
+
+    final newUsers =
+        a?.userGrowth.fold<int>(0, (sum, item) => sum + item.count) ?? 0;
+    final newProjects =
+        a?.projectGrowth.fold<int>(0, (sum, item) => sum + item.count) ?? 0;
+    final tasksCreated =
+        a?.tasksByPriority.fold<int>(0, (sum, item) => sum + item.count) ?? 0;
+    final highPriority = a?.tasksByPriority
+            .where((item) => item.label.toUpperCase() == 'HIGH')
+            .fold<int>(0, (sum, item) => sum + item.count) ??
+        0;
 
     return _SectionPage(
       onRefresh: () async => _load(),
@@ -803,7 +1305,9 @@ class _AdminAnalyticsState extends State<_AdminAnalytics> {
                   setState(() => _days = d);
                   _load();
                 },
-                selectedColor: _kVioletLight,
+                selectedColor: Theme.of(context).brightness == Brightness.dark
+                    ? _kViolet.withValues(alpha: 0.22)
+                    : _kVioletLight,
                 labelStyle: TextStyle(
                   color: _days == d ? _kViolet : _kMuted,
                   fontWeight: _days == d ? FontWeight.w700 : FontWeight.normal,
@@ -814,6 +1318,31 @@ class _AdminAnalyticsState extends State<_AdminAnalytics> {
               ),
           ]),
           const SizedBox(height: 16),
+
+          if (a != null && hasData) ...[
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 1.7,
+              children: [
+                _AnalyticsMetricCard(
+                    label: 'New users', value: newUsers, period: _days),
+                _AnalyticsMetricCard(
+                    label: 'New projects', value: newProjects, period: _days),
+                _AnalyticsMetricCard(
+                    label: 'Tasks created', value: tasksCreated, period: _days),
+                _AnalyticsMetricCard(
+                    label: 'High priority',
+                    value: highPriority,
+                    period: _days,
+                    suffix: 'tasks in range'),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
 
           if (state.loadingAdminAnalytics && a == null)
             const Center(
@@ -830,23 +1359,40 @@ class _AdminAnalyticsState extends State<_AdminAnalytics> {
           else ...[
             _ChartCard(
               title: 'User Growth',
-              child: _BarChart(data: a.userGrowth, color: _kViolet),
+              subtitle: 'New accounts created each day',
+              child: _AdminLineChart(
+                data: a.userGrowth,
+                color: _kViolet,
+                unit: 'new users',
+              ),
             ),
             const SizedBox(height: 12),
             _ChartCard(
               title: 'Project Growth',
-              child: _BarChart(
-                  data: a.projectGrowth, color: const Color(0xFF06B6D4)),
+              subtitle: 'New projects created each day',
+              child: _AdminLineChart(
+                data: a.projectGrowth,
+                color: const Color(0xFF399779),
+                unit: 'new projects',
+              ),
             ),
             const SizedBox(height: 12),
             _ChartCard(
               title: 'Tasks by Status',
-              child: _HorizBar(data: a.tasksByStatus, color: _kSuccess),
+              subtitle: 'Current status of tasks created in this period',
+              child: _AdminCategoryBarChart(
+                data: a.tasksByStatus,
+                colorFor: _statusColor,
+              ),
             ),
             const SizedBox(height: 12),
             _ChartCard(
               title: 'Tasks by Priority',
-              child: _HorizBar(data: a.tasksByPriority, color: _kWarning),
+              subtitle: 'Priority of tasks created in this period',
+              child: _AdminStatusDonut(
+                data: a.tasksByPriority,
+                colorFor: _priorityColor,
+              ),
             ),
           ],
         ],
@@ -856,9 +1402,10 @@ class _AdminAnalyticsState extends State<_AdminAnalytics> {
 }
 
 class _ChartCard extends StatelessWidget {
-  const _ChartCard({required this.title, required this.child});
+  const _ChartCard({required this.title, required this.child, this.subtitle});
   final String title;
   final Widget child;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -875,8 +1422,13 @@ class _ChartCard extends StatelessWidget {
         children: [
           Text(title,
               style:
-                  const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 14),
+                  const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+          if (subtitle != null) ...[
+            const SizedBox(height: 5),
+            Text(subtitle!,
+                style: const TextStyle(fontSize: 12, color: _kMuted)),
+          ],
+          const SizedBox(height: 16),
           child,
         ],
       ),
@@ -884,63 +1436,444 @@ class _ChartCard extends StatelessWidget {
   }
 }
 
-class _BarChart extends StatelessWidget {
-  const _BarChart({required this.data, required this.color});
-  final List<AdminGrowthPoint> data;
-  final Color color;
+class _AdminPeriodSelector extends StatelessWidget {
+  const _AdminPeriodSelector({required this.days, required this.onChanged});
+  final int days;
+  final ValueChanged<int> onChanged;
 
   @override
-  Widget build(BuildContext context) {
-    if (data.isEmpty) {
-      return const Text('No data for this period.',
-          style: TextStyle(color: _kMuted, fontSize: 13));
-    }
-    final maxVal = data.map((e) => e.count).reduce((a, b) => a > b ? a : b);
-    return SizedBox(
-      height: 110,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: data.map((pt) {
-          final ratio = maxVal > 0 ? pt.count / maxVal : 0.0;
+  Widget build(BuildContext context) => Row(
+        children: [7, 30, 90].map((value) {
+          final selected = value == days;
+          final isDark = Theme.of(context).brightness == Brightness.dark;
           return Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  if (pt.count > 0)
-                    Text('${pt.count}',
-                        style: const TextStyle(fontSize: 8, color: _kMuted)),
-                  const SizedBox(height: 2),
-                  Flexible(
-                    flex: (ratio * 100).round().clamp(1, 100),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: 0.85),
-                        borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(3)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _shortDate(pt.date),
-                    style: const TextStyle(fontSize: 7.5, color: _kMuted),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+              padding: EdgeInsets.only(right: value == 90 ? 0 : 6),
+              child: OutlinedButton(
+                onPressed: () => onChanged(value),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor:
+                      selected ? _kViolet.withValues(alpha: 0.2) : null,
+                  foregroundColor: selected
+                      ? (isDark ? const Color(0xFFC2B8FF) : _kViolet)
+                      : null,
+                  side: BorderSide(
+                      color:
+                          selected ? _kViolet : (isDark ? _kLineDark : _kLine)),
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                ),
+                child:
+                    Text('Last $value days',
+                        style: const TextStyle(fontSize: 12)),
               ),
             ),
           );
         }).toList(),
+      );
+}
+
+class _AdminLineChart extends StatelessWidget {
+  const _AdminLineChart(
+      {required this.data, required this.color, required this.unit});
+  final List<AdminGrowthPoint> data;
+  final Color color;
+  final String unit;
+
+  @override
+  Widget build(BuildContext context) {
+    if (data.isEmpty) {
+      return const SizedBox(
+          height: 160,
+          child: Center(
+              child: Text('No data for this period.',
+                  style: TextStyle(color: _kMuted))));
+    }
+    final points = data;
+    final max = points
+        .map((point) => point.count)
+        .fold<int>(1, (a, b) => a > b ? a : b);
+    return Column(children: [
+      SizedBox(
+        height: 170,
+        width: double.infinity,
+        child: CustomPaint(
+          painter: _AdminLinePainter(
+              values: points.map((point) => point.count).toList(),
+              max: max,
+              color: color,
+              isDark: Theme.of(context).brightness == Brightness.dark),
+          child: Tooltip(
+            message: '${points.last.count} $unit',
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+      const SizedBox(height: 8),
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(_compactDate(points.first.date),
+            style: const TextStyle(fontSize: 11, color: _kMuted)),
+        Text(_compactDate(points.last.date),
+            style: const TextStyle(fontSize: 11, color: _kMuted)),
+      ]),
+    ]);
+  }
+}
+
+class _AdminLinePainter extends CustomPainter {
+  _AdminLinePainter(
+      {required this.values,
+      required this.max,
+      required this.color,
+      required this.isDark});
+  final List<int> values;
+  final int max;
+  final Color color;
+  final bool isDark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const left = 24.0;
+    const right = 8.0;
+    const top = 8.0;
+    const bottom = 8.0;
+    final chartWidth = size.width - left - right;
+    final chartHeight = size.height - top - bottom;
+    final gridPaint = Paint()
+      ..color = (isDark ? Colors.white : Colors.black).withValues(alpha: 0.09)
+      ..strokeWidth = 1;
+    const labelStyle = TextStyle(color: _kMuted, fontSize: 10);
+    for (var step = 0; step <= 4; step++) {
+      final y = top + chartHeight * step / 4;
+      canvas.drawLine(
+          Offset(left, y), Offset(size.width - right, y), gridPaint);
+      final value = (max * (4 - step) / 4).round();
+      final painter = TextPainter(
+          text: TextSpan(text: '$value', style: labelStyle),
+          textDirection: TextDirection.ltr)
+        ..layout();
+      painter.paint(
+          canvas, Offset(left - painter.width - 5, y - painter.height / 2));
+    }
+    final points = <Offset>[];
+    for (var index = 0; index < values.length; index++) {
+      final x = left +
+          (values.length <= 1
+              ? chartWidth / 2
+              : chartWidth * index / (values.length - 1));
+      final y = top + chartHeight * (1 - values[index] / max);
+      points.add(Offset(x, y));
+    }
+    if (points.isEmpty) return;
+    final line = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final point in points.skip(1)) {
+      line.lineTo(point.dx, point.dy);
+    }
+    final area = Path.from(line)
+      ..lineTo(points.last.dx, size.height - bottom)
+      ..lineTo(points.first.dx, size.height - bottom)
+      ..close();
+    canvas.drawPath(area, Paint()..color = color.withValues(alpha: 0.12));
+    canvas.drawPath(
+        line,
+        Paint()
+          ..color = color
+          ..strokeWidth = 2.5
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round);
+    canvas.drawCircle(points.last, 4.5, Paint()..color = color);
+    canvas.drawCircle(points.last, 2,
+        Paint()..color = isDark ? const Color(0xFF1B1D2A) : Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(covariant _AdminLinePainter oldDelegate) =>
+      oldDelegate.values != values ||
+      oldDelegate.max != max ||
+      oldDelegate.color != color ||
+      oldDelegate.isDark != isDark;
+}
+
+class _AdminCategoryBarChart extends StatelessWidget {
+  const _AdminCategoryBarChart({required this.data, required this.colorFor});
+  final List<AdminStatusPoint> data;
+  final Color Function(String) colorFor;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = data.where((item) => item.count > 0).toList();
+    if (values.isEmpty) {
+      return const SizedBox(
+        height: 180,
+        child: Center(
+          child: Text('No task status data is available yet.',
+              style: TextStyle(color: _kMuted)),
+        ),
+      );
+    }
+    return SizedBox(
+      height: 190,
+      width: double.infinity,
+      child: CustomPaint(
+        painter: _AdminCategoryBarPainter(
+          values: values,
+          colorFor: colorFor,
+          isDark: Theme.of(context).brightness == Brightness.dark,
+        ),
       ),
     );
   }
+}
 
-  String _shortDate(String iso) {
-    if (iso.length < 10) return iso;
-    final p = iso.substring(0, 10).split('-');
-    return p.length < 3 ? iso : '${p[1]}/${p[2]}';
+class _AdminCategoryBarPainter extends CustomPainter {
+  _AdminCategoryBarPainter({
+    required this.values,
+    required this.colorFor,
+    required this.isDark,
+  });
+
+  final List<AdminStatusPoint> values;
+  final Color Function(String) colorFor;
+  final bool isDark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const left = 28.0;
+    const right = 8.0;
+    const top = 10.0;
+    const bottom = 32.0;
+    final chartWidth = size.width - left - right;
+    final chartHeight = size.height - top - bottom;
+    final max = values.map((item) => item.count).reduce((a, b) => a > b ? a : b);
+    final gridPaint = Paint()
+      ..color = (isDark ? Colors.white : Colors.black).withValues(alpha: 0.09)
+      ..strokeWidth = 1;
+    const tickStyle = TextStyle(color: _kMuted, fontSize: 10);
+    for (var step = 0; step <= 4; step++) {
+      final y = top + chartHeight * step / 4;
+      canvas.drawLine(Offset(left, y), Offset(size.width - right, y), gridPaint);
+      final count = (max * (4 - step) / 4).round();
+      final label = TextPainter(
+        text: TextSpan(text: '$count', style: tickStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      label.paint(canvas, Offset(left - label.width - 6, y - label.height / 2));
+    }
+
+    final slotWidth = chartWidth / values.length;
+    final barWidth = (slotWidth * 0.52).clamp(12.0, 42.0).toDouble();
+    for (var index = 0; index < values.length; index++) {
+      final item = values[index];
+      final height = chartHeight * item.count / max;
+      final x = left + slotWidth * index + (slotWidth - barWidth) / 2;
+      final y = top + chartHeight - height;
+      final rect = Rect.fromLTWH(x, y, barWidth, height);
+      canvas.drawRRect(
+        RRect.fromRectAndCorners(
+          rect,
+          topLeft: const Radius.circular(5),
+          topRight: const Radius.circular(5),
+        ),
+        Paint()..color = colorFor(item.label),
+      );
+      final text = _prettyLabel(item.label);
+      final label = TextPainter(
+        text: TextSpan(text: text, style: tickStyle),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        ellipsis: '…',
+      )..layout(maxWidth: slotWidth - 2);
+      label.paint(
+        canvas,
+        Offset(left + slotWidth * index + (slotWidth - label.width) / 2,
+            size.height - label.height - 4),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AdminCategoryBarPainter oldDelegate) =>
+      oldDelegate.values != values || oldDelegate.isDark != isDark;
+}
+
+class _AdminStatusDonut extends StatelessWidget {
+  const _AdminStatusDonut({required this.data, this.colorFor = _statusColor});
+  final List<AdminStatusPoint> data;
+  final Color Function(String) colorFor;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = data.where((item) => item.count > 0).toList();
+    final total = items.fold<int>(0, (sum, item) => sum + item.count);
+    final colors = items.map((item) => colorFor(item.label)).toList();
+    if (total == 0) {
+      return const Text('No task status data is available yet.',
+          style: TextStyle(color: _kMuted));
+    }
+    return Column(children: [
+      SizedBox(
+        height: 205,
+        child: Center(
+          child: SizedBox(
+            width: 176,
+            height: 176,
+            child: Stack(alignment: Alignment.center, children: [
+              CustomPaint(
+                  size: const Size.square(176),
+                  painter: _DonutPainter(
+                      values: items.map((item) => item.count).toList(),
+                      colors: colors)),
+              Column(mainAxisSize: MainAxisSize.min, children: [
+                Text('$total',
+                    style: const TextStyle(
+                        fontSize: 28, fontWeight: FontWeight.w700)),
+                const Text('tasks',
+                    style: TextStyle(fontSize: 12, color: _kMuted)),
+              ]),
+            ]),
+          ),
+        ),
+      ),
+      const SizedBox(height: 8),
+      for (var index = 0; index < items.length; index++)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          child: Row(children: [
+            Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                    color: colors[index], shape: BoxShape.circle)),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Text(_prettyLabel(items[index].label),
+                    style: const TextStyle(color: _kMuted))),
+            Text('${(items[index].count * 100 / total).round()}%',
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+          ]),
+        ),
+    ]);
+  }
+}
+
+class _DonutPainter extends CustomPainter {
+  _DonutPainter({required this.values, required this.colors});
+  final List<int> values;
+  final List<Color> colors;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final total = values.fold<int>(0, (sum, value) => sum + value);
+    if (total == 0) return;
+    final rect = Offset.zero & size;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 23
+      ..strokeCap = StrokeCap.round;
+    var start = -1.5708;
+    for (var index = 0; index < values.length; index++) {
+      final sweep = values[index] / total * 6.28318;
+      paint.color = colors[index % colors.length];
+      canvas.drawArc(rect.deflate(14), start + 0.025,
+          (sweep - 0.05).clamp(0.0, 6.28318).toDouble(), false, paint);
+      start += sweep;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DonutPainter oldDelegate) =>
+      oldDelegate.values != values;
+}
+
+class _RecentProjectRow extends StatelessWidget {
+  const _RecentProjectRow(
+      {required this.project,
+      required this.isDark,
+      required this.organizationName});
+  final AdminProject project;
+  final bool isDark;
+  final String organizationName;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF17181E) : const Color(0xFFF7F7FA),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: isDark ? _kLineDark : _kLine),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                  color: _kViolet.withValues(alpha: 0.17),
+                  borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.folder_outlined,
+                  size: 19, color: Color(0xFFB9AEFF))),
+          const SizedBox(height: 10),
+          Text(project.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Text(organizationName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: _kMuted)),
+        ]),
+      );
+}
+
+String _compactDate(String value) {
+  DateTime parsed;
+  try {
+    parsed = _dateInEat(value);
+  } catch (_) {
+    return value;
+  }
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+  return '${months[parsed.month - 1]} ${parsed.day}';
+}
+
+String _prettyLabel(String value) => value
+    .toLowerCase()
+    .split(RegExp(r'[_ ]+'))
+    .where((part) => part.isNotEmpty)
+    .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+    .join(' ');
+
+Color _statusColor(String status) {
+  switch (status.trim().toUpperCase().replaceAll('_', ' ')) {
+    case 'DONE':
+    case 'COMPLETED':
+      return const Color(0xFF369875);
+    case 'IN PROGRESS':
+      return const Color(0xFF6C5CE7);
+    case 'REVIEW':
+      return const Color(0xFFD39B36);
+    case 'TO DO':
+      return const Color(0xFF9A9AA5);
+    default:
+      return const Color(0xFF5590D1);
+  }
+}
+
+Color _priorityColor(String priority) {
+  switch (priority.trim().toUpperCase()) {
+    case 'HIGH':
+      return const Color(0xFFD65B63);
+    case 'MEDIUM':
+      return const Color(0xFFD49335);
+    case 'LOW':
+      return const Color(0xFF9696A3);
+    default:
+      return _kViolet;
   }
 }
 
@@ -1004,16 +1937,22 @@ class _AdminUsers extends StatefulWidget {
 class _AdminUsersState extends State<_AdminUsers> {
   final _searchCtrl = TextEditingController();
   String _search = '';
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance
         .addPostFrameCallback((_) => context.read<AppState>().loadAdminUsers());
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      final state = context.read<AppState>();
+      if (mounted && !state.loadingAdminUsers) state.loadAdminUsers();
+    });
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -1443,29 +2382,60 @@ class _AdminOrganizations extends StatefulWidget {
 class _AdminOrganizationsState extends State<_AdminOrganizations> {
   final _searchCtrl = TextEditingController();
   String _search = '';
+  String _ownerFilter = '';
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance
         .addPostFrameCallback((_) => context.read<AppState>().loadAdminOrgs());
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      final state = context.read<AppState>();
+      if (mounted && !state.loadingAdminOrgs) state.loadAdminOrgs();
+    });
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
 
   List<AdminOrganization> _filtered(List<AdminOrganization> all) {
-    if (_search.isEmpty) return all;
     final q = _search.toLowerCase();
     return all
         .where((o) =>
+            q.isEmpty ||
             o.name.toLowerCase().contains(q) ||
             o.slug.toLowerCase().contains(q) ||
             (o.owner ?? '').toLowerCase().contains(q))
+        .where((o) => _ownerFilter.isEmpty || o.owner == _ownerFilter)
         .toList();
+  }
+
+  Future<void> _export(List<AdminOrganization> organizations) async {
+    String cell(String value) => '"${value.replaceAll('"', '""')}"';
+    final rows = [
+      ['Organization', 'Slug', 'Owner', 'Members', 'Projects', 'Created'],
+      for (final organization in organizations)
+        [
+          organization.name,
+          organization.slug,
+          organization.owner ?? '',
+          '${organization.memberCount}',
+          '${organization.projectCount}',
+          organization.createdAt,
+        ],
+    ];
+    final csv = rows.map((row) => row.map(cell).join(',')).join('\r\n');
+    final now = _eatNow();
+    await FilePicker.platform.saveFile(
+      fileName:
+          'taskflow-organizations-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.csv',
+      bytes: Uint8List.fromList(utf8.encode('\uFEFF$csv')),
+    );
   }
 
   @override
@@ -1495,6 +2465,44 @@ class _AdminOrganizationsState extends State<_AdminOrganizations> {
                 ),
                 onChanged: (v) => setState(() => _search = v),
               ),
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _ownerFilter,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Owner',
+                      isDense: true,
+                    ),
+                    items: [
+                      const DropdownMenuItem(
+                          value: '', child: Text('All owners')),
+                      for (final owner in state.adminOrgs
+                          .map((organization) => organization.owner)
+                          .whereType<String>()
+                          .toSet()
+                          .toList()
+                        ..sort())
+                        DropdownMenuItem(value: owner, child: Text(owner)),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _ownerFilter = value ?? ''),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: rows.isEmpty ? null : () => _export(rows),
+                  icon: const Icon(Icons.download_outlined, size: 16),
+                  label: const Text('CSV'),
+                ),
+              ]),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('${rows.length} of ${state.adminOrgs.length} records',
+                    style: const TextStyle(fontSize: 12, color: _kMuted)),
+              ),
             ],
           ),
         ),
@@ -1519,23 +2527,53 @@ class _AdminOrganizationsState extends State<_AdminOrganizations> {
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                         itemCount: rows.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 4),
-                        itemBuilder: (_, i) => _OrgTile(rows[i]),
+                        itemBuilder: (_, i) => _OrgTile(
+                          rows[i],
+                          onTap: () => _showOrganization(context, rows[i]),
+                        ),
                       ),
                     ),
         ),
       ],
     );
   }
+
+  void _showOrganization(BuildContext context, AdminOrganization org) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(org.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(org.slug, style: const TextStyle(color: _kMuted)),
+            const Divider(height: 24),
+            _DetailRow('Owner', org.owner ?? 'No owner'),
+            _DetailRow('Members', '${org.memberCount}'),
+            _DetailRow('Projects', '${org.projectCount}'),
+            _DetailRow('Created', _fmtDate(org.createdAt)),
+            _DetailRow('Organization ID', org.id),
+          ]),
+        ),
+      ),
+    );
+  }
 }
 
 class _OrgTile extends StatelessWidget {
-  const _OrgTile(this.org);
+  const _OrgTile(this.org, {required this.onTap});
   final AdminOrganization org;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1B1D2A) : Colors.white,
@@ -1583,8 +2621,27 @@ class _OrgTile extends StatelessWidget {
           ],
         ),
       ]),
+      ),
     );
   }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow(this.label, this.value);
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(
+            width: 110,
+            child: Text(label, style: const TextStyle(color: _kMuted)),
+          ),
+          Expanded(child: SelectableText(value)),
+        ]),
+      );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1602,16 +2659,23 @@ class _AdminProjectsState extends State<_AdminProjects> {
   final _searchCtrl = TextEditingController();
   String _search = '';
   String _statusFilter = '';
+  String _sortBy = 'dueDate';
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback(
         (_) => context.read<AppState>().loadAdminProjects());
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      final state = context.read<AppState>();
+      if (mounted && !state.loadingAdminProjects) state.loadAdminProjects();
+    });
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -1628,7 +2692,16 @@ class _AdminProjectsState extends State<_AdminProjects> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final rows = _filtered(state.adminProjects);
+    final rows = _filtered(state.adminProjects)
+      ..sort((a, b) {
+        String value(AdminProject project) => switch (_sortBy) {
+              'name' => project.name,
+              'status' => project.displayStatus,
+              'tasks' => project.taskCount.toString().padLeft(10, '0'),
+              _ => project.dueDate ?? '',
+            };
+        return value(b).toLowerCase().compareTo(value(a).toLowerCase());
+      });
 
     return Column(
       children: [
@@ -1671,7 +2744,10 @@ class _AdminProjectsState extends State<_AdminProjects> {
                             style: const TextStyle(fontSize: 11)),
                         selected: _statusFilter == s,
                         onSelected: (_) => setState(() => _statusFilter = s),
-                        selectedColor: _kVioletLight,
+                        selectedColor:
+                            Theme.of(context).brightness == Brightness.dark
+                                ? _kViolet.withValues(alpha: 0.22)
+                                : _kVioletLight,
                         labelStyle: TextStyle(
                             color: _statusFilter == s ? _kViolet : _kMuted),
                         side: BorderSide(
@@ -1682,6 +2758,27 @@ class _AdminProjectsState extends State<_AdminProjects> {
                       ),
                     ),
                 ]),
+              ),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  width: 190,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _sortBy,
+                    decoration: const InputDecoration(
+                      labelText: 'Sort projects',
+                      isDense: true,
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'dueDate', child: Text('Due date')),
+                      DropdownMenuItem(value: 'name', child: Text('Project name')),
+                      DropdownMenuItem(value: 'status', child: Text('Status')),
+                      DropdownMenuItem(value: 'tasks', child: Text('Task count')),
+                    ],
+                    onChanged: (value) => setState(() => _sortBy = value ?? 'dueDate'),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1708,18 +2805,44 @@ class _AdminProjectsState extends State<_AdminProjects> {
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                         itemCount: rows.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 4),
-                        itemBuilder: (_, i) => _ProjectTile(rows[i]),
+                        itemBuilder: (_, i) => _ProjectTile(
+                          rows[i],
+                          onTap: () => _showProject(context, rows[i]),
+                        ),
                       ),
                     ),
         ),
       ],
     );
   }
+
+  void _showProject(BuildContext context, AdminProject project) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(project.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            const Divider(height: 24),
+            _DetailRow('Organization', project.organizationName ?? 'Unknown organization'),
+            _DetailRow('Status', project.displayStatus),
+            _DetailRow('Tasks', '${project.taskCount}'),
+            _DetailRow('Due date', project.dueDate == null ? 'No due date' : _fmtDate(project.dueDate!)),
+            _DetailRow('Created', _fmtDate(project.createdAt)),
+            _DetailRow('Project ID', project.id),
+          ]),
+        ),
+      ),
+    );
+  }
 }
 
 class _ProjectTile extends StatelessWidget {
-  const _ProjectTile(this.project);
+  const _ProjectTile(this.project, {required this.onTap});
   final AdminProject project;
+  final VoidCallback onTap;
 
   Color _statusColor(String s) {
     switch (s) {
@@ -1741,7 +2864,10 @@ class _ProjectTile extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = _statusColor(project.displayStatus);
 
-    return Container(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1B1D2A) : Colors.white,
@@ -1797,6 +2923,7 @@ class _ProjectTile extends StatelessWidget {
           ),
         ),
       ]),
+      ),
     );
   }
 }
@@ -1805,28 +2932,548 @@ class _ProjectTile extends StatelessWidget {
 // SECTION 6 — Activity
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _AdminActivity extends StatelessWidget {
+class _AdminActivity extends StatefulWidget {
   const _AdminActivity();
 
   @override
+  State<_AdminActivity> createState() => _AdminActivityState();
+}
+
+class _AdminActivityState extends State<_AdminActivity> {
+  late Future<PlatformActivityPage> _page;
+  final _search = TextEditingController();
+  final List<String?> _cursorStack = [null];
+  String _category = '';
+  String _organizationId = '';
+  String _range = '7d';
+  DateTimeRange? _customRange;
+  Timer? _refreshTimer;
+  bool _requestInFlight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _page = _load();
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => context.read<AppState>().loadAdminOrgs());
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted && !_requestInFlight) _refresh();
+    });
+  }
+
+  String _date(DateTime value) => DateTime.utc(
+        value.year,
+        value.month,
+        value.day,
+      ).subtract(_eatOffset).toIso8601String();
+
+  ({String? from, String? to}) get _dateBounds {
+    final now = _eatNow();
+    if (_range == 'all') return (from: null, to: null);
+    if (_range == 'custom' && _customRange != null) {
+      final start = DateTime(_customRange!.start.year,
+          _customRange!.start.month, _customRange!.start.day);
+      final end = DateTime(_customRange!.end.year,
+          _customRange!.end.month, _customRange!.end.day);
+      final isToday = end.year == now.year &&
+          end.month == now.month &&
+          end.day == now.day;
+      if (isToday) return (from: _date(start), to: null);
+      return (from: _date(start), to: _date(end.add(const Duration(days: 1))));
+    }
+    final today = DateTime(now.year, now.month, now.day);
+    final days = _range == 'today' ? 0 : _range == '30d' ? 29 : 6;
+    return (from: _date(today.subtract(Duration(days: days))), to: null);
+  }
+
+  Future<PlatformActivityPage> _load({String? cursor}) {
+    final bounds = _dateBounds;
+    return context.read<AppState>().api.adminActivityPage(
+            category: _category,
+            organizationId: _organizationId,
+            search: _search.text.trim(),
+            from: bounds.from,
+            to: bounds.to,
+            cursor: cursor,
+            pageSize: 50);
+  }
+
+  Future<void> _refresh({bool resetPage = false}) async {
+    if (_requestInFlight || !mounted) return;
+    _requestInFlight = true;
+    if (resetPage) {
+      _cursorStack
+        ..clear()
+        ..add(null);
+    }
+    final cursor = _cursorStack.last;
+    final request = _load(cursor: cursor);
+    setState(() {
+      _page = request;
+    });
+    try {
+      await request;
+    } finally {
+      _requestInFlight = false;
+    }
+  }
+
+  Future<void> _selectCustomRange() async {
+    final now = _eatNow();
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 1, now.month, now.day),
+      lastDate: now,
+      initialDateRange: _customRange,
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _customRange = selected;
+      _range = 'custom';
+    });
+    await _refresh(resetPage: true);
+  }
+
+  Future<void> _nextPage(String cursor) async {
+    setState(() {
+      _cursorStack.add(cursor);
+      _page = _load(cursor: cursor);
+    });
+    await _page;
+  }
+
+  Future<void> _previousPage() async {
+    if (_cursorStack.length <= 1) return;
+    setState(() {
+      _cursorStack.removeLast();
+      _page = _load(cursor: _cursorStack.last);
+    });
+    await _page;
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const _SectionPage(
+    return _SectionPage(
+      onRefresh: _refresh,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _PageHeader(
+          const _PageHeader(
             title: 'Activity',
-            subtitle: 'Platform audit activity.',
+            subtitle: 'Recent platform events across TaskFlow.',
           ),
-          _InfoBanner(
-            'TaskFlow does not currently store a persistent platform '
-            'audit log. This page intentionally does not present sample '
-            'activity as real data.',
+          TextField(
+            controller: _search,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => _refresh(resetPage: true),
+            decoration: InputDecoration(
+              hintText: 'Search activity',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: IconButton(
+                tooltip: 'Apply search',
+                onPressed: () => _refresh(resetPage: true),
+                icon: const Icon(Icons.arrow_forward),
+              ),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (final category in [
+                '',
+                'Projects',
+                'Tasks',
+                'People',
+                'Collaboration',
+                'System'
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: Text(category.isEmpty ? 'All' : category),
+                    selected: _category == category,
+                    onSelected: (_) async {
+                      setState(() => _category = category);
+                      await _refresh(resetPage: true);
+                    },
+                    selectedColor: Theme.of(context).brightness ==
+                            Brightness.dark
+                        ? _kViolet.withValues(alpha: 0.22)
+                        : _kVioletLight,
+                  ),
+                ),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                initialValue: _organizationId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Organization',
+                  isDense: true,
+                ),
+                items: [
+                  const DropdownMenuItem(value: '', child: Text('All organizations')),
+                  for (final org in context.watch<AppState>().adminOrgs)
+                    DropdownMenuItem(value: org.id, child: Text(org.name, overflow: TextOverflow.ellipsis)),
+                ],
+                onChanged: (value) async {
+                  setState(() => _organizationId = value ?? '');
+                  await _refresh(resetPage: true);
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                initialValue: _range,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Date range',
+                  isDense: true,
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'today', child: Text('Today')),
+                  DropdownMenuItem(value: '7d', child: Text('Last 7 days')),
+                  DropdownMenuItem(value: '30d', child: Text('Last 30 days')),
+                  DropdownMenuItem(value: 'all', child: Text('All time')),
+                  DropdownMenuItem(value: 'custom', child: Text('Custom')),
+                ],
+                onChanged: (value) async {
+                  final selected = value ?? '7d';
+                  if (selected == 'custom') {
+                    await _selectCustomRange();
+                    return;
+                  }
+                  setState(() => _range = selected);
+                  await _refresh(resetPage: true);
+                },
+              ),
+            ),
+          ]),
+          const SizedBox(height: 14),
+          FutureBuilder<PlatformActivityPage>(
+            future: _page,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return const _ErrorBanner('Could not load platform activity.');
+              }
+              final page = snapshot.data!;
+              if (page.items.isEmpty) {
+                return const _InfoBanner(
+                    'No platform activity matches this search.');
+              }
+              return Column(
+                children: [
+                  for (final item in page.items) _ActivityCard(item: item),
+                  if (page.nextCursor != null) ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => _nextPage(page.nextCursor!),
+                      icon: const Icon(Icons.expand_more),
+                      label: const Text('Load more'),
+                    ),
+                  ],
+                  if (page.items.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      TextButton.icon(
+                        onPressed: _cursorStack.length > 1 ? _previousPage : null,
+                        icon: const Icon(Icons.chevron_left),
+                        label: const Text('Previous'),
+                      ),
+                      Text('Page ${_cursorStack.length}', style: const TextStyle(fontSize: 12, color: _kMuted)),
+                      const SizedBox(width: 6),
+                      IconButton(
+                        tooltip: 'Refresh activity',
+                        onPressed: () => _refresh(),
+                        icon: const Icon(Icons.refresh),
+                      ),
+                    ]),
+                  ],
+                ],
+              );
+            },
           ),
         ],
       ),
     );
   }
+}
+
+class _ActivityCard extends StatelessWidget {
+  const _ActivityCard({required this.item});
+  final PlatformActivityItem item;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        margin: const EdgeInsets.only(bottom: 9),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Icon(Icons.bolt_outlined, color: _kViolet, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                        item.description.isEmpty
+                            ? item.action
+                            : item.description,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    Text('${item.actorName} · ${item.organizationName}',
+                        style: const TextStyle(fontSize: 12, color: _kMuted)),
+                    const SizedBox(height: 4),
+                    Text(
+                        '${item.category} · ${item.status} · ${_fmtDateTime(item.createdAt)}',
+                        style: const TextStyle(fontSize: 11, color: _kMuted)),
+                  ]),
+            ),
+          ]),
+        ),
+      );
+}
+
+String _fmtDateTime(String value) {
+  try {
+    final date = _dateInEat(value);
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} '
+        '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  } catch (_) {
+    return value;
+  }
+}
+
+class _AdminAuditTrail extends StatefulWidget {
+  const _AdminAuditTrail();
+
+  @override
+  State<_AdminAuditTrail> createState() => _AdminAuditTrailState();
+}
+
+class _AdminAuditTrailState extends State<_AdminAuditTrail> {
+  late Future<AdminAuditPage> _page;
+  final List<String?> _cursorStack = [null];
+  String _action = '';
+  DateTimeRange? _dateRange;
+
+  @override
+  void initState() {
+    super.initState();
+    _page = _load();
+  }
+
+  Future<AdminAuditPage> _load({String? cursor}) {
+    final range = _dateRange;
+    final now = _eatNow();
+    final from = range == null
+        ? null
+        : DateTime.utc(range.start.year, range.start.month, range.start.day)
+            .subtract(_eatOffset)
+            .toIso8601String();
+    final to = range == null
+        ? null
+        : range.end.year == now.year &&
+                range.end.month == now.month &&
+                range.end.day == now.day
+            ? now.toUtc().toIso8601String()
+            : DateTime.utc(range.end.year, range.end.month, range.end.day + 1)
+                .subtract(_eatOffset)
+                .toIso8601String();
+    return context.read<AppState>().api.adminAuditPage(
+          action: _action,
+          from: from,
+          to: to,
+          cursor: cursor,
+          pageSize: 50,
+        );
+  }
+
+  Future<void> _refresh({bool resetPage = false}) async {
+    if (resetPage) {
+      _cursorStack
+        ..clear()
+        ..add(null);
+    }
+    final request = _load(cursor: _cursorStack.last);
+    setState(() => _page = request);
+    await request;
+  }
+
+  Future<void> _selectDateRange() async {
+    final now = _eatNow();
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 1, now.month, now.day),
+      lastDate: now,
+      initialDateRange: _dateRange,
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _dateRange = selected);
+    await _refresh(resetPage: true);
+  }
+
+  Future<void> _nextPage(String cursor) async {
+    setState(() {
+      _cursorStack.add(cursor);
+      _page = _load(cursor: cursor);
+    });
+    await _page;
+  }
+
+  Future<void> _previousPage() async {
+    if (_cursorStack.length <= 1) return;
+    setState(() {
+      _cursorStack.removeLast();
+      _page = _load(cursor: _cursorStack.last);
+    });
+    await _page;
+  }
+
+  @override
+  Widget build(BuildContext context) => _SectionPage(
+        onRefresh: _refresh,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _PageHeader(
+              title: 'Audit Trail',
+              subtitle: 'Recorded administrative actions and outcomes.',
+            ),
+            Row(children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _action,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Action',
+                    isDense: true,
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: '', child: Text('All actions')),
+                    DropdownMenuItem(value: 'user.create', child: Text('User created')),
+                    DropdownMenuItem(value: 'user.suspend', child: Text('User suspended')),
+                    DropdownMenuItem(value: 'user.delete.permanent', child: Text('User permanently deleted')),
+                  ],
+                  onChanged: (value) async {
+                    setState(() => _action = value ?? '');
+                    await _refresh(resetPage: true);
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: _selectDateRange,
+                icon: const Icon(Icons.date_range_outlined, size: 17),
+                label: Text(_dateRange == null
+                    ? 'Last 30 days'
+                    : '${_fmtDate(_dateRange!.start.toIso8601String())} – ${_fmtDate(_dateRange!.end.toIso8601String())}'),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            FutureBuilder<AdminAuditPage>(
+              future: _page,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return const _ErrorBanner('Could not load the audit trail.');
+                }
+                final page = snapshot.data!;
+                if (page.items.isEmpty) {
+                  return const _InfoBanner(
+                      'No administrative audit events found.');
+                }
+                return Column(children: [
+                  for (final event in page.items) _AuditEventCard(event: event),
+                  if (page.nextCursor != null)
+                    OutlinedButton.icon(
+                      onPressed: () => _nextPage(page.nextCursor!),
+                      icon: const Icon(Icons.expand_more),
+                      label: const Text('Load more'),
+                    ),
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    TextButton.icon(
+                      onPressed: _cursorStack.length > 1 ? _previousPage : null,
+                      icon: const Icon(Icons.chevron_left),
+                      label: const Text('Previous'),
+                    ),
+                    Text('Page ${_cursorStack.length}',
+                        style: const TextStyle(fontSize: 12, color: _kMuted)),
+                    IconButton(
+                      tooltip: 'Refresh audit trail',
+                      onPressed: () => _refresh(),
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  ]),
+                ]);
+              },
+            ),
+          ],
+        ),
+      );
+}
+
+class _AuditEventCard extends StatelessWidget {
+  const _AuditEventCard({required this.event});
+  final AdminAuditEvent event;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        margin: const EdgeInsets.only(bottom: 9),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(
+              event.outcome.toLowerCase() == 'succeeded'
+                  ? Icons.check_circle_outline
+                  : Icons.error_outline,
+              color: event.outcome.toLowerCase() == 'succeeded'
+                  ? _kSuccess
+                  : _kWarning,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(event.action,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(
+                      '${event.actorName} · ${event.targetName.isEmpty ? event.targetType : event.targetName}',
+                      style: const TextStyle(fontSize: 12, color: _kMuted)),
+                  if (event.reason?.isNotEmpty == true) ...[
+                    const SizedBox(height: 4),
+                    Text(event.reason!, style: const TextStyle(fontSize: 12)),
+                  ],
+                  const SizedBox(height: 4),
+                  Text('${event.outcome} · ${_fmtDateTime(event.occurredAt)}',
+                      style: const TextStyle(fontSize: 11, color: _kMuted)),
+                ])),
+          ]),
+        ),
+      );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1842,16 +3489,26 @@ class _AdminHealth extends StatefulWidget {
 
 class _AdminHealthState extends State<_AdminHealth> {
   DateTime? _lastChecked;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && !context.read<AppState>().loadingAdminHealth) _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
     await context.read<AppState>().loadAdminHealth();
-    if (mounted) setState(() => _lastChecked = DateTime.now());
+    if (mounted) setState(() => _lastChecked = _eatNow());
   }
 
   @override
@@ -1978,6 +3635,7 @@ class _AdminReportsState extends State<_AdminReports> {
   bool _downloading = false;
   String? _error;
   String? _success;
+  String _format = 'pdf';
 
   Future<void> _download() async {
     setState(() {
@@ -1986,16 +3644,23 @@ class _AdminReportsState extends State<_AdminReports> {
       _success = null;
     });
     try {
-      final bytes = await context.read<AppState>().api.adminReport();
-      final dir = await getTemporaryDirectory();
-      final now = DateTime.now();
-      final name =
-          'taskflow-report-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.csv';
-      final file = File('${dir.path}/$name');
-      await file.writeAsBytes(bytes);
+      final bytes = await context
+          .read<AppState>()
+          .api
+          .adminReport(format: _format);
+      final now = _eatNow();
+      final name = 'taskflow-platform-report-${now.year}-'
+          '${now.month.toString().padLeft(2, '0')}-'
+          '${now.day.toString().padLeft(2, '0')}.$_format';
+      final location = await FilePicker.platform.saveFile(
+        fileName: name,
+        bytes: Uint8List.fromList(bytes),
+      );
       if (mounted) {
         setState(() {
-          _success = 'Saved to ${file.path}';
+          _success = location == null
+              ? 'Report save was cancelled.'
+              : 'Report saved as $name.';
           _downloading = false;
         });
       }
@@ -2025,8 +3690,35 @@ class _AdminReportsState extends State<_AdminReports> {
         children: [
           const _PageHeader(
             title: 'Reports',
-            subtitle: 'Generate and export system-wide TaskFlow reports.',
+            subtitle:
+                'Choose a format for a current snapshot of platform data.',
           ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final format in ['pdf', 'xlsx', 'csv'])
+                ChoiceChip(
+                  label: Text(format == 'pdf'
+                      ? 'PDF report'
+                      : format == 'xlsx'
+                          ? 'Excel workbook'
+                          : 'Raw data'),
+                  selected: _format == format,
+                  onSelected: (_) => setState(() {
+                    _format = format;
+                    _success = null;
+                    _error = null;
+                  }),
+                  selectedColor: Theme.of(context).brightness == Brightness.dark
+                      ? _kViolet.withValues(alpha: 0.22)
+                      : _kVioletLight,
+                  side: BorderSide(
+                      color: _format == format ? _kViolet : _kLine),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -2037,18 +3729,26 @@ class _AdminReportsState extends State<_AdminReports> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(children: [
-                  Icon(Icons.summarize_outlined, size: 20, color: _kViolet),
-                  SizedBox(width: 8),
-                  Text('System Report',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                Row(children: [
+                  const Icon(Icons.summarize_outlined,
+                      size: 20, color: _kViolet),
+                  const SizedBox(width: 8),
+                  Text(_format == 'pdf'
+                          ? 'PDF report'
+                          : _format == 'xlsx'
+                              ? 'Excel workbook'
+                              : 'Raw data',
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w600)),
                 ]),
                 const SizedBox(height: 8),
-                const Text(
-                  'Exports all users, organizations, projects, and tasks '
-                  'in CSV format.',
-                  style: TextStyle(fontSize: 13, color: _kMuted),
+                Text(
+                  _format == 'pdf'
+                      ? 'Presentation-ready platform totals, task status, and project progress.'
+                      : _format == 'xlsx'
+                          ? 'A summary and filterable workbook with platform records.'
+                          : 'Clean rows for users, organizations, projects, and tasks.',
+                  style: const TextStyle(fontSize: 13, color: _kMuted),
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
@@ -2060,7 +3760,9 @@ class _AdminReportsState extends State<_AdminReports> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white))
                       : const Icon(Icons.download_outlined, size: 18),
-                  label: Text(_downloading ? 'Downloading…' : 'Download CSV'),
+                  label: Text(_downloading
+                      ? 'Preparing report…'
+                      : 'Download ${_format.toUpperCase()}'),
                 ),
               ],
             ),
@@ -2264,7 +3966,7 @@ void _snackError(BuildContext context, String message) {
 
 String _fmtDate(String iso) {
   try {
-    final dt = DateTime.parse(iso);
+    final dt = _dateInEat(iso);
     const m = [
       'Jan',
       'Feb',

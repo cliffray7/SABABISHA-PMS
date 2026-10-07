@@ -241,6 +241,23 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<void> loadAdminOverview() async {
+    await Future.wait([
+      loadAdminDashboard(),
+      loadAdminAnalytics(
+        from: _adminDate(
+            DateTime.now().toUtc().add(const Duration(hours: 3)).subtract(
+                  const Duration(days: 30),
+                )),
+        to: _adminDate(DateTime.now().toUtc().add(const Duration(hours: 3))),
+      ),
+      loadAdminProjects(),
+    ]);
+  }
+
+  String _adminDate(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
   Future<void> loadAdminAnalytics(
       {required String from, required String to}) async {
     loadingAdminAnalytics = true;

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import 'screens/admin_screen.dart';
 import 'screens/auth_screen.dart';
+import 'screens/launcher_screen.dart';
 import 'screens/workspace_shell.dart';
 import 'services/api_client.dart';
 import 'services/app_state.dart';
@@ -112,9 +113,13 @@ class _PmsAppState extends State<PmsApp> {
                 themeMode: _themeMode,
               );
             }
-            return AuthPage(
-              api: _api,
-              onSignedIn: _handleSignedIn,
+            return LauncherScreen(
+              onLogin: () => Navigator.of(ctx).push(MaterialPageRoute<void>(
+                builder: (_) => AuthPage(api: _api, onSignedIn: _handleSignedIn),
+              )),
+              onGetStarted: () => Navigator.of(ctx).push(MaterialPageRoute<void>(
+                builder: (_) => AuthPage(api: _api, onSignedIn: _handleSignedIn),
+              )),
             );
           },
         ),

@@ -664,8 +664,8 @@ class PlatformActivityItem {
   factory PlatformActivityItem.fromJson(Map<String, dynamic> json) =>
       PlatformActivityItem(
         eventId: json['eventId'] as String? ?? '',
-        organizationId: json['organizationId'] as String? ?? '',
-        organizationName: json['organizationName'] as String? ?? 'Organization',
+          organizationId: json['organizationId']?.toString() ?? '',
+          organizationName: json['organizationName'] as String? ?? 'Platform',
         actorUserId: json['actorUserId'] as String? ?? '',
         actorName: json['actorName'] as String? ?? 'Unknown user',
         category: json['category'] as String? ?? 'System',

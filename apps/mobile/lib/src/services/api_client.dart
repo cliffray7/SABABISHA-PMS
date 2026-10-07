@@ -535,6 +535,49 @@ class ApiClient {
     return WorkspaceActivityPage.fromJson(_json(response));
   }
 
+  Future<PlatformActivityPage> adminActivityPage({
+    String? organizationId,
+    String? category,
+    String? search,
+    String? from,
+    String? to,
+    String? cursor,
+    int pageSize = 50,
+  }) async {
+    final response = await _authorized('GET', '/admin/activity-events', params: {
+      if (organizationId != null && organizationId.isNotEmpty)
+        'organizationId': organizationId,
+      if (category != null && category.isNotEmpty) 'category': category,
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (from != null) 'from': from,
+      if (to != null) 'to': to,
+      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      'pageSize': '$pageSize',
+    });
+    return PlatformActivityPage.fromJson(_json(response));
+  }
+
+  Future<AdminAuditPage> adminAuditPage({
+    String? from,
+    String? to,
+    String? action,
+    String? targetType,
+    String? outcome,
+    String? cursor,
+    int pageSize = 50,
+  }) async {
+    final response = await _authorized('GET', '/admin/audit-events', params: {
+      if (from != null) 'from': from,
+      if (to != null) 'to': to,
+      if (action != null && action.isNotEmpty) 'action': action,
+      if (targetType != null && targetType.isNotEmpty) 'targetType': targetType,
+      if (outcome != null && outcome.isNotEmpty) 'outcome': outcome,
+      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      'pageSize': '$pageSize',
+    });
+    return AdminAuditPage.fromJson(_json(response));
+  }
+
   Future<AdminDashboardMetrics> adminDashboard() async {
     final response = await _authorized('GET', '/admin/dashboard');
     return AdminDashboardMetrics.fromJson(_json(response));
@@ -590,14 +633,18 @@ class ApiClient {
     return _jsonList(response).map(AdminProject.fromJson).toList();
   }
 
-  /// Returns the raw CSV bytes for a system report.
-  Future<List<int>> adminReport() async {
+  /// Returns a PDF, Excel, or CSV platform report.
+  Future<List<int>> adminReport({String format = 'csv'}) async {
     var session = await _sessionStore.read();
     if (session == null) {
       throw const ApiException('Your session has expired.', statusCode: 401);
     }
 
-    final uri = _uri('/admin/reports', {'format': 'csv'});
+    final normalizedFormat = format.trim().toLowerCase();
+    if (!const {'pdf', 'xlsx', 'csv'}.contains(normalizedFormat)) {
+      throw const ApiException('Choose PDF, Excel, or CSV format.');
+    }
+    final uri = _uri('/admin/reports', {'format': normalizedFormat});
     final request = http.Request('GET', uri)
       ..headers['Authorization'] = 'Bearer ${session.accessToken}';
 
