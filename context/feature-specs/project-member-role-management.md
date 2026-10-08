@@ -38,7 +38,7 @@ The separately approved product-improvement Slice 1 adds compatibility safeguard
 ### Actor permissions
 
 - Only an active organization admin/owner or an active project manager with an active organization membership may change another member's project role. Organization guests cannot act as role administrators. Team leads cannot change roles through this endpoint.
-- Users may not change their own project role through this action, except that a non-owner project manager may demote themselves when another active project manager will remain. A project owner must transfer ownership before demotion or removal.
+- Users may not change their own project role through this action, except that a non-owner project manager may demote themselves when another active project manager will remain. A project owner must transfer ownership before demotion or removal; see the [Project Owner Transfer API Contract](../../docs/project-owner-transfer-api-contract.md).
 - The action may not create a project membership; the target must already be active in the same project and organization.
 - Organization guests may only have the `VIEWER` project role. Changing a guest to a write-capable role is denied.
 - Only an organization admin/owner or an existing project manager may grant `PROJECT_MANAGER`.

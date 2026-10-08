@@ -19,6 +19,115 @@ namespace Pms.IntegrationTests;
 public sealed class SqlServerManagerRaceTests
 {
     [SqlServerFact]
+    public async Task ConcurrentOwnershipTransfers_EnforceExpectedOwnerPrecondition()
+    {
+        var configuredConnection = Environment.GetEnvironmentVariable("PMS_TEST_SQLSERVER_CONNECTION")!;
+        var scratchDatabase = $"PmsOwnerTransferRace_{Guid.NewGuid():N}";
+        var masterConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = "master" }.ConnectionString;
+        var scratchConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = scratchDatabase }.ConnectionString;
+        await CreateScratchDatabase(masterConnection, scratchDatabase);
+        try
+        {
+            var options = SqlOptions(scratchConnection);
+            var organizationId = Guid.NewGuid(); var projectId = Guid.NewGuid();
+            var adminId = Guid.NewGuid(); var ownerId = Guid.NewGuid();
+            var targetA = Guid.NewGuid(); var targetB = Guid.NewGuid();
+            await SeedOwnershipRace(options, organizationId, projectId, adminId, ownerId, [targetA, targetB]);
+
+            var results = await Task.WhenAll(
+                TransferProjectOwner(options, adminId, projectId, ownerId, targetA),
+                TransferProjectOwner(options, adminId, projectId, ownerId, targetB))
+                .WaitAsync(TimeSpan.FromSeconds(45));
+
+            Assert.Single(results.OfType<NoContentResult>());
+            Assert.Single(results.OfType<ObjectResult>().Where(result =>
+                result.StatusCode == StatusCodes.Status409Conflict
+                && ResultCode(result) == "PROJECT_OWNER_CHANGED"));
+            await using var verify = new PmsDbContext(options);
+            var project = await verify.Projects.SingleAsync(x => x.Id == projectId);
+            Assert.Contains(project.OwnerId, new[] { targetA, targetB });
+            Assert.Equal(1, await verify.AdminAuditEvents.CountAsync(x => x.Action == "project.owner_transferred"));
+            Assert.Equal(1, await verify.ActivityEvents.CountAsync(x => x.Action == "project.owner_transferred"));
+        }
+        finally { await DropScratchDatabase(masterConnection, scratchDatabase); }
+    }
+
+    [SqlServerFact]
+    public async Task ConcurrentOwnershipTransferAndActorGuestDemotion_RevalidateBothOperations()
+    {
+        var configuredConnection = Environment.GetEnvironmentVariable("PMS_TEST_SQLSERVER_CONNECTION")!;
+        var scratchDatabase = $"PmsOwnerActorRace_{Guid.NewGuid():N}";
+        var masterConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = "master" }.ConnectionString;
+        var scratchConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = scratchDatabase }.ConnectionString;
+        await CreateScratchDatabase(masterConnection, scratchDatabase);
+        try
+        {
+            var options = SqlOptions(scratchConnection);
+            var organizationId = Guid.NewGuid(); var projectId = Guid.NewGuid();
+            var adminId = Guid.NewGuid(); var ownerId = adminId; var managerActorId = Guid.NewGuid(); var recipientId = Guid.NewGuid();
+            await SeedOwnershipRace(options, organizationId, projectId, adminId, ownerId, [managerActorId, recipientId]);
+
+            var results = await Task.WhenAll(
+                TransferProjectOwner(options, managerActorId, projectId, ownerId, recipientId),
+                DemoteOrganizationMemberToGuest(options, adminId, organizationId, managerActorId))
+                .WaitAsync(TimeSpan.FromSeconds(45));
+
+            var transfer = results[0];
+            Assert.True(transfer is NoContentResult
+                || transfer is ObjectResult { StatusCode: StatusCodes.Status403Forbidden }
+                || transfer is ObjectResult { StatusCode: StatusCodes.Status409Conflict },
+                $"Unexpected ownership transfer result: {transfer.GetType().Name}");
+            Assert.True(results[1] is NoContentResult
+                || results[1] is ObjectResult { StatusCode: StatusCodes.Status409Conflict },
+                $"Unexpected organization demotion result: {results[1].GetType().Name}");
+
+            await using var verify = new PmsDbContext(options);
+            var project = await verify.Projects.SingleAsync(x => x.Id == projectId);
+            Assert.True(await IsEligibleProjectManager(verify, projectId, organizationId, project.OwnerId),
+                "The persisted owner must remain an eligible active project manager after either serial ordering.");
+            var actorOrganizationRole = (await verify.OrganizationMembers.SingleAsync(x => x.UserId == managerActorId)).Role;
+            Assert.Contains(actorOrganizationRole, new[] { "GUEST", "MEMBER" });
+            Assert.Equal(results[1] is NoContentResult, actorOrganizationRole == "GUEST");
+        }
+        finally { await DropScratchDatabase(masterConnection, scratchDatabase); }
+    }
+
+    [SqlServerFact]
+    public async Task ConcurrentOwnershipTransferAndRecipientRemoval_CannotLeaveIneligibleOwner()
+    {
+        var configuredConnection = Environment.GetEnvironmentVariable("PMS_TEST_SQLSERVER_CONNECTION")!;
+        var scratchDatabase = $"PmsOwnerRecipientRace_{Guid.NewGuid():N}";
+        var masterConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = "master" }.ConnectionString;
+        var scratchConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = scratchDatabase }.ConnectionString;
+        await CreateScratchDatabase(masterConnection, scratchDatabase);
+        try
+        {
+            var options = SqlOptions(scratchConnection);
+            var organizationId = Guid.NewGuid(); var projectId = Guid.NewGuid();
+            var adminId = Guid.NewGuid(); var recipientId = Guid.NewGuid();
+            await SeedOwnershipRace(options, organizationId, projectId, adminId, adminId, [recipientId]);
+
+            var results = await Task.WhenAll(
+                TransferProjectOwner(options, adminId, projectId, adminId, recipientId),
+                RemoveProjectMember(options, adminId, projectId, recipientId))
+                .WaitAsync(TimeSpan.FromSeconds(45));
+
+            await using var verify = new PmsDbContext(options);
+            var project = await verify.Projects.SingleAsync(x => x.Id == projectId);
+            Assert.True(await IsEligibleProjectManager(verify, projectId, organizationId, project.OwnerId),
+                "Transfer and removal must serialize without leaving an ineligible project owner.");
+            if (project.OwnerId == recipientId)
+                Assert.Equal(StatusCodes.Status409Conflict, Assert.IsType<ObjectResult>(results[1]).StatusCode);
+            else
+            {
+                Assert.IsType<NoContentResult>(results[1]);
+                Assert.Equal("inactive", (await verify.ProjectMembers.SingleAsync(x => x.ProjectId == projectId && x.UserId == recipientId)).Status);
+            }
+        }
+        finally { await DropScratchDatabase(masterConnection, scratchDatabase); }
+    }
+
+    [SqlServerFact]
     public async Task ConcurrentOrganizationDemotionAndDeactivation_CannotRemoveLastActiveManager()
     {
         var configuredConnection = Environment.GetEnvironmentVariable("PMS_TEST_SQLSERVER_CONNECTION")!;
@@ -313,6 +422,78 @@ public sealed class SqlServerManagerRaceTests
         return await controller.UpdateMemberRole(projectId, targetId,
             new UpdateProjectMemberRoleRequest("CONTRIBUTOR"), CancellationToken.None);
     }
+
+    private static async Task<IActionResult> TransferProjectOwner(DbContextOptions<PmsDbContext> options,
+        Guid actorId, Guid projectId, Guid expectedOwnerId, Guid newOwnerId)
+    {
+        await using var db = new PmsDbContext(options);
+        var controller = new ProjectsController(db, new RealtimePublisher(new TestHubContext()));
+        var http = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, actorId.ToString())], "race-test"))
+        };
+        http.TraceIdentifier = Guid.NewGuid().ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        return await controller.TransferOwner(projectId,
+            new TransferProjectOwnerRequest(expectedOwnerId, newOwnerId), CancellationToken.None);
+    }
+
+    private static async Task SeedOwnershipRace(DbContextOptions<PmsDbContext> options,
+        Guid organizationId, Guid projectId, Guid adminId, Guid ownerId, Guid[] otherManagers)
+    {
+        await using var seed = new PmsDbContext(options);
+        await seed.Database.EnsureCreatedAsync();
+        seed.Organizations.Add(new Organization { Id = organizationId, Name = "Owner race", Slug = $"owner-race-{organizationId:N}" });
+        seed.Projects.Add(new Project { Id = projectId, OrganizationId = organizationId, OwnerId = ownerId, Name = "Owner race project" });
+        var userIds = new[] { adminId, ownerId }.Concat(otherManagers).Distinct().ToArray();
+        seed.Users.AddRange(userIds.Select(id => User(id, $"Owner race {id:N}")));
+        seed.OrganizationMembers.AddRange(userIds.Select(id => new OrganizationMember
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, UserId = id,
+            Role = id == adminId ? "ADMIN" : "MEMBER"
+        }));
+        seed.ProjectMembers.AddRange(userIds.Select(id => new ProjectMember
+        {
+            Id = Guid.NewGuid(), ProjectId = projectId, UserId = id, Role = "PROJECT_MANAGER"
+        }));
+        await seed.SaveChangesAsync();
+    }
+
+    private static DbContextOptions<PmsDbContext> SqlOptions(string connectionString) =>
+        new DbContextOptionsBuilder<PmsDbContext>().UseSqlServer(connectionString,
+            sql => sql.EnableRetryOnFailure(3, TimeSpan.FromSeconds(2), null)).Options;
+
+    private static async Task CreateScratchDatabase(string masterConnection, string scratchDatabase)
+    {
+        await using var connection = new SqlConnection(masterConnection);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"CREATE DATABASE [{scratchDatabase}]";
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task DropScratchDatabase(string masterConnection, string scratchDatabase)
+    {
+        await using var connection = new SqlConnection(masterConnection);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"ALTER DATABASE [{scratchDatabase}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{scratchDatabase}]";
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static Task<bool> IsEligibleProjectManager(PmsDbContext db, Guid projectId, Guid organizationId, Guid userId) =>
+        (from projectMember in db.ProjectMembers
+         join organizationMember in db.OrganizationMembers on projectMember.UserId equals organizationMember.UserId
+         join user in db.Users on projectMember.UserId equals user.Id
+         where projectMember.ProjectId == projectId && projectMember.UserId == userId
+             && projectMember.Status == "active" && projectMember.Role == "PROJECT_MANAGER"
+             && organizationMember.OrganizationId == organizationId && organizationMember.Status == "active"
+             && organizationMember.Role != "GUEST" && user.Status == "active"
+         select projectMember).AnyAsync();
+
+    private static string? ResultCode(IActionResult result) => result is ObjectResult objectResult
+        ? objectResult.Value?.GetType().GetProperty("code")?.GetValue(objectResult.Value)?.ToString()
+        : null;
 
     private static async Task<IActionResult> RemoveProjectMember(DbContextOptions<PmsDbContext> options,
         Guid actorId, Guid projectId, Guid targetId)

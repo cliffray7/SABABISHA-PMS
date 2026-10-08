@@ -29,6 +29,121 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
     { if (!await Member(id, ct)) return Forbid(); return Ok(await db.Projects.SingleAsync(x => x.Id == id && x.DeletedAt == null, ct)); }
+
+    [HttpPatch("{id:guid}/owner")]
+    public async Task<IActionResult> TransferOwner(Guid id, TransferProjectOwnerRequest request, CancellationToken ct)
+    {
+        var strategy = db.Database.CreateExecutionStrategy();
+        try
+        {
+            return await strategy.ExecuteAsync<IActionResult>(async () =>
+            {
+                db.ChangeTracker.Clear();
+                await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+                if (request.ExpectedOwnerId == Guid.Empty || request.NewOwnerId == Guid.Empty)
+                    return TransferError(StatusCodes.Status400BadRequest, "PROJECT_OWNER_INVALID_REQUEST",
+                        "Provide both the expected current owner and the new owner.");
+
+                // Ownership maintenance remains available while a project is archived or within Trash retention.
+                // It never changes ArchivedAt, DeletedAt, or the project's lifecycle status.
+                var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id, ct);
+                if (project is null || project.DeletedAt is not null
+                    && project.DeletedAt < DateTime.UtcNow.AddDays(-30))
+                    return NotFound();
+
+                var actorId = CurrentUser.Id(User);
+                var actor = await (from organizationMember in db.OrganizationMembers
+                                   join user in db.Users on organizationMember.UserId equals user.Id
+                                   where organizationMember.OrganizationId == project.OrganizationId
+                                       && organizationMember.UserId == actorId
+                                       && organizationMember.Status == "active"
+                                       && organizationMember.Role != "GUEST"
+                                       && user.Status == "active"
+                                   select new { organizationMember.Role }).SingleOrDefaultAsync(ct);
+                if (actor is null)
+                    return TransferError(StatusCodes.Status403Forbidden, "PROJECT_OWNER_TRANSFER_FORBIDDEN",
+                        "An active non-guest organization member account is required to transfer ownership.");
+
+                var isCurrentOwner = project.OwnerId == actorId;
+                var isOrganizationAdmin = actor.Role is "OWNER" or "ADMIN";
+                var isProjectManager = await db.ProjectMembers.AnyAsync(x => x.ProjectId == id
+                    && x.UserId == actorId && x.Status == "active" && x.Role == "PROJECT_MANAGER", ct);
+                if (!isCurrentOwner && !isOrganizationAdmin && !isProjectManager)
+                    return TransferError(StatusCodes.Status403Forbidden, "PROJECT_OWNER_TRANSFER_FORBIDDEN",
+                        "Only the current owner, an organization owner/admin, or a project manager can transfer ownership.");
+
+                if (project.OwnerId != request.ExpectedOwnerId)
+                    return TransferError(StatusCodes.Status409Conflict, "PROJECT_OWNER_CHANGED",
+                        "The project owner changed. Refresh project data before retrying.");
+
+                var recipient = await (from projectMember in db.ProjectMembers
+                                       join organizationMember in db.OrganizationMembers
+                                           on projectMember.UserId equals organizationMember.UserId
+                                       join user in db.Users on projectMember.UserId equals user.Id
+                                       where projectMember.ProjectId == id
+                                           && projectMember.UserId == request.NewOwnerId
+                                           && projectMember.Status == "active"
+                                           && projectMember.Role == "PROJECT_MANAGER"
+                                           && organizationMember.OrganizationId == project.OrganizationId
+                                           && organizationMember.Status == "active"
+                                           && organizationMember.Role != "GUEST"
+                                           && user.Status == "active"
+                                       select new { user.FirstName, user.LastName }).SingleOrDefaultAsync(ct);
+                if (recipient is null)
+                    return TransferError(StatusCodes.Status409Conflict, "PROJECT_OWNER_RECIPIENT_NOT_ELIGIBLE",
+                        "The new owner must be an active project manager in this organization with an active account.");
+
+                if (request.NewOwnerId == project.OwnerId)
+                {
+                    await tx.CommitAsync(ct);
+                    return NoContent();
+                }
+
+                var previousOwnerId = project.OwnerId;
+                var previousOwnerName = await db.Users.AsNoTracking()
+                    .Where(x => x.Id == previousOwnerId)
+                    .Select(x => x.FirstName + " " + x.LastName)
+                    .SingleOrDefaultAsync(ct) ?? "Unknown project owner";
+                var newOwnerName = $"{recipient.FirstName} {recipient.LastName}";
+                var now = DateTime.UtcNow;
+                project.OwnerId = request.NewOwnerId;
+                project.UpdatedAt = now;
+
+                var correlationId = Request.Headers["X-Correlation-ID"].FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(correlationId) || correlationId.Length > 128)
+                    correlationId = HttpContext.TraceIdentifier;
+                db.AdminAuditEvents.Add(new AdminAuditEvent
+                {
+                    Id = Guid.NewGuid(),
+                    ActorId = actorId,
+                    ActorDisplayName = await db.Users.AsNoTracking().Where(x => x.Id == actorId)
+                        .Select(x => x.FirstName + " " + x.LastName).SingleAsync(ct),
+                    Action = "project.owner_transferred",
+                    TargetType = "project",
+                    TargetId = id,
+                    TargetDisplayName = $"{project.Name}: {previousOwnerName} -> {newOwnerName}",
+                    Outcome = "succeeded",
+                    Reason = $"project_id={id}; old_owner_id={previousOwnerId}; new_owner_id={request.NewOwnerId}",
+                    CorrelationId = correlationId,
+                    OccurredAt = DateTimeOffset.UtcNow
+                });
+                await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Projects",
+                    "project.owner_transferred", "project", id, project.Name,
+                    $"transferred project \"{project.Name}\" ownership from {previousOwnerName} to {newOwnerName}", ct, id);
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+
+                await realtime.ProjectChanged(project.OrganizationId, project.Id, "projects", ct);
+                return NoContent();
+            });
+        }
+        catch (RetryLimitExceededException)
+        {
+            return TransferError(StatusCodes.Status409Conflict, "PROJECT_OWNER_TRANSFER_CONFLICT",
+                "The project changed while ownership was being transferred. Refresh project data and retry.");
+        }
+    }
+
     [HttpPatch("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, ProjectDetails request, CancellationToken ct)
     {
@@ -265,6 +380,9 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
     private ObjectResult RoleUpdateError(int statusCode, string code, string message) =>
         StatusCode(statusCode, new { code, message });
 
+    private ObjectResult TransferError(int statusCode, string code, string message) =>
+        StatusCode(statusCode, new { code, message });
+
     private ObjectResult RoleRetryConflict() => RoleUpdateError(StatusCodes.Status409Conflict,
         "project_role_update_conflict", "The project is busy. Refresh member data, then retry.");
 
@@ -302,3 +420,4 @@ public sealed record CreateProjectRequest(Guid OrganizationId, [Required, String
 public sealed record ProjectDetails([Required, StringLength(200)] string Name, string? Description, DateTime? StartDate, DateTime? DueDate, [Required] string Status);
 public sealed record AddProjectMemberRequest(Guid UserId, [Required] string Role);
 public sealed record UpdateProjectMemberRoleRequest([Required] string Role);
+public sealed record TransferProjectOwnerRequest(Guid ExpectedOwnerId, Guid NewOwnerId);
