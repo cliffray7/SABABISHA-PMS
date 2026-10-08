@@ -47,7 +47,10 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         var c = new Comment { Id = Guid.NewGuid(), TaskId = id, UserId = CurrentUser.Id(User), Content = r.Content.Trim(), ParentCommentId = r.ParentCommentId };
         db.Comments.Add(c);
         foreach (var uid in mentions) db.CommentMentions.Add(new CommentMention { Id = Guid.NewGuid(), CommentId = c.Id, UserId = uid });
-        var recipients = (await db.TaskAssignees.Where(x => x.TaskId == id).Select(x => x.UserId).ToListAsync(ct)).Concat(mentions).Append(task.CreatedBy).Distinct().Where(x => x != CurrentUser.Id(User));
+        var eligibleAssigneeIds = WorkspaceAuthorization.EligibleTaskAssigneeIds(db, task.ProjectId);
+        var recipients = (await db.TaskAssignees.Where(assignee => assignee.TaskId == id && assignee.Status == "active"
+                && eligibleAssigneeIds.Contains(assignee.UserId)).Select(assignee => assignee.UserId).ToListAsync(ct))
+            .Concat(mentions).Append(task.CreatedBy).Distinct().Where(x => x != CurrentUser.Id(User));
         foreach (var uid in recipients) db.Notifications.Add(new Notification { Id = Guid.NewGuid(), UserId = uid, Type = "COMMENT", Message = $"New comment on {task.Title}.", EntityType = "TASK", RelatedId = id });
         var project = await db.Projects.AsNoTracking().Where(x => x.Id == task.ProjectId).Select(x => new { x.OrganizationId, x.Name }).SingleAsync(ct);
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "Collaboration", mentions.Length > 0 ? "comment.mentioned" : "comment.created", "task", task.Id, task.Title,
@@ -118,11 +121,13 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
             CloudinaryPublicId = uploaded.PublicId,
             CloudinaryResourceType = uploaded.ResourceType
         };
+        var eligibleAssigneeIds = WorkspaceAuthorization.EligibleTaskAssigneeIds(db, task.ProjectId);
         var recipients = await db.ProjectMembers
             .Where(member => member.ProjectId == task.ProjectId && member.Status == "active"
                 && member.UserId != attachment.UploadedBy
-                && (member.UserId == task.CreatedBy || db.TaskAssignees.Any(assignee =>
-                    assignee.TaskId == id && assignee.UserId == member.UserId && assignee.Status == "active")))
+                && (member.UserId == task.CreatedBy || (eligibleAssigneeIds.Contains(member.UserId)
+                    && db.TaskAssignees.Any(assignee => assignee.TaskId == id
+                        && assignee.UserId == member.UserId && assignee.Status == "active"))))
             .Select(member => member.UserId).Distinct().ToListAsync(ct);
         db.Attachments.Add(attachment);
         foreach (var recipient in recipients)
@@ -199,7 +204,40 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         return NoContent();
     }
     [HttpGet("/api/v1/notifications")]
-    public async Task<IActionResult> Notifications(CancellationToken ct) => Ok(await db.Notifications.Where(x => x.UserId == CurrentUser.Id(User)).OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.Message, x.IsRead, x.CreatedAt, x.RelatedId, projectId = db.Tasks.Where(task => task.Id == x.RelatedId && task.DeletedAt == null && db.Projects.Any(project => project.Id == task.ProjectId && project.DeletedAt == null)).Select(task => (Guid?)task.ProjectId).FirstOrDefault() }).ToListAsync(ct));
+    public async Task<IActionResult> Notifications(CancellationToken ct)
+    {
+        var userId = CurrentUser.Id(User);
+        var eligibleAssignedTaskIds =
+            from assignee in db.TaskAssignees
+            join task in db.Tasks on assignee.TaskId equals task.Id
+            join projectMember in db.ProjectMembers on new { ProjectId = task.ProjectId, UserId = assignee.UserId }
+                equals new { projectMember.ProjectId, projectMember.UserId }
+            join project in db.Projects on task.ProjectId equals project.Id
+            join organizationMember in db.OrganizationMembers on new { project.OrganizationId, UserId = assignee.UserId }
+                equals new { organizationMember.OrganizationId, organizationMember.UserId }
+            join user in db.Users on assignee.UserId equals user.Id
+            where assignee.UserId == userId && assignee.Status == "active"
+                && task.DeletedAt == null
+                && projectMember.Status == "active" && organizationMember.Status == "active"
+                && organizationMember.Role != "GUEST" && user.Status == "active"
+            select assignee.TaskId;
+        var notifications = await db.Notifications.Where(notification => notification.UserId == userId
+                && (notification.Type != "TASK_ASSIGNED" || (notification.RelatedId != null
+                    && eligibleAssignedTaskIds.Contains(notification.RelatedId.Value))))
+                .OrderByDescending(notification => notification.CreatedAt)
+                .Select(notification => new
+                {
+                    notification.Id,
+                    notification.Message,
+                    notification.IsRead,
+                    notification.CreatedAt,
+                    notification.RelatedId,
+                    projectId = db.Tasks.Where(task => task.Id == notification.RelatedId && task.DeletedAt == null
+                            && db.Projects.Any(project => project.Id == task.ProjectId && project.DeletedAt == null))
+                        .Select(task => (Guid?)task.ProjectId).FirstOrDefault()
+                }).ToListAsync(ct);
+        return Ok(notifications);
+    }
     [HttpPatch("/api/v1/notifications/read-all")]
     public async Task<IActionResult> ReadAll(CancellationToken ct) { await db.Notifications.Where(x => x.UserId == CurrentUser.Id(User) && !x.IsRead).ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRead, true), ct); return NoContent(); }
     [HttpPatch("/api/v1/notifications/{id:guid}/read")]

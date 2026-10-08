@@ -13,13 +13,15 @@ Allow authorized organization admins and project managers to change an existing 
 
 This proposal does not introduce custom roles or permissions, organization role changes, project assignment changes, status changes, or generic CRUD for database tables.
 
+The separately approved product-improvement Slice 1 adds compatibility safeguards to existing organization-role changes/deactivation and task-assignee validation. Those safeguards do not add organization-role or task-assignment features and are documented in `docs/product-improvements-pre-implementation-review.md`.
+
 ## 2. Current behavior
 
 - `ProjectMember.Role` stores one of `PROJECT_MANAGER`, `TEAM_LEAD`, `CONTRIBUTOR`, or `VIEWER` in current controller validation.
 - `POST /api/v1/projects/{id}/members` allows project managers/team leads to add an organization member with a role. Organization guests may only be added as `VIEWER`.
 - `DELETE /api/v1/projects/{id}/members/{userId}` allows a project manager/team lead to deactivate another member; self-removal is rejected.
 - `GET /api/v1/projects/{id}/members` returns role values to members.
-- Neither client currently provides an edit control for an existing project member's role; roles are displayed and removal is available to managers/leads.
+- Web and Flutter project-member views provide role editing for organization admins/owners and project managers; other users retain a read-only role display.
 - Project/member changes are recorded in workspace activity and publish a project-scoped SignalR change after persistence.
 
 ## 3. Decisions
@@ -27,7 +29,7 @@ This proposal does not introduce custom roles or permissions, organization role 
 **Approved by owner on 2026-10-07.** These decisions supersede conflicting proposals elsewhere in this draft. Slice 0 is committed and its backend suite passed; the AI authorization follow-up is separately committed and its targeted test passed.
 
 1. **Granting project manager:** Granting `PROJECT_MANAGER` is limited to active organization admins/owners and existing project managers. Team leads cannot promote anyone to project manager.
-2. **At least one manager:** A project must always retain at least one active project manager. “Active” means the project membership has `Status == "active"`, the user has an active membership in the project's organization, and the user account is not suspended/deactivated. The API rejects any role change or member removal that would leave zero managers meeting this definition. This is enforced server-side; the UI only mirrors it. Role-change and removal endpoints must use the same predicate.
+2. **At least one manager:** A project must always retain at least one active project manager. “Active” means the project membership has `Status == "active"`, the user has an active non-guest membership in the project's organization, and the user account has `Status == "active"`. The API rejects any role change or member removal that would leave zero managers meeting this definition. This is enforced server-side; the UI only mirrors it. Role-change, project removal, organization role demotion, and organization-member deactivation must use compatible checks.
 3. **Historical guest memberships:** Run a read-only audit for organization guests whose project role is above viewer, including inactive project memberships. Clamp roles to `VIEWER` when a guest membership is reactivated. Use a one-time migration to clamp existing affected rows only if the owner reviews the read-only audit results and authorizes that migration; do not flag rows for manual review as the default path.
 4. **Audit destination:** Project-member role changes are recorded in the append-only admin audit trail. Workspace activity logging is optional and should be added only if the implementation is trivial and does not weaken atomicity or audit clarity.
 
@@ -36,7 +38,7 @@ This proposal does not introduce custom roles or permissions, organization role 
 ### Actor permissions
 
 - Only an active organization admin/owner or an active project manager with an active organization membership may change another member's project role. Organization guests cannot act as role administrators. Team leads cannot change roles through this endpoint.
-- Users may not change their own project role through this action, except that a project manager may demote themselves when another active project manager will remain.
+- Users may not change their own project role through this action, except that a non-owner project manager may demote themselves when another active project manager will remain. A project owner must transfer ownership before demotion or removal.
 - The action may not create a project membership; the target must already be active in the same project and organization.
 - Organization guests may only have the `VIEWER` project role. Changing a guest to a write-capable role is denied.
 - Only an organization admin/owner or an existing project manager may grant `PROJECT_MANAGER`.

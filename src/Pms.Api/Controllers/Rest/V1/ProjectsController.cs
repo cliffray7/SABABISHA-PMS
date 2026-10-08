@@ -124,17 +124,30 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
                 if (member is null) return NotFound();
                 var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == id && x.ArchivedAt == null && x.DeletedAt == null, ct);
                 if (project is null) return NotFound();
+                if (project.OwnerId == userId)
+                    return RoleUpdateError(StatusCodes.Status409Conflict, "project_owner_transfer_required",
+                        "Transfer project ownership before removing its owner.");
                 var activeManagers = await ActiveManagerCount(id, project.OrganizationId, ct);
                 var removedManagerIsActive = member.Role == "PROJECT_MANAGER"
                     && await db.OrganizationMembers.AnyAsync(x => x.OrganizationId == project.OrganizationId
-                        && x.UserId == userId && x.Status == "active", ct)
+                        && x.UserId == userId && x.Status == "active" && x.Role != "GUEST", ct)
                     && await db.Users.AnyAsync(x => x.Id == userId && x.Status == "active", ct);
                 if (activeManagers - (removedManagerIsActive ? 1 : 0) < 1)
                     return RoleUpdateError(StatusCodes.Status400BadRequest, "project_must_retain_manager",
                         "The project must retain at least one active project manager.");
+                var hasOpenAssignments = await (from assignee in db.TaskAssignees
+                                                 join task in db.Tasks on assignee.TaskId equals task.Id
+                                                 where assignee.UserId == userId && assignee.Status == "active"
+                                                     && task.ProjectId == id && task.DeletedAt == null && task.Status != "DONE"
+                                                 select assignee.Id).AnyAsync(ct);
+                if (hasOpenAssignments)
+                    return RoleUpdateError(StatusCodes.Status409Conflict, "project_member_open_tasks_require_resolution",
+                        "Reassign or clear this member's open task assignments before removing them.");
                 member.Status = "inactive";
                 var removedUser = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
                 var removedName = $"{removedUser.FirstName} {removedUser.LastName}";
+                await ActivityRecorder.InactivateTaskAssignmentsAsync(db, User, Request, project.OrganizationId, userId,
+                    removedName, "the project membership was removed", id, ct);
                 await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "People", "project.member_removed", "user", userId, removedName, $"removed {removedName} from project \"{project.Name}\"", ct, project.Id);
                 await db.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
@@ -189,6 +202,9 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
                                     select new { ProjectMember = projectMember, OrganizationRole = organizationMember.Role })
                     .SingleOrDefaultAsync(ct);
                 if (target is null) return NotFound();
+                if (project.OwnerId == userId && request.Role != "PROJECT_MANAGER")
+                    return RoleUpdateError(StatusCodes.Status409Conflict, "project_owner_transfer_required",
+                        "Transfer project ownership before changing the owner's project manager role.");
                 if (target.OrganizationRole == "GUEST" && request.Role != "VIEWER")
                     return RoleUpdateError(StatusCodes.Status400BadRequest, "guest_project_role_must_be_viewer",
                         "Organization guests can only have the viewer project role.");
@@ -203,7 +219,7 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
                         "You may only demote yourself from project manager when another active manager remains.");
                 var activeManagers = await ActiveManagerCount(id, project.OrganizationId, ct);
                 var targetUserIsActive = await db.Users.AnyAsync(x => x.Id == userId && x.Status == "active", ct);
-                var targetIsCountedManager = previousRole == "PROJECT_MANAGER" && targetUserIsActive;
+                var targetIsCountedManager = previousRole == "PROJECT_MANAGER" && target.OrganizationRole != "GUEST" && targetUserIsActive;
                 var managerCountAfterChange = activeManagers - (targetIsCountedManager ? 1 : 0)
                     + (request.Role == "PROJECT_MANAGER" && targetUserIsActive ? 1 : 0);
                 if (managerCountAfterChange < 1)
@@ -258,7 +274,7 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
          join user in db.Users on projectMember.UserId equals user.Id
          where projectMember.ProjectId == projectId && projectMember.Role == "PROJECT_MANAGER"
              && projectMember.Status == "active" && organizationMember.OrganizationId == organizationId
-             && organizationMember.Status == "active" && user.Status == "active"
+             && organizationMember.Status == "active" && organizationMember.Role != "GUEST" && user.Status == "active"
          select projectMember.UserId).Distinct().CountAsync(ct);
     private Task<bool> Member(Guid id, CancellationToken ct) => (from projectMember in db.ProjectMembers
                                                                  join project in db.Projects on projectMember.ProjectId equals project.Id

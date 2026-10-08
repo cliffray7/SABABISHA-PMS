@@ -133,6 +133,8 @@ public sealed class ProjectMemberRoleUpdateTests
         {
             Id = Guid.NewGuid(), ProjectId = f.ProjectId, UserId = otherManagerId, Role = "PROJECT_MANAGER"
         });
+        await database.Context.Projects.Where(project => project.Id == f.ProjectId)
+            .ExecuteUpdateAsync(update => update.SetProperty(project => project.OwnerId, otherManagerId));
         await database.Context.SaveChangesAsync();
 
         var result = await Controller(database.Context, f.ActorId).UpdateMemberRole(f.ProjectId, f.ActorId,
@@ -177,7 +179,7 @@ public sealed class ProjectMemberRoleUpdateTests
         await database.Context.SaveChangesAsync();
         AssertError(await Controller(database.Context, f.ActorId).UpdateMemberRole(
             f.ProjectId, f.ActorId, new UpdateProjectMemberRoleRequest("CONTRIBUTOR"), CancellationToken.None),
-            "project_must_retain_manager");
+            "project_owner_transfer_required");
         Assert.IsType<NotFoundResult>(await Controller(database.Context, f.ActorId).UpdateMemberRole(
             f.ProjectId, foreignUserId, new UpdateProjectMemberRoleRequest("CONTRIBUTOR"), CancellationToken.None));
         Assert.Empty(await database.Context.AdminAuditEvents.ToListAsync());
@@ -188,6 +190,21 @@ public sealed class ProjectMemberRoleUpdateTests
     {
         await using var database = await TestDatabase.Create();
         var f = await Seed(database.Context, "ADMIN", "CONTRIBUTOR", targetRole: "CONTRIBUTOR");
+        var ownerId = Guid.NewGuid();
+        database.Context.Users.Add(User(ownerId, "Project", $"{ownerId}@example.test"));
+        var organizationId = await database.Context.Projects.Where(project => project.Id == f.ProjectId)
+            .Select(project => project.OrganizationId).SingleAsync();
+        database.Context.OrganizationMembers.Add(new OrganizationMember
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, UserId = ownerId, Role = "MEMBER"
+        });
+        database.Context.ProjectMembers.Add(new ProjectMember
+        {
+            Id = Guid.NewGuid(), ProjectId = f.ProjectId, UserId = ownerId, Role = "PROJECT_MANAGER"
+        });
+        await database.Context.Projects.Where(project => project.Id == f.ProjectId)
+            .ExecuteUpdateAsync(update => update.SetProperty(project => project.OwnerId, ownerId));
+        await database.Context.SaveChangesAsync();
         var result = await Controller(database.Context, f.ActorId).UpdateMemberRole(f.ProjectId, f.ActorId,
             new UpdateProjectMemberRoleRequest("VIEWER"), CancellationToken.None);
         AssertError(result, "self_role_change_not_allowed");
