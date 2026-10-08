@@ -175,6 +175,8 @@ public sealed class DeletedContentPurger(
         var commentIds = comments.Select(comment => comment.Id).ToArray();
         db.Notifications.RemoveRange(await db.Notifications.Where(notification =>
             notification.RelatedId != null && taskIds.Contains(notification.RelatedId.Value)).ToListAsync(ct));
+        db.TaskAssignmentEvents.RemoveRange(await db.TaskAssignmentEvents
+            .Where(item => taskIds.Contains(item.TaskId)).ToListAsync(ct));
         db.CommentMentions.RemoveRange(await db.CommentMentions.Where(mention => commentIds.Contains(mention.CommentId)).ToListAsync(ct));
         db.TaskAssignees.RemoveRange(await db.TaskAssignees.Where(assignee => taskIds.Contains(assignee.TaskId)).ToListAsync(ct));
         db.Attachments.RemoveRange(attachments);

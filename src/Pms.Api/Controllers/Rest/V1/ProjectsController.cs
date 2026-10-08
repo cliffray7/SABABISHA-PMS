@@ -6,13 +6,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Pms.Api.Auth;
 using Pms.Api.Activity;
+using Pms.Api.MemberRemoval;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 using Pms.Api.Realtime;
 namespace Pms.Api.Controllers.Rest.V1;
 
 [ApiController, Authorize, Route("api/v1/projects")]
-public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realtime) : ControllerBase
+public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realtime, AppMail? mail = null) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> List(Guid organizationId, CancellationToken ct) => Ok(await (from p in db.Projects join m in db.ProjectMembers on p.Id equals m.ProjectId join om in db.OrganizationMembers on p.OrganizationId equals om.OrganizationId where p.OrganizationId == organizationId && p.ArchivedAt == null && p.DeletedAt == null && m.UserId == CurrentUser.Id(User) && m.Status == "active" && om.UserId == CurrentUser.Id(User) && om.Status == "active" select new { p.Id, p.OrganizationId, p.Name, p.Description, p.Status, p.StartDate, p.DueDate, m.Role }).ToListAsync(ct));
@@ -221,6 +222,156 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
         await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "People", "project.member_added", "user", request.UserId, addedName, $"added {addedName} to project \"{project.Name}\"", ct, project.Id);
         await db.SaveChangesAsync(ct); await realtime.ProjectChanged(project.OrganizationId, project.Id, "members", ct); return NoContent();
     }
+
+    [HttpGet("{id:guid}/members/{userId:guid}/removal-preview")]
+    public async Task<IActionResult> PreviewMemberRemoval(Guid id, Guid userId, CancellationToken ct)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            var organizationId = await db.Projects.AsNoTracking().Where(item => item.Id == id)
+                .Select(item => (Guid?)item.OrganizationId).SingleOrDefaultAsync(deadline.Token);
+            if (organizationId is null) return RemovalError(StatusCodes.Status404NotFound,
+                "PROJECT_NOT_FOUND", "The project is unavailable for member removal.");
+            var strategy = db.Database.CreateExecutionStrategy();
+            return await strategy.ExecuteAsync<IActionResult>(async operationToken =>
+            {
+                db.ChangeTracker.Clear();
+                await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, operationToken);
+                var now = DateTime.UtcNow;
+                var state = await MemberRemovalResolutionSupport.LoadStateAsync(db, organizationId.Value,
+                    userId, CurrentUser.Id(User), id, now, acquireLocks: false, operationToken);
+                var projectState = state.Projects.SingleOrDefault(item => item.Project.Id == id);
+                if (projectState is null || projectState.Lifecycle == "EXPIRED_TRASH_PENDING_PURGE")
+                    return RemovalError(StatusCodes.Status404NotFound, "PROJECT_NOT_FOUND",
+                        "The project is unavailable for member removal.");
+                if (projectState.TargetMembership is not { Status: "active" }
+                    || state.MemberOrganizationMembership is not { Status: "active" })
+                    return RemovalError(StatusCodes.Status404NotFound, "MEMBER_NOT_FOUND",
+                        "The member is not active in this project and organization.");
+                if (!CanRemoveProjectMember(state, projectState))
+                    return RemovalError(StatusCodes.Status403Forbidden, "MEMBER_REMOVAL_FORBIDDEN",
+                        "You do not have permission to remove this project member.");
+                if (state.AllAssignedTasks.Count > MemberRemovalResolutionSupport.MaxAffectedTasks)
+                    return RemovalError(StatusCodes.Status422UnprocessableEntity, "MEMBER_RESOLUTION_LIMIT_EXCEEDED",
+                        "This operation affects more than 100 task assignments. Resolve active-project assignments through existing task operations or complete Trash purge, then refresh the preview.");
+                var response = state.ToPreview(id);
+                await tx.CommitAsync(operationToken);
+                return Ok(response);
+            }, deadline.Token);
+        }
+        catch (RetryLimitExceededException)
+        {
+            return RemovalConflict();
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            return RemovalConflict();
+        }
+    }
+
+    [HttpPost("{id:guid}/members/{userId:guid}/remove")]
+    public async Task<IActionResult> ConfirmMemberRemoval(Guid id, Guid userId, [FromBody] MemberRemovalRequest? request,
+        CancellationToken ct)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.SnapshotHash) || request.Resolutions is null)
+            return RemovalError(StatusCodes.Status400BadRequest, "MEMBER_RESOLUTION_REQUIRED",
+                "Provide the preview snapshot and one resolution for every affected task.");
+
+        var operationId = Guid.NewGuid();
+        var changedOrganizationId = Guid.Empty;
+        IReadOnlyList<AssignmentEmailRecipient> emailRecipients = [];
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            var organizationId = await db.Projects.AsNoTracking().Where(item => item.Id == id)
+                .Select(item => (Guid?)item.OrganizationId).SingleOrDefaultAsync(deadline.Token);
+            if (organizationId is null) return RemovalError(StatusCodes.Status404NotFound,
+                "PROJECT_NOT_FOUND", "The project is unavailable for member removal.");
+            var strategy = db.Database.CreateExecutionStrategy();
+            var result = await strategy.ExecuteAsync<IActionResult>(async operationToken =>
+            {
+                db.ChangeTracker.Clear();
+                emailRecipients = [];
+                await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, operationToken);
+                var now = DateTime.UtcNow;
+                var state = await MemberRemovalResolutionSupport.LoadStateAsync(db, organizationId.Value,
+                    userId, CurrentUser.Id(User), id, now, acquireLocks: true, operationToken);
+                if (state.HasUnseenTargetAssignment) return RemovalConflict();
+                var projectState = state.Projects.SingleOrDefault(item => item.Project.Id == id);
+                if (projectState is null || projectState.Lifecycle == "EXPIRED_TRASH_PENDING_PURGE")
+                    return RemovalError(StatusCodes.Status404NotFound, "PROJECT_NOT_FOUND",
+                        "The project is unavailable for member removal.");
+                var project = projectState.Project;
+                if (!CanRemoveProjectMember(state, projectState))
+                    return RemovalError(StatusCodes.Status403Forbidden, "MEMBER_REMOVAL_FORBIDDEN",
+                        "You do not have permission to remove this project member.");
+                if (!MemberRemovalResolutionSupport.SnapshotMatches(request.SnapshotHash, state.ToPreview(id).SnapshotHash))
+                    return RemovalError(StatusCodes.Status409Conflict, "MEMBER_REMOVAL_PREVIEW_STALE",
+                        "Project membership or task assignment state changed. Refresh the preview and try again.");
+                if (projectState.TargetMembership is not { Status: "active" }
+                    || state.MemberOrganizationMembership is not { Status: "active" })
+                    return RemovalError(StatusCodes.Status409Conflict, "MEMBER_REMOVAL_PREVIEW_STALE",
+                        "The target member is no longer active in this project. Refresh the preview.");
+                if (state.AllAssignedTasks.Count > MemberRemovalResolutionSupport.MaxAffectedTasks
+                    || request.Resolutions.Count > MemberRemovalResolutionSupport.MaxAffectedTasks)
+                    return RemovalError(StatusCodes.Status422UnprocessableEntity, "MEMBER_RESOLUTION_LIMIT_EXCEEDED",
+                        "This operation affects more than 100 tasks. Reduce the affected task count and refresh the preview.");
+                if (projectState.Project.OwnerId == userId)
+                    return RemovalError(StatusCodes.Status409Conflict, "PROJECT_OWNER_TRANSFER_REQUIRED",
+                        "Transfer project ownership before removing its owner.");
+                var targetIsActiveManager = projectState.ActiveManagerIds.Contains(userId);
+                if (projectState.ActiveManagerIds.Count - (targetIsActiveManager ? 1 : 0) < 1)
+                    return RemovalError(StatusCodes.Status409Conflict, "PROJECT_MUST_RETAIN_MANAGER",
+                        "The project must retain at least one eligible active manager.");
+
+                var validationError = MemberRemovalResolutionSupport.ValidateResolutions(state,
+                    state.AffectedTasks, request.Resolutions, out var resolutions);
+                if (validationError is not null)
+                    return RemovalError(validationError.StatusCode, validationError.Code, validationError.Message);
+                var validResolutions = resolutions!;
+                emailRecipients = await MemberRemovalResolutionSupport.ApplyResolutionsAsync(db, state,
+                    state.AffectedTasks, validResolutions,
+                    User, Request, operationId, operationToken);
+                await MemberRemovalResolutionSupport.ApplyHistoricalAttributionInactivationAsync(db, state,
+                    User, Request, operationId, operationToken);
+                projectState.TargetMembership!.Status = "inactive";
+                var removedUser = state.Users.GetValueOrDefault(userId);
+                var removedName = removedUser is null ? "Workspace member" : $"{removedUser.FirstName} {removedUser.LastName}";
+                await ActivityRecorder.RecordAsync(db, User, Request, project.OrganizationId, "People",
+                    "project.member_removed", "user", userId, removedName,
+                    $"removed {removedName} from project \"{project.Name}\" after resolving open task assignments",
+                    operationToken, project.Id);
+                MemberRemovalResolutionSupport.AddRemovalAudit(db, state, operationId, "project.member_removed", "project member removal",
+                    project.Id, $"project_id={project.Id}; resolved_tasks={validResolutions.Count}");
+                await db.SaveChangesAsync(operationToken);
+                await tx.CommitAsync(operationToken);
+                changedOrganizationId = project.OrganizationId;
+                return NoContent();
+            }, deadline.Token);
+
+                if (result is NoContentResult)
+                {
+                if (mail is not null)
+                    foreach (var recipient in emailRecipients)
+                        _ = Task.Run(() => mail.SendTaskAssigned(recipient.Email, recipient.FirstName,
+                            recipient.TaskTitle, recipient.ProjectId, recipient.TaskId));
+                await realtime.ProjectChanged(changedOrganizationId, id, "tasks", ct);
+                await realtime.ProjectChanged(changedOrganizationId, id, "members", ct);
+            }
+            return result;
+        }
+        catch (RetryLimitExceededException)
+        {
+            return RemovalConflict();
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            return RemovalConflict();
+        }
+    }
     [HttpDelete("{id:guid}/members/{userId:guid}")]
     public async Task<IActionResult> RemoveMember(Guid id, Guid userId, CancellationToken ct)
     {
@@ -259,6 +410,16 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
                     return RoleUpdateError(StatusCodes.Status409Conflict, "project_member_open_tasks_require_resolution",
                         "Reassign or clear this member's open task assignments before removing them.");
                 member.Status = "inactive";
+                var legacyOperationId = Guid.NewGuid();
+                var legacyAssignments = await (from assignment in db.TaskAssignees
+                                               join task in db.Tasks on assignment.TaskId equals task.Id
+                                               where assignment.UserId == userId && assignment.Status == "active"
+                                                   && task.ProjectId == id
+                                               select new { Assignment = assignment, Task = task })
+                    .ToListAsync(ct);
+                MemberRemovalResolutionSupport.AddLegacyRemovalHistory(db,
+                    legacyAssignments.Select(item => (item.Assignment, item.Task, id)),
+                    project.OrganizationId, userId, CurrentUser.Id(User), DateTime.UtcNow, legacyOperationId);
                 var removedUser = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => new { x.FirstName, x.LastName }).SingleAsync(ct);
                 var removedName = $"{removedUser.FirstName} {removedUser.LastName}";
                 await ActivityRecorder.InactivateTaskAssignmentsAsync(db, User, Request, project.OrganizationId, userId,
@@ -376,6 +537,20 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
     }
 
     private static readonly string[] ProjectRoles = ["PROJECT_MANAGER", "TEAM_LEAD", "CONTRIBUTOR", "VIEWER"];
+
+    private bool CanRemoveProjectMember(MemberRemovalState state, MemberRemovalProjectState project) =>
+        state.ActorId != state.MemberId
+        && state.ActorOrganizationMembership is { Status: "active", Role: not "GUEST" }
+        && project.Lifecycle is ("ACTIVE" or "ARCHIVED" or "TRASHED_WITHIN_RETENTION")
+        && project.Memberships.Any(member => member.UserId == state.ActorId && member.Status == "active"
+            && member.Role is ("PROJECT_MANAGER" or "TEAM_LEAD"))
+        && state.MemberOrganizationMembership is { Status: "active" };
+
+    private ObjectResult RemovalError(int statusCode, string code, string message) =>
+        StatusCode(statusCode, new { code, message });
+
+    private ObjectResult RemovalConflict() => RemovalError(StatusCodes.Status409Conflict,
+        "MEMBER_REMOVAL_CONFLICT", "The project changed while removal was being processed. Refresh the preview and retry.");
 
     private ObjectResult RoleUpdateError(int statusCode, string code, string message) =>
         StatusCode(statusCode, new { code, message });

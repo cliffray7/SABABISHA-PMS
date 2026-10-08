@@ -1,4 +1,6 @@
+using System.Data;
 using System.Data.Common;
+using System.Diagnostics;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -6,9 +8,12 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
+using Xunit.Abstractions;
 using Pms.Api.Controllers.Rest.V1;
+using Pms.Api.MemberRemoval;
 using Pms.Api.Realtime;
 using Pms.Api.Auth;
 using Pms.Domain.Entities;
@@ -18,6 +23,10 @@ namespace Pms.IntegrationTests;
 
 public sealed class SqlServerManagerRaceTests
 {
+    private readonly ITestOutputHelper output;
+
+    public SqlServerManagerRaceTests(ITestOutputHelper output) => this.output = output;
+
     [SqlServerFact]
     public async Task ConcurrentOwnershipTransfers_EnforceExpectedOwnerPrecondition()
     {
@@ -409,6 +418,224 @@ public sealed class SqlServerManagerRaceTests
         }
     }
 
+    [SqlServerFact]
+    public async Task ConcurrentProjectRemovalAndTaskAssignment_PreserveEligibilityAndRejectStalePreview()
+    {
+        var configuredConnection = Environment.GetEnvironmentVariable("PMS_TEST_SQLSERVER_CONNECTION")!;
+        var scratchDatabase = $"PmsRemovalAssignmentRace_{Guid.NewGuid():N}";
+        var masterConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = "master" }.ConnectionString;
+        var scratchConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = scratchDatabase }.ConnectionString;
+        await CreateScratchDatabase(masterConnection, scratchDatabase);
+        try
+        {
+            var options = SqlOptions(scratchConnection);
+            var organizationId = Guid.NewGuid(); var projectId = Guid.NewGuid();
+            var adminId = Guid.NewGuid(); var targetId = Guid.NewGuid();
+            await SeedOwnershipRace(options, organizationId, projectId, adminId, adminId, [targetId]);
+            var preview = await PreviewProjectMemberRemoval(options, adminId, projectId, targetId);
+
+            var race = await Task.WhenAll(
+                ConfirmProjectMemberRemoval(options, adminId, projectId, targetId, preview.SnapshotHash),
+                CreateAssignedTask(options, adminId, projectId, targetId))
+                .WaitAsync(TimeSpan.FromSeconds(45));
+            var removal = race[0];
+            var taskCreate = race[1];
+            await using var verify = new PmsDbContext(options);
+            var targetMembership = await verify.ProjectMembers.SingleAsync(item => item.ProjectId == projectId && item.UserId == targetId);
+            var activeTargetAssignments = await (from assignment in verify.TaskAssignees
+                                                 join task in verify.Tasks on assignment.TaskId equals task.Id
+                                                 where assignment.UserId == targetId && assignment.Status == "active"
+                                                     && task.ProjectId == projectId
+                                                 select assignment).CountAsync();
+
+            if (removal is NoContentResult)
+            {
+                Assert.IsType<BadRequestObjectResult>(taskCreate);
+                Assert.Equal("inactive", targetMembership.Status);
+                Assert.Equal(0, activeTargetAssignments);
+            }
+            else
+            {
+                Assert.Equal("MEMBER_REMOVAL_PREVIEW_STALE", ResultCode(removal));
+                Assert.IsType<OkObjectResult>(taskCreate);
+                Assert.Equal("active", targetMembership.Status);
+                Assert.Equal(1, activeTargetAssignments);
+                Assert.Empty(await verify.TaskAssignmentEvents.ToListAsync());
+            }
+        }
+        finally { await DropScratchDatabase(masterConnection, scratchDatabase); }
+    }
+
+    [SqlServerFact]
+    public async Task CompetingProjectRemovalConfirmationsOnlyApplyOnce()
+    {
+        var configuredConnection = Environment.GetEnvironmentVariable("PMS_TEST_SQLSERVER_CONNECTION")!;
+        var scratchDatabase = $"PmsCompetingRemovalRace_{Guid.NewGuid():N}";
+        var masterConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = "master" }.ConnectionString;
+        var scratchConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = scratchDatabase }.ConnectionString;
+        await CreateScratchDatabase(masterConnection, scratchDatabase);
+        try
+        {
+            var options = SqlOptions(scratchConnection);
+            var organizationId = Guid.NewGuid(); var projectId = Guid.NewGuid();
+            var adminId = Guid.NewGuid(); var targetId = Guid.NewGuid();
+            await SeedOwnershipRace(options, organizationId, projectId, adminId, adminId, [targetId]);
+            var preview = await PreviewProjectMemberRemoval(options, adminId, projectId, targetId);
+
+            var results = await Task.WhenAll(
+                ConfirmProjectMemberRemoval(options, adminId, projectId, targetId, preview.SnapshotHash),
+                ConfirmProjectMemberRemoval(options, adminId, projectId, targetId, preview.SnapshotHash))
+                .WaitAsync(TimeSpan.FromSeconds(45));
+
+            Assert.Single(results.OfType<NoContentResult>());
+            Assert.Single(results.OfType<ObjectResult>().Where(result => result.StatusCode == StatusCodes.Status409Conflict
+                && ResultCode(result) == "MEMBER_REMOVAL_PREVIEW_STALE"));
+            await using var verify = new PmsDbContext(options);
+            Assert.Equal("inactive", (await verify.ProjectMembers.SingleAsync(item => item.ProjectId == projectId && item.UserId == targetId)).Status);
+            Assert.Single(await verify.AdminAuditEvents.ToListAsync());
+        }
+        finally { await DropScratchDatabase(masterConnection, scratchDatabase); }
+    }
+
+    [SqlServerFact]
+    public async Task OneHundredTaskConfirmation_CompletesWithinTheHardDeadline()
+    {
+        var configuredConnection = Environment.GetEnvironmentVariable("PMS_TEST_SQLSERVER_CONNECTION")!;
+        var scratchDatabase = $"PmsRemoval100Tasks_{Guid.NewGuid():N}";
+        var masterConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = "master" }.ConnectionString;
+        var scratchConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = scratchDatabase }.ConnectionString;
+        await CreateScratchDatabase(masterConnection, scratchDatabase);
+        try
+        {
+            var options = SqlOptions(scratchConnection);
+            var organizationId = Guid.NewGuid(); var projectId = Guid.NewGuid();
+            var adminId = Guid.NewGuid(); var targetId = Guid.NewGuid();
+            var taskIds = Enumerable.Range(0, 100).Select(_ => Guid.NewGuid()).ToArray();
+            await using (var seed = new PmsDbContext(options))
+            {
+                await seed.Database.EnsureCreatedAsync();
+                seed.Organizations.Add(new Organization { Id = organizationId, Name = "100 task test", Slug = $"limit-{organizationId:N}" });
+                seed.Projects.Add(new Project { Id = projectId, OrganizationId = organizationId, OwnerId = adminId, Name = "100 task project" });
+                seed.Users.AddRange(User(adminId, "Administrator"), User(targetId, "Target"));
+                seed.OrganizationMembers.AddRange(
+                    new OrganizationMember { Id = Guid.NewGuid(), OrganizationId = organizationId, UserId = adminId, Role = "ADMIN" },
+                    new OrganizationMember { Id = Guid.NewGuid(), OrganizationId = organizationId, UserId = targetId, Role = "MEMBER" });
+                seed.ProjectMembers.AddRange(
+                    new ProjectMember { Id = Guid.NewGuid(), ProjectId = projectId, UserId = adminId, Role = "PROJECT_MANAGER" },
+                    new ProjectMember { Id = Guid.NewGuid(), ProjectId = projectId, UserId = targetId, Role = "CONTRIBUTOR" });
+                seed.Tasks.AddRange(taskIds.Select((taskId, index) => new WorkTask
+                {
+                    Id = taskId, ProjectId = projectId, Title = $"Task {index}", Status = "TO DO", CreatedBy = adminId
+                }));
+                seed.TaskAssignees.AddRange(taskIds.Select(taskId => new TaskAssignee
+                {
+                    Id = Guid.NewGuid(), TaskId = taskId, UserId = targetId
+                }));
+                await seed.SaveChangesAsync();
+            }
+
+            var preview = await PreviewProjectMemberRemoval(options, adminId, projectId, targetId);
+            Assert.Equal(100, preview.AffectedTaskCount);
+            var resolutions = preview.AffectedProjects.SelectMany(project => project.Tasks)
+                .Select(task => new MemberTaskResolution(task.TaskId, "UNASSIGN", null)).ToArray();
+            var timer = Stopwatch.StartNew();
+            var result = await ConfirmProjectMemberRemoval(options, adminId, projectId, targetId,
+                preview.SnapshotHash, resolutions).WaitAsync(TimeSpan.FromSeconds(30));
+            timer.Stop();
+
+            Assert.IsType<NoContentResult>(result);
+            output.WriteLine($"Slice 3 SQL Server 100-task confirmation elapsed: {timer.Elapsed.TotalMilliseconds:F0} ms");
+            await using var verify = new PmsDbContext(options);
+            Assert.Equal(100, await verify.TaskAssignmentEvents.CountAsync());
+            Assert.Equal("inactive", (await verify.ProjectMembers.SingleAsync(item => item.ProjectId == projectId && item.UserId == targetId)).Status);
+        }
+        finally { await DropScratchDatabase(masterConnection, scratchDatabase); }
+    }
+
+    [SqlServerFact]
+    public async Task MemberRemovalEfQuery_TakesRangeLockOnAffectedAssigneeIndex()
+    {
+        var configuredConnection = Environment.GetEnvironmentVariable("PMS_TEST_SQLSERVER_CONNECTION")!;
+        var scratchDatabase = $"PmsRemovalRangeLock_{Guid.NewGuid():N}";
+        var masterConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = "master" }.ConnectionString;
+        var scratchConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = scratchDatabase }.ConnectionString;
+        await CreateScratchDatabase(masterConnection, scratchDatabase);
+        try
+        {
+            var options = SqlOptions(scratchConnection);
+            var organizationId = Guid.NewGuid(); var projectId = Guid.NewGuid();
+            var adminId = Guid.NewGuid(); var targetId = Guid.NewGuid(); var taskId = Guid.NewGuid();
+            await SeedOwnershipRace(options, organizationId, projectId, adminId, adminId, [targetId]);
+            await using var db = new PmsDbContext(options);
+            db.Tasks.Add(new WorkTask { Id = taskId, ProjectId = projectId, Title = "Range lock task", Status = "TO DO", CreatedBy = adminId });
+            db.TaskAssignees.Add(new TaskAssignee { Id = Guid.NewGuid(), TaskId = taskId, UserId = targetId });
+            await db.SaveChangesAsync();
+            var strategy = db.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+                await MemberRemovalResolutionSupport.LoadStateAsync(db, organizationId, targetId, adminId,
+                    projectScopeId: null, DateTime.UtcNow, acquireLocks: true, CancellationToken.None);
+                await using var command = db.Database.GetDbConnection().CreateCommand();
+                command.Transaction = db.Database.CurrentTransaction!.GetDbTransaction();
+                command.CommandText = """
+                    SELECT locks.request_mode
+                    FROM sys.dm_tran_locks AS locks
+                    INNER JOIN sys.partitions AS partitions
+                        ON locks.resource_associated_entity_id = partitions.hobt_id
+                    INNER JOIN sys.indexes AS indexes
+                        ON partitions.object_id = indexes.object_id AND partitions.index_id = indexes.index_id
+                    WHERE locks.request_session_id = @@SPID AND locks.resource_type = 'KEY'
+                        AND indexes.object_id = OBJECT_ID('task_assignees')
+                        AND indexes.name = 'ix_task_assignees_user_status';
+                    """;
+                var modes = new List<string>();
+                await using (var reader = await command.ExecuteReaderAsync())
+                    while (await reader.ReadAsync()) modes.Add(reader.GetString(0));
+                Assert.Contains(modes, mode => mode.StartsWith("Range", StringComparison.OrdinalIgnoreCase));
+                output.WriteLine($"EF affected-assignee index key lock modes: {string.Join(", ", modes.Distinct())}");
+                await transaction.RollbackAsync();
+            });
+        }
+        finally { await DropScratchDatabase(masterConnection, scratchDatabase); }
+    }
+
+    [SqlServerFact]
+    public async Task OrganizationDeactivationConfirmation_ResolvesTaskAndPersistsInOneSqlTransaction()
+    {
+        var configuredConnection = Environment.GetEnvironmentVariable("PMS_TEST_SQLSERVER_CONNECTION")!;
+        var scratchDatabase = $"PmsOrganizationDeactivationConfirm_{Guid.NewGuid():N}";
+        var masterConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = "master" }.ConnectionString;
+        var scratchConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = scratchDatabase }.ConnectionString;
+        await CreateScratchDatabase(masterConnection, scratchDatabase);
+        try
+        {
+            var options = SqlOptions(scratchConnection);
+            var organizationId = Guid.NewGuid(); var projectId = Guid.NewGuid();
+            var adminId = Guid.NewGuid(); var targetId = Guid.NewGuid(); var taskId = Guid.NewGuid();
+            await SeedOwnershipRace(options, organizationId, projectId, adminId, adminId, [targetId]);
+            await using (var seed = new PmsDbContext(options))
+            {
+                seed.Tasks.Add(new WorkTask { Id = taskId, ProjectId = projectId, Title = "Organization task", Status = "TO DO", CreatedBy = adminId });
+                seed.TaskAssignees.Add(new TaskAssignee { Id = Guid.NewGuid(), TaskId = taskId, UserId = targetId });
+                await seed.SaveChangesAsync();
+            }
+
+            var preview = await PreviewOrganizationMemberDeactivation(options, adminId, organizationId, targetId);
+            var result = await ConfirmOrganizationMemberDeactivation(options, adminId, organizationId, targetId,
+                new MemberRemovalRequest(preview.SnapshotHash, [new MemberTaskResolution(taskId, "UNASSIGN", null)]));
+
+            Assert.IsType<NoContentResult>(result);
+            await using var verify = new PmsDbContext(options);
+            Assert.Equal("inactive", (await verify.OrganizationMembers.SingleAsync(item => item.OrganizationId == organizationId && item.UserId == targetId)).Status);
+            Assert.Equal("inactive", (await verify.ProjectMembers.SingleAsync(item => item.ProjectId == projectId && item.UserId == targetId)).Status);
+            Assert.Equal("inactive", (await verify.TaskAssignees.SingleAsync(item => item.TaskId == taskId && item.UserId == targetId)).Status);
+            Assert.Equal("UNASSIGNED", (await verify.TaskAssignmentEvents.SingleAsync()).Action);
+            Assert.Single(await verify.AdminAuditEvents.ToListAsync());
+        }
+        finally { await DropScratchDatabase(masterConnection, scratchDatabase); }
+    }
+
     private static async Task<IActionResult> ChangeRole(DbContextOptions<PmsDbContext> options, Guid actorId, Guid projectId, Guid targetId)
     {
         await using var db = new PmsDbContext(options);
@@ -507,6 +734,56 @@ public sealed class SqlServerManagerRaceTests
         http.TraceIdentifier = Guid.NewGuid().ToString();
         controller.ControllerContext = new ControllerContext { HttpContext = http };
         return await controller.RemoveMember(projectId, targetId, CancellationToken.None);
+    }
+
+    private static async Task<MemberRemovalPreview> PreviewProjectMemberRemoval(
+        DbContextOptions<PmsDbContext> options, Guid actorId, Guid projectId, Guid targetId)
+    {
+        await using var db = new PmsDbContext(options);
+        var controller = new ProjectsController(db, new RealtimePublisher(new TestHubContext()));
+        var http = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, actorId.ToString())], "race-test"))
+        };
+        http.TraceIdentifier = Guid.NewGuid().ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        var response = Assert.IsType<OkObjectResult>(await controller.PreviewMemberRemoval(projectId, targetId, CancellationToken.None));
+        return Assert.IsType<MemberRemovalPreview>(response.Value);
+    }
+
+    private static async Task<MemberRemovalPreview> PreviewOrganizationMemberDeactivation(
+        DbContextOptions<PmsDbContext> options, Guid actorId, Guid organizationId, Guid targetId)
+    {
+        await using var db = new PmsDbContext(options);
+        var controller = OrganizationController(db, actorId);
+        var response = Assert.IsType<OkObjectResult>(await controller.PreviewMemberDeactivation(
+            organizationId, targetId, CancellationToken.None));
+        return Assert.IsType<MemberRemovalPreview>(response.Value);
+    }
+
+    private static async Task<IActionResult> ConfirmOrganizationMemberDeactivation(
+        DbContextOptions<PmsDbContext> options, Guid actorId, Guid organizationId, Guid targetId,
+        MemberRemovalRequest request)
+    {
+        await using var db = new PmsDbContext(options);
+        var controller = OrganizationController(db, actorId);
+        return await controller.ConfirmMemberDeactivation(organizationId, targetId, request, CancellationToken.None);
+    }
+
+    private static async Task<IActionResult> ConfirmProjectMemberRemoval(DbContextOptions<PmsDbContext> options,
+        Guid actorId, Guid projectId, Guid targetId, string snapshotHash,
+        IReadOnlyCollection<MemberTaskResolution>? resolutions = null)
+    {
+        await using var db = new PmsDbContext(options);
+        var controller = new ProjectsController(db, new RealtimePublisher(new TestHubContext()));
+        var http = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, actorId.ToString())], "race-test"))
+        };
+        http.TraceIdentifier = Guid.NewGuid().ToString();
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        return await controller.ConfirmMemberRemoval(projectId, targetId,
+            new MemberRemovalRequest(snapshotHash, resolutions ?? []), CancellationToken.None);
     }
 
     private static async Task<IActionResult> DeactivateOrganizationMember(DbContextOptions<PmsDbContext> options,
