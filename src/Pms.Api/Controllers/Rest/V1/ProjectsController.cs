@@ -10,10 +10,12 @@ using Pms.Api.MemberRemoval;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 using Pms.Api.Realtime;
+using Pms.Api.Progress;
 namespace Pms.Api.Controllers.Rest.V1;
 
 [ApiController, Authorize, Route("api/v1/projects")]
-public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realtime, AppMail? mail = null) : ControllerBase
+public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realtime, AppMail? mail = null,
+    ILogger<ProjectsController>? logger = null) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> List(Guid organizationId, CancellationToken ct) => Ok(await (from p in db.Projects join m in db.ProjectMembers on p.Id equals m.ProjectId join om in db.OrganizationMembers on p.OrganizationId equals om.OrganizationId where p.OrganizationId == organizationId && p.ArchivedAt == null && p.DeletedAt == null && m.UserId == CurrentUser.Id(User) && m.Status == "active" && om.UserId == CurrentUser.Id(User) && om.Status == "active" select new { p.Id, p.OrganizationId, p.Name, p.Description, p.Status, p.StartDate, p.DueDate, m.Role }).ToListAsync(ct));
@@ -30,6 +32,42 @@ public sealed class ProjectsController(PmsDbContext db, RealtimePublisher realti
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
     { if (!await Member(id, ct)) return Forbid(); return Ok(await db.Projects.SingleAsync(x => x.Id == id && x.DeletedAt == null, ct)); }
+
+    [HttpGet("{id:guid}/progress")]
+    public async Task<IActionResult> GetProgress(Guid id, CancellationToken ct)
+    {
+        if (!await WorkspaceAuthorization.CanAccessProjectAsync(db, id, CurrentUser.Id(User), write: false, ct))
+            return Forbid();
+
+        var project = await (from candidate in db.Projects.AsNoTracking()
+                             join organization in db.Organizations.AsNoTracking()
+                                 on candidate.OrganizationId equals organization.Id
+                             where candidate.Id == id && candidate.ArchivedAt == null && candidate.DeletedAt == null
+                             select new { candidate.Id, candidate.Status, candidate.OrganizationId, organization.Timezone })
+            .SingleOrDefaultAsync(ct);
+        if (project is null) return Forbid();
+
+        var tasks = await db.Tasks.AsNoTracking()
+            .Where(task => task.ProjectId == id && task.ParentTaskId == null && task.DeletedAt == null)
+            .Select(task => new ProjectProgressTask(task.Status, task.DueDate, null, null))
+            .ToListAsync(ct);
+        var calculatedAtUtc = DateTime.UtcNow;
+        var result = ProjectProgressCalculator.Calculate(tasks, project.Timezone, calculatedAtUtc,
+            project.OrganizationId, logger);
+
+        return Ok(new
+        {
+            projectId = project.Id,
+            projectStatus = project.Status,
+            result.HasTasks,
+            result.TotalEligibleTasks,
+            result.CompletedTasks,
+            result.ProgressPercent,
+            result.OutstandingTaskCount,
+            result.OverdueTaskCount,
+            result.TimezoneIdUsed
+        });
+    }
 
     [HttpPatch("{id:guid}/owner")]
     public async Task<IActionResult> TransferOwner(Guid id, TransferProjectOwnerRequest request, CancellationToken ct)

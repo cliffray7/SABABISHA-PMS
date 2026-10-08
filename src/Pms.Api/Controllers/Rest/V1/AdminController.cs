@@ -615,14 +615,16 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
         var projects = await db.Projects
             .AsNoTracking()
             .Where(project => project.DeletedAt == null)
-            .Select(p => new PlatformProjectReport(p.Id, p.OrganizationId, p.Name, p.Status, p.CreatedAt))
+            .Select(p => new PlatformProjectReport(p.Id, p.OrganizationId, p.Name, p.Status, p.CreatedAt,
+                p.ArchivedAt != null))
             .ToListAsync(cancellationToken);
 
         var tasks = await db.Tasks
             .AsNoTracking()
             .Where(task => task.DeletedAt == null
                 && db.Projects.Any(project => project.Id == task.ProjectId && project.DeletedAt == null))
-            .Select(t => new PlatformTaskReport(t.Id, t.ProjectId, t.Title, t.Status, t.Priority, t.DueDate, t.CreatedAt))
+            .Select(t => new PlatformTaskReport(t.Id, t.ProjectId, t.Title, t.Status, t.Priority, t.DueDate,
+                t.CreatedAt, t.ParentTaskId, t.DeletedAt))
             .ToListAsync(cancellationToken);
         var generatedAt = DateTime.UtcNow;
         var reportId = $"RPT-{generatedAt:yyyy-MM}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
