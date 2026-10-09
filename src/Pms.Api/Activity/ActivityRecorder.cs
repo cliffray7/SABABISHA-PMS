@@ -9,6 +9,36 @@ namespace Pms.Api.Activity;
 /// <summary>Queues a workspace activity record on the current DbContext so it commits with the business change.</summary>
 public static class ActivityRecorder
 {
+    public static async Task InactivateTaskAssignmentsAsync(
+        PmsDbContext db,
+        ClaimsPrincipal actor,
+        HttpRequest request,
+        Guid organizationId,
+        Guid userId,
+        string userName,
+        string reason,
+        Guid? projectId,
+        CancellationToken cancellationToken)
+    {
+        var assignments = await (from assignee in db.TaskAssignees
+                                 join task in db.Tasks on assignee.TaskId equals task.Id
+                                 join project in db.Projects on task.ProjectId equals project.Id
+                                 where assignee.UserId == userId && assignee.Status == "active"
+                                     && project.OrganizationId == organizationId
+                                     && (projectId == null || project.Id == projectId)
+                                 select new { Assignee = assignee, TaskId = task.Id, TaskTitle = task.Title, ProjectId = project.Id, ProjectName = project.Name })
+            .ToListAsync(cancellationToken);
+
+        foreach (var assignment in assignments)
+        {
+            assignment.Assignee.Status = "inactive";
+            await RecordAsync(db, actor, request, organizationId, "Tasks", "task.assignee_inactivated", "task",
+                assignment.TaskId, assignment.TaskTitle,
+                $"removed {userName}'s active assignment from task \"{assignment.TaskTitle}\" in project \"{assignment.ProjectName}\" because {reason}",
+                cancellationToken, assignment.ProjectId);
+        }
+    }
+
     public static void RecordPlatform(
         PmsDbContext db,
         HttpRequest request,

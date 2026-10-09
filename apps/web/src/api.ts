@@ -110,6 +110,49 @@ export function projectRoleErrorMessage(error: unknown): string {
   }
   return errorMessage(error);
 }
+const memberRemovalErrorMessages: Record<string, string> = {
+  MEMBER_REMOVAL_FORBIDDEN: 'You do not have permission to remove this member.',
+  MEMBER_RESOLUTION_REQUIRED: 'Resolve every affected task before confirming.',
+  MEMBER_RESOLUTION_INVALID: 'One or more task resolutions are no longer valid.',
+  MEMBER_REMOVAL_PREVIEW_STALE: 'Project or assignment data changed. Review a fresh preview before confirming.',
+  MEMBER_REMOVAL_REPLACEMENT_INELIGIBLE: 'The selected replacement is no longer eligible. Review a fresh preview.',
+  PROJECT_OWNER_TRANSFER_REQUIRED: 'Transfer project ownership before removing this member.',
+  PROJECT_MUST_RETAIN_MANAGER: 'The project must retain at least one eligible active manager.',
+  MEMBER_REMOVAL_CONFLICT: 'The workspace changed during removal. Review a fresh preview and retry.',
+  MEMBER_RESOLUTION_LIMIT_EXCEEDED: 'This operation exceeds the supported task-resolution limit and was not applied.',
+  ORGANIZATION_OWNER_CANNOT_BE_REMOVED: 'Transfer organization ownership before deactivating this member.',
+  PROJECT_NOT_FOUND: 'The project is no longer available. Refresh the member list.',
+  MEMBER_NOT_FOUND: 'The member is no longer available. Refresh the member list.'
+};
+export function memberRemovalErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data;
+    if (typeof data?.code === 'string' && memberRemovalErrorMessages[data.code]) return memberRemovalErrorMessages[data.code];
+  }
+  return errorMessage(error);
+}
+export type RemovalResolutionAction = 'REASSIGN' | 'UNASSIGN' | 'ACCEPT_LIFECYCLE_INACTIVATION';
+export type MemberTaskResolution = { taskId: string; action: RemovalResolutionAction; replacementUserId: string | null };
+export type RemovalReplacementMember = { userId: string; displayName: string };
+export type RemovalTaskPreview = { taskId: string; parentTaskId: string | null; title: string; status: string; currentAssigneeIds: string[]; requiredResolution: string };
+export type RemovalHistoricalAttribution = { taskId: string; status: string; taskInTrash: boolean; currentAssigneeIds: string[]; actionOnConfirm: string };
+export type RemovalProjectPreview = { projectId: string; lifecycle: string; ownerTransferRequired: boolean; managerInvariantBlocked: boolean; eligibleReplacementMembers: RemovalReplacementMember[]; tasks: RemovalTaskPreview[]; historicalAttributionsToInactivate: RemovalHistoricalAttribution[] };
+export type ExpiredTrashTaskPreview = { taskId: string; status: string; currentAssigneeIds: string[]; actionOnConfirm: string };
+export type ExpiredTrashProjectPreview = { projectId: string; deletedAt: string; lifecycle: string; ownerManagerChecks: string; tasks: ExpiredTrashTaskPreview[] };
+export type MemberRemovalPreview = { projectId: string | null; organizationId: string; memberId: string; snapshotHash: string; affectedTaskCount: number; affectedProjects: RemovalProjectPreview[]; expiredTrashCleanup: ExpiredTrashProjectPreview[] };
+export type MemberRemovalRequest = { snapshotHash: string; resolutions: MemberTaskResolution[] };
+export async function previewProjectMemberRemoval(projectId: string, userId: string) {
+  return (await api.get<MemberRemovalPreview>(`/projects/${projectId}/members/${userId}/removal-preview`)).data;
+}
+export async function confirmProjectMemberRemoval(projectId: string, userId: string, request: MemberRemovalRequest) {
+  await api.post(`/projects/${projectId}/members/${userId}/remove`, request);
+}
+export async function previewOrganizationMemberDeactivation(organizationId: string, userId: string) {
+  return (await api.get<MemberRemovalPreview>(`/organizations/${organizationId}/members/${userId}/deactivation-preview`)).data;
+}
+export async function confirmOrganizationMemberDeactivation(organizationId: string, userId: string, request: MemberRemovalRequest) {
+  await api.post(`/organizations/${organizationId}/members/${userId}/deactivate`, request);
+}
 function configUrl(error: AxiosError) { return error.config?.url?.split('?')[0]; }
 export type Person = { id: string; firstName: string; lastName: string; email: string; timezone: string; avatarUrl?: string | null };
 export type Organization = { id: string; name: string; slug: string; role: string };
@@ -119,6 +162,7 @@ export type Task = { id: string; projectId: string; parentTaskId?: string; title
 export type Subtask = { id: string; title: string; status: string; createdAt: string; completedAt?: string };
 export type TaskActivity = { createdAt: string; action: string; detail?: string };
 export type DashboardMetrics = { myTasks: number; overdueTasks: number; completedTasks: number; inProgressTasks: number; totalTasks: number };
+export type ProjectProgress = { projectId: string; projectStatus: string; hasTasks: boolean; totalEligibleTasks: number; completedTasks: number; progressPercent: number | null; outstandingTaskCount: number; overdueTaskCount: number; timezoneIdUsed: string };
 export type AiTaskSuggestion = { title: string; description: string; priority: string; subtasks: string[] };
 export type Notice = { id: string; message: string; isRead: boolean; createdAt: string; relatedId?: string; projectId?: string };
 export type TrashItem = { kind: 'project' | 'task' | 'subtask' | 'comment' | 'attachment'; id: string; parentId?: string | null; projectId: string; name: string; deletedAt: string };
@@ -127,6 +171,11 @@ export type Mail = { id: string; to: string; subject: string; link: string; crea
 export const statuses = ['TO DO', 'IN PROGRESS', 'REVIEW', 'DONE'];
 export const priorities = ['URGENT','HIGH','MEDIUM','LOW'];
 export const projectStatuses = ['PLANNING','ACTIVE','ON_HOLD','COMPLETED'];
+const projectStatusLabels: Record<string, string> = { PLANNING:'Planned', ACTIVE:'In Progress', ON_HOLD:'On Hold', COMPLETED:'Completed' };
+const taskStatusLabels: Record<string, string> = { 'TO DO':'To Do', 'IN PROGRESS':'In Progress', REVIEW:'In Review', DONE:'Done' };
+const readableStatusFallback = (status: string) => status.trim().replace(/_/g,' ').toLowerCase().replace(/\b\w/g, letter => letter.toUpperCase()) || 'Unknown';
+export const projectStatusLabel = (status: string) => projectStatusLabels[status] ?? readableStatusFallback(status);
+export const taskStatusLabel = (status: string) => taskStatusLabels[status] ?? readableStatusFallback(status);
 export const dateInput = (value?: string) => value?.slice(0,10) ?? '';
 export const dateLabel = (value?: string) => value ? new Date(value.slice(0,10) + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date';
 export const overdue = (task: Task) => Boolean(task.dueDate && task.status !== 'DONE' && task.dueDate.slice(0,10) < new Date().toLocaleDateString('en-CA'));

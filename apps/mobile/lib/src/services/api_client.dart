@@ -13,9 +13,10 @@ const apiBaseUrl = String.fromEnvironment(
 );
 
 class ApiException implements Exception {
-  const ApiException(this.message, {this.statusCode});
+  const ApiException(this.message, {this.statusCode, this.code});
   final String message;
   final int? statusCode;
+  final String? code;
   @override
   String toString() => message;
 }
@@ -163,6 +164,28 @@ class ApiClient {
     await _authorized('DELETE', '/organizations/$orgId/members/$userId');
   }
 
+  Future<MemberRemovalPreview> previewOrgMemberDeactivation({
+    required String orgId,
+    required String userId,
+  }) async {
+    final response = await _authorized(
+        'GET', '/organizations/$orgId/members/$userId/deactivation-preview');
+    return MemberRemovalPreview.fromJson(_json(response));
+  }
+
+  Future<void> confirmOrgMemberDeactivation({
+    required String orgId,
+    required String userId,
+    required String snapshotHash,
+    required List<MemberTaskResolution> resolutions,
+  }) async {
+    await _confirmMemberRemoval(
+      '/organizations/$orgId/members/$userId/deactivate',
+      snapshotHash: snapshotHash,
+      resolutions: resolutions,
+    );
+  }
+
   Future<List<Invitation>> orgInvitations(String orgId) async {
     final response =
         await _authorized('GET', '/organizations/$orgId/invitations');
@@ -267,6 +290,48 @@ class ApiClient {
     required String userId,
   }) async {
     await _authorized('DELETE', '/projects/$projectId/members/$userId');
+  }
+
+  Future<MemberRemovalPreview> previewProjectMemberRemoval({
+    required String projectId,
+    required String userId,
+  }) async {
+    final response = await _authorized(
+        'GET', '/projects/$projectId/members/$userId/removal-preview');
+    return MemberRemovalPreview.fromJson(_json(response));
+  }
+
+  Future<void> confirmProjectMemberRemoval({
+    required String projectId,
+    required String userId,
+    required String snapshotHash,
+    required List<MemberTaskResolution> resolutions,
+  }) async {
+    await _confirmMemberRemoval(
+      '/projects/$projectId/members/$userId/remove',
+      snapshotHash: snapshotHash,
+      resolutions: resolutions,
+    );
+  }
+
+  Future<void> _confirmMemberRemoval(
+    String path, {
+    required String snapshotHash,
+    required List<MemberTaskResolution> resolutions,
+  }) async {
+    final body = {
+      'snapshotHash': snapshotHash,
+      'resolutions': resolutions.map((item) => item.toJson()).toList(),
+    };
+    if (resolutions.length > 100 ||
+        utf8.encode(jsonEncode(body)).length > 64 * 1024) {
+      throw const ApiException(
+        'This operation exceeds the supported task-resolution limit and was not submitted.',
+        statusCode: 422,
+        code: 'MEMBER_RESOLUTION_LIMIT_EXCEEDED',
+      );
+    }
+    await _authorized('POST', path, body: body);
   }
 
   // ─── Tasks ───────────────────────────────────────────────────────────────
@@ -502,6 +567,11 @@ class ApiClient {
     final response = await _authorized('GET', '/dashboard/metrics',
         params: {'projectId': projectId});
     return DashboardMetrics.fromJson(_json(response));
+  }
+
+  Future<ProjectProgress> projectProgress(String projectId) async {
+    final response = await _authorized('GET', '/projects/$projectId/progress');
+    return ProjectProgress.fromJson(_json(response));
   }
 
   Future<List<Map<String, dynamic>>> workspaceActivityEvents({
@@ -759,13 +829,15 @@ class ApiClient {
       return response;
     }
     final payload = _tryJson(response.body);
-    final message = payload?['message'] ??
-        (payload?['error'] as Map<String, dynamic>?)?['message'];
+    final nestedError = payload?['error'] as Map<String, dynamic>?;
+    final message = payload?['message'] ?? nestedError?['message'];
+    final code = payload?['code'] ?? nestedError?['code'];
     throw ApiException(
       message is String
           ? message
           : 'The request could not be completed (${response.statusCode}).',
       statusCode: response.statusCode,
+      code: code is String ? code : null,
     );
   }
 

@@ -412,6 +412,7 @@ erDiagram
 | POST | `/api/v1/projects` | Create a project. |
 | GET | `/api/v1/projects/{id}` | Get a project. |
 | PATCH | `/api/v1/projects/{id}` | Update a project. |
+| PATCH | `/api/v1/projects/{id}/owner` | Transfer project ownership to an eligible active project manager. |
 | DELETE | `/api/v1/projects/{id}` | Archive a project. |
 | GET | `/api/v1/projects/{id}/members` | List project members. |
 | POST | `/api/v1/projects/{id}/members` | Add a project member. |

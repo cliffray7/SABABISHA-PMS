@@ -202,6 +202,7 @@ app.Use(async (context, next) =>
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<Pms.Api.MemberRemoval.MemberRemovalRequestLimitMiddleware>();
 
 app.MapControllers();
 app.MapHub<Pms.Api.Realtime.WorkspaceHub>("/hubs/workspace").RequireAuthorization();

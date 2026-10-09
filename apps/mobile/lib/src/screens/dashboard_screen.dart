@@ -66,11 +66,13 @@ class DashboardScreen extends StatelessWidget {
 
     final canSeeTeamData =
         state.selectedOrg!.isAdminOrOwner || project.isManagerOrLead;
+    final projectProgress = state.projectProgress?.projectId == project.id
+        ? state.projectProgress
+        : null;
     final mine =
         tasks.where((task) => task.assigneeIds.contains(userId)).toList();
     final scopeTasks = canSeeTeamData ? tasks : mine;
     final done = scopeTasks.where((task) => task.status == 'DONE').length;
-    final progress = scopeTasks.isEmpty ? 0.0 : done / scopeTasks.length;
     final open = scopeTasks.where((task) => task.status != 'DONE').length;
     final overdue = scopeTasks.where((task) => task.isOverdue).length;
     final priorities = mine.where((task) => task.status != 'DONE').toList()
@@ -147,21 +149,27 @@ class DashboardScreen extends StatelessWidget {
           _MetricGrid(items: [
             _MetricItem(
                 label: canSeeTeamData ? 'Total tasks' : 'My tasks',
-                value: '${scopeTasks.length}',
+                value: canSeeTeamData
+                    ? '${projectProgress?.totalEligibleTasks ?? '—'}'
+                    : '${scopeTasks.length}',
                 icon: Icons.checklist_rounded,
                 color: const Color(0xFF8275E8),
                 softColor: const Color(0xFFF0EEFF),
                 onTap: () => openFilter(canSeeTeamData ? '' : 'MINE')),
             _MetricItem(
                 label: canSeeTeamData ? 'Open' : 'My open',
-                value: '$open',
+                value: canSeeTeamData
+                    ? '${projectProgress?.outstandingTaskCount ?? '—'}'
+                    : '$open',
                 icon: Icons.radio_button_unchecked,
                 color: const Color(0xFF3D85D8),
                 softColor: const Color(0xFFECF5FF),
                 onTap: () => openFilter('OPEN')),
             _MetricItem(
                 label: canSeeTeamData ? 'Overdue' : 'My overdue',
-                value: '$overdue',
+                value: canSeeTeamData
+                    ? '${projectProgress?.overdueTaskCount ?? '—'}'
+                    : '$overdue',
                 icon: Icons.warning_amber_rounded,
                 color: const Color(0xFFD44570),
                 softColor: const Color(0xFFFFEAF1),
@@ -169,7 +177,9 @@ class DashboardScreen extends StatelessWidget {
                 onTap: () => openFilter('OVERDUE')),
             _MetricItem(
                 label: 'Completed',
-                value: '$done',
+                value: canSeeTeamData
+                    ? '${projectProgress?.completedTasks ?? '—'}'
+                    : '$done',
                 icon: Icons.schedule_rounded,
                 color: const Color(0xFFD97716),
                 softColor: const Color(0xFFFFF1E3),
@@ -223,16 +233,15 @@ class DashboardScreen extends StatelessWidget {
                   flex: 2,
                   child: _ListPanel(
                       minHeight: 230,
-                      title: canSeeTeamData ? 'Project health' : 'My workload',
-                      subtitle:
-                          canSeeTeamData ? project.name : 'Your assigned work',
-                      trailing:
-                          canSeeTeamData ? project.status.toLowerCase() : null,
+                      title: 'Project health',
+                      subtitle: project.name,
+                      trailing: projectStatusLabel(project.status),
                       child: _HealthDetails(
                           project: project,
-                          progress: progress,
-                          done: done,
-                          total: scopeTasks.length,
+                          progress: projectProgress,
+                          loading: state.loadingProjectProgress,
+                          error: state.projectProgressError,
+                          retry: state.retryProjectProgress,
                           memberCount: members.length,
                           tasks: scopeTasks,
                           showTeamData: canSeeTeamData))),
@@ -246,14 +255,15 @@ class DashboardScreen extends StatelessWidget {
                 child: _PriorityList(tasks: priorities, state: state)),
             const SizedBox(height: 12),
             _ListPanel(
-                title: canSeeTeamData ? 'Project health' : 'My workload',
-                subtitle: canSeeTeamData ? project.name : 'Your assigned work',
-                trailing: canSeeTeamData ? project.status.toLowerCase() : null,
+                title: 'Project health',
+                subtitle: project.name,
+                trailing: projectStatusLabel(project.status),
                 child: _HealthDetails(
                     project: project,
-                    progress: progress,
-                    done: done,
-                    total: scopeTasks.length,
+                    progress: projectProgress,
+                    loading: state.loadingProjectProgress,
+                    error: state.projectProgressError,
+                    retry: state.retryProjectProgress,
                     memberCount: members.length,
                     tasks: scopeTasks,
                     showTeamData: canSeeTeamData)),
@@ -863,8 +873,7 @@ class _TaskDistribution extends StatelessWidget {
       Expanded(
           child: Column(
               children: List.generate(taskStatuses.length, (index) {
-        final label =
-            const ['To do', 'In progress', 'Review', 'Completed'][index];
+        final label = taskStatusLabel(taskStatuses[index]);
         return Padding(
             padding: const EdgeInsets.symmetric(vertical: 5),
             child: Row(children: [
@@ -985,7 +994,7 @@ class _PriorityList extends StatelessWidget {
                                       fontWeight: FontWeight.w600)),
                               const SizedBox(height: 3),
                               Text(
-                                  '${task.priority.toLowerCase()} priority \u00b7 ${task.status.toLowerCase()}',
+                                  '${task.priority.toLowerCase()} priority · ${taskStatusLabel(task.status)}',
                                   style: const TextStyle(
                                       fontSize: 8, color: kMuted)),
                             ])),
@@ -1029,63 +1038,96 @@ class _HealthDetails extends StatelessWidget {
   const _HealthDetails(
       {required this.project,
       required this.progress,
-      required this.done,
-      required this.total,
+      required this.loading,
+      required this.error,
+      required this.retry,
       required this.memberCount,
       required this.tasks,
       required this.showTeamData});
   final Project project;
-  final double progress;
-  final int done, total, memberCount;
+  final ProjectProgress? progress;
+  final bool loading;
+  final String? error;
+  final Future<void> Function() retry;
+  final int memberCount;
   final List<Task> tasks;
   final bool showTeamData;
-  int get overdueCount => tasks.where((task) => task.isOverdue).length;
   @override
-  Widget build(BuildContext context) =>
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text('${(progress * 100).round()}%',
-              style: GoogleFonts.dmSans(
-                  fontSize: 22, fontWeight: FontWeight.w700, color: kInk)),
-          const SizedBox(width: 7),
-          Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text('$done of $total tasks complete',
-                  style: const TextStyle(fontSize: 9, color: kMuted)))
-        ]),
-        const SizedBox(height: 6),
-        ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 5,
-                backgroundColor: const Color(0xFFE6E6ED),
-                valueColor: const AlwaysStoppedAnimation(kViolet))),
-        const SizedBox(height: 8),
-        if (showTeamData)
-          Row(children: [
-            const Icon(Icons.calendar_month_outlined, size: 11, color: kViolet),
-            const SizedBox(width: 4),
-            Expanded(
-                child: Text(
-                    project.dueDate == null
-                        ? 'No deadline'
-                        : 'Deadline ${dateLabel(project.dueDate)}',
-                    style: const TextStyle(fontSize: 8, color: kMuted))),
-            const Icon(Icons.people_outline, size: 11, color: kViolet),
-            const SizedBox(width: 3),
-            Text('$memberCount members',
-                style: const TextStyle(fontSize: 8, color: kMuted)),
-            const SizedBox(width: 6),
-            const Icon(Icons.radio_button_checked, size: 10, color: kViolet),
-            const SizedBox(width: 3),
-            Text(_onTimeLabel(tasks),
-                style: const TextStyle(fontSize: 8, color: kMuted)),
+  Widget build(BuildContext context) {
+    final progressContent = loading
+        ? const Row(children: [
+            SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 8),
+            Text('Loading project progress',
+                style: TextStyle(fontSize: 11, color: kMuted)),
           ])
-        else
-          Text('Overdue $overdueCount',
-              style: const TextStyle(fontSize: 9, color: kMuted)),
-      ]);
+        : error != null || progress == null
+            ? Row(children: [
+                Expanded(
+                    child: Text(
+                        error == null || error!.isEmpty
+                            ? 'Project progress unavailable. Retry to load it.'
+                            : 'Project progress unavailable: ${error!}',
+                        style: const TextStyle(fontSize: 11, color: kDanger))),
+                TextButton(onPressed: retry, child: const Text('Retry')),
+              ])
+            : !progress!.hasTasks
+                ? const Text('No tasks',
+                    style: TextStyle(fontSize: 12, color: kMuted))
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text('${progress!.progressPercent ?? 0}%',
+                                style: GoogleFonts.dmSans(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w700,
+                                    color: kInk)),
+                            const SizedBox(width: 7),
+                            Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                    '${progress!.completedTasks} of ${progress!.totalEligibleTasks} tasks complete',
+                                    style: const TextStyle(
+                                        fontSize: 9, color: kMuted)))
+                          ]),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: LinearProgressIndicator(
+                              value: (progress!.progressPercent ?? 0) / 100,
+                              minHeight: 5,
+                              backgroundColor: const Color(0xFFE6E6ED),
+                              valueColor:
+                                  const AlwaysStoppedAnimation(kViolet))),
+                    ],
+                  );
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      progressContent,
+      const SizedBox(height: 8),
+      Wrap(spacing: 10, runSpacing: 6, children: [
+        Text(
+            project.dueDate == null
+                ? 'No deadline'
+                : 'Deadline ${dateLabel(project.dueDate)}',
+            style: const TextStyle(fontSize: 8, color: kMuted)),
+        if (showTeamData)
+          Text('$memberCount members',
+              style: const TextStyle(fontSize: 8, color: kMuted)),
+        Text('Overdue ${progress?.overdueTaskCount ?? '—'}',
+            style: const TextStyle(fontSize: 9, color: kMuted)),
+        if (showTeamData)
+          Text(_onTimeLabel(tasks),
+              style: const TextStyle(fontSize: 8, color: kMuted)),
+      ]),
+    ]);
+  }
 }
 
 Future<void> _showCreateProjectDialog(

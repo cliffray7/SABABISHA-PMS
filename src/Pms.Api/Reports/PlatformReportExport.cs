@@ -2,13 +2,16 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Xml.Linq;
+using Pms.Api.Progress;
 
 namespace Pms.Api.Reports;
 
 public sealed record PlatformUserReport(Guid Id, string FirstName, string LastName, string Email, DateTime CreatedAt);
 public sealed record PlatformOrganizationReport(Guid Id, string Name, DateTime CreatedAt);
-public sealed record PlatformProjectReport(Guid Id, Guid OrganizationId, string Name, string Status, DateTime CreatedAt);
-public sealed record PlatformTaskReport(Guid Id, Guid ProjectId, string Title, string Status, string Priority, DateTime? DueDate, DateTime CreatedAt);
+public sealed record PlatformProjectReport(Guid Id, Guid OrganizationId, string Name, string Status, DateTime CreatedAt,
+    bool IsArchived = false);
+public sealed record PlatformTaskReport(Guid Id, Guid ProjectId, string Title, string Status, string Priority,
+    DateTime? DueDate, DateTime CreatedAt, Guid? ParentTaskId = null, DateTime? DeletedAt = null);
 
 public sealed record PlatformReportData(
     string ReportId,
@@ -236,7 +239,7 @@ public static class PlatformReportExport
                 Text(commands, 445, y, group.Count().ToString("N0", CultureInfo.InvariantCulture), 9, "20232B", true);
                 y -= 20;
             }
-            Text(commands, 42, 446, "PROJECT PROGRESS", 11, "20232B", true);
+            Text(commands, 42, 446, "PROJECT PROGRESS (ARCHIVED VALUES ARE HISTORICAL)", 11, "20232B", true);
             Text(commands, 42, 427, "Project", 8, "687080", true);
             Text(commands, 284, 427, "Status", 8, "687080", true);
             Text(commands, 385, 427, "Tasks done", 8, "687080", true);
@@ -247,12 +250,13 @@ public static class PlatformReportExport
             foreach (var project in selected)
             {
                 var projectTasks = data.Tasks.Where(task => task.ProjectId == project.Id).ToArray();
-                var done = projectTasks.Count(task => IsDone(task.Status));
-                var percent = projectTasks.Length == 0 ? 0 : (int)Math.Round(done * 100d / projectTasks.Length);
+                var progress = ProjectProgressCalculator.CalculateCompletion(projectTasks.Select(task =>
+                    new ProjectProgressTask(task.Status, task.DueDate, task.ParentTaskId, task.DeletedAt)));
                 Text(commands, 42, y, Limit(project.Name, 36), 8, "20232B");
-                Text(commands, 284, y, Limit(project.Status, 15), 8, "596579");
-                Text(commands, 397, y, $"{done}/{projectTasks.Length}", 8, "596579");
-                Text(commands, 489, y, $"{percent}%", 8, "20232B", true);
+                var statusLabel = project.IsArchived ? "Historical (Archived)" : project.Status;
+                Text(commands, 284, y, Limit(statusLabel, 24), 8, "596579");
+                Text(commands, 397, y, progress.Total == 0 ? "No tasks" : $"{progress.Completed}/{progress.Total}", 8, "596579");
+                Text(commands, 489, y, progress.Percent is null ? "No tasks" : $"{progress.Percent}%", 8, "20232B", true);
                 Line(commands, 42, y - 6, 553, y - 6, "ECEEF2");
                 y -= 17;
             }
@@ -325,5 +329,6 @@ public static class PlatformReportExport
 
     private static string Rgb(string hex) => string.Join(' ', Enumerable.Range(0, 3).Select(i => (Convert.ToInt32(hex.Substring(i * 2, 2), 16) / 255d).ToString("0.###", CultureInfo.InvariantCulture)));
     private static string Limit(string value, int length) => value.Length <= length ? value : value[..(length - 1)] + "…";
-    private static bool IsDone(string status) => string.Equals(status, "DONE", StringComparison.OrdinalIgnoreCase) || string.Equals(status, "COMPLETED", StringComparison.OrdinalIgnoreCase);
+    private static bool IsDone(string status) => string.Equals(status, "DONE", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(status, "COMPLETED", StringComparison.OrdinalIgnoreCase);
 }

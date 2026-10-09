@@ -16,6 +16,7 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
     public DbSet<WorkTask> Tasks => Set<WorkTask>();
     public DbSet<TaskAssignee> TaskAssignees => Set<TaskAssignee>();
+    public DbSet<TaskAssignmentEvent> TaskAssignmentEvents => Set<TaskAssignmentEvent>();
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<CommentMention> CommentMentions => Set<CommentMention>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
@@ -123,8 +124,8 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
         {
             entity.ToTable("organization_members");
             entity.HasKey(member => member.Id);
-            entity.HasIndex(member => new { member.OrganizationId, member.UserId }).IsUnique();
-            entity.HasIndex(member => new { member.UserId, member.Status });
+            entity.HasIndex(member => new { member.OrganizationId, member.UserId }).IsUnique().HasDatabaseName("uq_organization_members");
+            entity.HasIndex(member => new { member.UserId, member.Status }).HasDatabaseName("ix_organization_members_user_status");
         });
 
         modelBuilder.Entity<OrganizationInvitation>(entity =>
@@ -141,6 +142,7 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
         {
             entity.ToTable("projects");
             entity.HasKey(project => project.Id);
+            entity.HasAlternateKey(project => new { project.Id, project.OrganizationId });
             entity.HasIndex(project => project.OrganizationId);
             entity.Property(project => project.Name).HasMaxLength(200).IsRequired();
         });
@@ -149,15 +151,16 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
         {
             entity.ToTable("project_members");
             entity.HasKey(member => member.Id);
-            entity.HasIndex(member => new { member.ProjectId, member.UserId }).IsUnique();
-            entity.HasIndex(member => new { member.UserId, member.Status });
+            entity.HasIndex(member => new { member.ProjectId, member.UserId }).IsUnique().HasDatabaseName("uq_project_members");
+            entity.HasIndex(member => new { member.UserId, member.Status }).HasDatabaseName("ix_project_members_user_status");
         });
 
         modelBuilder.Entity<WorkTask>(entity =>
         {
             entity.ToTable("tasks");
             entity.HasKey(task => task.Id);
-            entity.HasIndex(task => new { task.ProjectId, task.Status });
+            entity.HasAlternateKey(task => new { task.Id, task.ProjectId });
+            entity.HasIndex(task => new { task.ProjectId, task.Status }).HasDatabaseName("ix_tasks_project_status");
             entity.Property(task => task.Title).HasMaxLength(300).IsRequired();
             entity.Property(task => task.Status).HasMaxLength(40).IsRequired();
             entity.Property(task => task.Priority).HasMaxLength(20).IsRequired();
@@ -170,7 +173,42 @@ public sealed class PmsDbContext(DbContextOptions<PmsDbContext> options) : DbCon
         {
             entity.ToTable("task_assignees");
             entity.HasKey(assignee => assignee.Id);
-            entity.HasIndex(assignee => new { assignee.TaskId, assignee.UserId }).IsUnique();
+            entity.HasIndex(assignee => new { assignee.TaskId, assignee.UserId }).IsUnique().HasDatabaseName("uq_task_assignees");
+            entity.HasIndex(assignee => new { assignee.UserId, assignee.Status }).HasDatabaseName("ix_task_assignees_user_status");
+        });
+
+        modelBuilder.Entity<TaskAssignmentEvent>(entity =>
+        {
+            entity.ToTable("task_assignment_events", table => table.HasCheckConstraint(
+                "ck_task_assignment_events_action_replacement_reason",
+                "(action = 'REASSIGNED' AND replacement_user_id IS NOT NULL AND replacement_user_id <> departing_user_id AND reason_code IS NULL) OR " +
+                "(action = 'UNASSIGNED' AND replacement_user_id IS NULL AND reason_code IS NULL) OR " +
+                "(action = 'LIFECYCLE_INACTIVATED' AND replacement_user_id IS NULL AND reason_code IS NOT NULL AND reason_code IN ('PROJECT_ARCHIVED', 'PROJECT_TRASHED', 'PROJECT_TRASH_EXPIRED'))"));
+            entity.HasKey(item => item.EventId);
+            entity.Property(item => item.Action).HasMaxLength(32).IsRequired();
+            entity.Property(item => item.ReasonCode).HasMaxLength(40);
+            entity.HasOne<Organization>().WithMany().HasForeignKey(item => item.OrganizationId)
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<Project>().WithMany()
+                .HasForeignKey(item => new { item.ProjectId, item.OrganizationId })
+                .HasPrincipalKey(project => new { project.Id, project.OrganizationId })
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<WorkTask>().WithMany()
+                .HasForeignKey(item => new { item.TaskId, item.ProjectId })
+                .HasPrincipalKey(task => new { task.Id, task.ProjectId })
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<User>().WithMany().HasForeignKey(item => item.DepartingUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<User>().WithMany().HasForeignKey(item => item.ActorUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<User>().WithMany().HasForeignKey(item => item.ReplacementUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasIndex(item => new { item.TaskId, item.OccurredAtUtc, item.EventId });
+            entity.HasIndex(item => new { item.ProjectId, item.OrganizationId, item.TaskId });
+            entity.HasIndex(item => new { item.OperationId, item.EventId });
+            entity.HasIndex(item => item.DepartingUserId);
+            entity.HasIndex(item => item.ActorUserId);
+            entity.HasIndex(item => item.ReplacementUserId).HasFilter("replacement_user_id IS NOT NULL");
         });
 
         modelBuilder.Entity<Comment>(entity =>
