@@ -15,6 +15,7 @@
     "test:browser": "node tests/browser-smoke.mjs",
     "test:team": "node tests/team-smoke.mjs",
     "test:project-roles": "node tests/project-role-smoke.mjs",
+    "test:member-removal": "node tests/member-removal-smoke.mjs",
     "test:project-progress": "node tests/project-progress-smoke.mjs",
     "test:notifications": "node tests/notifications-smoke.mjs",
     "test:attachments": "node tests/attachments-smoke.mjs"

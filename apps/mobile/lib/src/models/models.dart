@@ -242,6 +242,219 @@ class Member {
       );
 }
 
+class MemberTaskResolution {
+  const MemberTaskResolution({
+    required this.taskId,
+    required this.action,
+    required this.replacementUserId,
+  });
+
+  final String taskId;
+  final String action;
+  final String? replacementUserId;
+
+  Map<String, dynamic> toJson() => {
+        'taskId': taskId,
+        'action': action,
+        'replacementUserId': replacementUserId,
+      };
+}
+
+class RemovalReplacementMember {
+  const RemovalReplacementMember(
+      {required this.userId, required this.displayName});
+  final String userId;
+  final String displayName;
+
+  factory RemovalReplacementMember.fromJson(Map<String, dynamic> json) =>
+      RemovalReplacementMember(
+        userId: json['userId'] as String,
+        displayName: json['displayName'] as String,
+      );
+}
+
+class RemovalTaskPreview {
+  const RemovalTaskPreview({
+    required this.taskId,
+    required this.parentTaskId,
+    required this.title,
+    required this.status,
+    required this.currentAssigneeIds,
+    required this.requiredResolution,
+  });
+  final String taskId;
+  final String? parentTaskId;
+  final String title;
+  final String status;
+  final List<String> currentAssigneeIds;
+  final String requiredResolution;
+
+  factory RemovalTaskPreview.fromJson(Map<String, dynamic> json) =>
+      RemovalTaskPreview(
+        taskId: json['taskId'] as String,
+        parentTaskId: json['parentTaskId'] as String?,
+        title: json['title'] as String,
+        status: json['status'] as String,
+        currentAssigneeIds: (json['currentAssigneeIds'] as List<dynamic>)
+            .map((id) => id as String)
+            .toList(),
+        requiredResolution: json['requiredResolution'] as String,
+      );
+}
+
+class RemovalHistoricalAttribution {
+  const RemovalHistoricalAttribution({
+    required this.taskId,
+    required this.status,
+    required this.taskInTrash,
+    required this.currentAssigneeIds,
+    required this.actionOnConfirm,
+  });
+  final String taskId;
+  final String status;
+  final bool taskInTrash;
+  final List<String> currentAssigneeIds;
+  final String actionOnConfirm;
+
+  factory RemovalHistoricalAttribution.fromJson(Map<String, dynamic> json) =>
+      RemovalHistoricalAttribution(
+        taskId: json['taskId'] as String,
+        status: json['status'] as String,
+        taskInTrash: json['taskInTrash'] as bool,
+        currentAssigneeIds: (json['currentAssigneeIds'] as List<dynamic>)
+            .map((id) => id as String)
+            .toList(),
+        actionOnConfirm: json['actionOnConfirm'] as String,
+      );
+}
+
+class RemovalProjectPreview {
+  const RemovalProjectPreview({
+    required this.projectId,
+    required this.lifecycle,
+    required this.ownerTransferRequired,
+    required this.managerInvariantBlocked,
+    required this.eligibleReplacementMembers,
+    required this.tasks,
+    required this.historicalAttributionsToInactivate,
+  });
+  final String projectId;
+  final String lifecycle;
+  final bool ownerTransferRequired;
+  final bool managerInvariantBlocked;
+  final List<RemovalReplacementMember> eligibleReplacementMembers;
+  final List<RemovalTaskPreview> tasks;
+  final List<RemovalHistoricalAttribution> historicalAttributionsToInactivate;
+
+  factory RemovalProjectPreview.fromJson(Map<String, dynamic> json) =>
+      RemovalProjectPreview(
+        projectId: json['projectId'] as String,
+        lifecycle: json['lifecycle'] as String,
+        ownerTransferRequired: json['ownerTransferRequired'] as bool,
+        managerInvariantBlocked: json['managerInvariantBlocked'] as bool,
+        eligibleReplacementMembers: (json['eligibleReplacementMembers']
+                as List<dynamic>)
+            .map((item) =>
+                RemovalReplacementMember.fromJson(item as Map<String, dynamic>))
+            .toList(),
+        tasks: (json['tasks'] as List<dynamic>)
+            .map((item) =>
+                RemovalTaskPreview.fromJson(item as Map<String, dynamic>))
+            .toList(),
+        historicalAttributionsToInactivate:
+            (json['historicalAttributionsToInactivate'] as List<dynamic>)
+                .map((item) => RemovalHistoricalAttribution.fromJson(
+                    item as Map<String, dynamic>))
+                .toList(),
+      );
+}
+
+class ExpiredTrashTaskPreview {
+  const ExpiredTrashTaskPreview({
+    required this.taskId,
+    required this.status,
+    required this.currentAssigneeIds,
+    required this.actionOnConfirm,
+  });
+  final String taskId;
+  final String status;
+  final List<String> currentAssigneeIds;
+  final String actionOnConfirm;
+
+  factory ExpiredTrashTaskPreview.fromJson(Map<String, dynamic> json) =>
+      ExpiredTrashTaskPreview(
+        taskId: json['taskId'] as String,
+        status: json['status'] as String,
+        currentAssigneeIds: (json['currentAssigneeIds'] as List<dynamic>)
+            .map((id) => id as String)
+            .toList(),
+        actionOnConfirm: json['actionOnConfirm'] as String,
+      );
+}
+
+class ExpiredTrashProjectPreview {
+  const ExpiredTrashProjectPreview({
+    required this.projectId,
+    required this.deletedAt,
+    required this.lifecycle,
+    required this.ownerManagerChecks,
+    required this.tasks,
+  });
+  final String projectId;
+  final String deletedAt;
+  final String lifecycle;
+  final String ownerManagerChecks;
+  final List<ExpiredTrashTaskPreview> tasks;
+
+  factory ExpiredTrashProjectPreview.fromJson(Map<String, dynamic> json) =>
+      ExpiredTrashProjectPreview(
+        projectId: json['projectId'] as String,
+        deletedAt: json['deletedAt'] as String,
+        lifecycle: json['lifecycle'] as String,
+        ownerManagerChecks: json['ownerManagerChecks'] as String,
+        tasks: (json['tasks'] as List<dynamic>)
+            .map((item) =>
+                ExpiredTrashTaskPreview.fromJson(item as Map<String, dynamic>))
+            .toList(),
+      );
+}
+
+class MemberRemovalPreview {
+  const MemberRemovalPreview({
+    required this.projectId,
+    required this.organizationId,
+    required this.memberId,
+    required this.snapshotHash,
+    required this.affectedTaskCount,
+    required this.affectedProjects,
+    required this.expiredTrashCleanup,
+  });
+  final String? projectId;
+  final String organizationId;
+  final String memberId;
+  final String snapshotHash;
+  final int affectedTaskCount;
+  final List<RemovalProjectPreview> affectedProjects;
+  final List<ExpiredTrashProjectPreview> expiredTrashCleanup;
+
+  factory MemberRemovalPreview.fromJson(Map<String, dynamic> json) =>
+      MemberRemovalPreview(
+        projectId: json['projectId'] as String?,
+        organizationId: json['organizationId'] as String,
+        memberId: json['memberId'] as String,
+        snapshotHash: json['snapshotHash'] as String,
+        affectedTaskCount: json['affectedTaskCount'] as int,
+        affectedProjects: (json['affectedProjects'] as List<dynamic>)
+            .map((item) =>
+                RemovalProjectPreview.fromJson(item as Map<String, dynamic>))
+            .toList(),
+        expiredTrashCleanup: (json['expiredTrashCleanup'] as List<dynamic>)
+            .map((item) => ExpiredTrashProjectPreview.fromJson(
+                item as Map<String, dynamic>))
+            .toList(),
+      );
+}
+
 class TrashItem {
   const TrashItem({
     required this.kind,

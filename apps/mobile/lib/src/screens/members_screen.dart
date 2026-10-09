@@ -113,22 +113,20 @@ class _OrgTabState extends State<_OrgTab> {
   }
 
   Future<void> _remove(Member m) async {
-    final ok = await confirmDialog(
-      context,
-      title: 'Remove member',
-      message:
-          'Remove ${m.fullName} from this workspace? Their tasks and comments will be kept.',
-      confirmLabel: 'Remove',
-      destructive: true,
-    );
-    if (!ok) return;
     setState(() => _busy = true);
     try {
-      await widget.state.api
-          .removeOrgMember(orgId: widget.org.id, userId: m.userId);
-      await widget.state.selectOrg(widget.org);
+      final removed = await showDialog<bool>(
+        context: context,
+        builder: (_) => _MemberRemovalDialog(
+          api: widget.state.api,
+          member: m,
+          organizationId: widget.org.id,
+          onTargetMissing: () => widget.state.selectOrg(widget.org),
+        ),
+      );
+      if (removed == true && mounted) await widget.state.selectOrg(widget.org);
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = memberRemovalErrorMessage(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -451,22 +449,24 @@ class _ProjectTabState extends State<_ProjectTab> {
   }
 
   Future<void> _remove(Member m) async {
-    final ok = await confirmDialog(
-      context,
-      title: 'Remove from project',
-      message:
-          'Remove ${m.fullName} from this project? Their past work will be kept.',
-      confirmLabel: 'Remove',
-      destructive: true,
-    );
-    if (!ok) return;
     setState(() => _busy = true);
     try {
-      await widget.state.api.removeProjectMember(
-          projectId: widget.project!.id, userId: m.userId);
-      await widget.state.selectProject(widget.project!);
+      final currentProject = widget.project!;
+      final removed = await showDialog<bool>(
+        context: context,
+        builder: (_) => _MemberRemovalDialog(
+          api: widget.state.api,
+          member: m,
+          organizationId: widget.org.id,
+          projectId: currentProject.id,
+          onTargetMissing: () => widget.state.selectProject(currentProject),
+        ),
+      );
+      if (removed == true && mounted) {
+        await widget.state.selectProject(currentProject);
+      }
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = memberRemovalErrorMessage(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -638,4 +638,383 @@ class _MemberRow extends StatelessWidget {
       ]),
     );
   }
+}
+
+class _MemberRemovalDialog extends StatefulWidget {
+  const _MemberRemovalDialog({
+    required this.api,
+    required this.member,
+    required this.organizationId,
+    required this.onTargetMissing,
+    this.projectId,
+  });
+
+  final ApiClient api;
+  final Member member;
+  final String organizationId;
+  final Future<void> Function() onTargetMissing;
+  final String? projectId;
+
+  @override
+  State<_MemberRemovalDialog> createState() => _MemberRemovalDialogState();
+}
+
+class _MemberRemovalDialogState extends State<_MemberRemovalDialog> {
+  MemberRemovalPreview? _preview;
+  final Map<String, MemberTaskResolution> _choices = {};
+  bool _loading = true;
+  bool _busy = false;
+  String? _error;
+  String? _notice;
+  int _generation = 0;
+
+  bool get _organizationScope => widget.projectId == null;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreview();
+  }
+
+  Future<void> _loadPreview({bool stale = false}) async {
+    final generation = ++_generation;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _choices.clear();
+      _preview = null;
+      _notice = stale
+          ? 'The preview changed. Review this updated information and confirm again.'
+          : null;
+    });
+    try {
+      final result = _organizationScope
+          ? await widget.api.previewOrgMemberDeactivation(
+              orgId: widget.organizationId, userId: widget.member.userId)
+          : await widget.api.previewProjectMemberRemoval(
+              projectId: widget.projectId!, userId: widget.member.userId);
+      if (!mounted || generation != _generation) return;
+      setState(() => _preview = result);
+    } catch (error) {
+      if (!mounted || generation != _generation) return;
+      final code = error is ApiException ? error.code : null;
+      if (code == 'PROJECT_NOT_FOUND' || code == 'MEMBER_NOT_FOUND') {
+        await widget.onTargetMissing();
+        if (!mounted || generation != _generation) return;
+      }
+      setState(() => _error = memberRemovalErrorMessage(error));
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  List<(RemovalProjectPreview, RemovalTaskPreview)> get _tasks => [
+        for (final project in _preview?.affectedProjects ?? const [])
+          for (final task in project.tasks) (project, task),
+      ];
+
+  bool get _blocked => (_preview?.affectedProjects ?? const []).any(
+        (project) =>
+            project.ownerTransferRequired || project.managerInvariantBlocked,
+      );
+
+  bool get _canConfirm =>
+      _preview != null &&
+      !_loading &&
+      !_busy &&
+      !_blocked &&
+      _preview!.affectedTaskCount <= 100 &&
+      _tasks.every((entry) {
+        final choice = _choices[entry.$2.taskId];
+        return choice != null &&
+            (choice.action != 'REASSIGN' ||
+                (choice.replacementUserId?.isNotEmpty ?? false));
+      });
+
+  void _choose(RemovalTaskPreview task, String action,
+      {String? replacementUserId}) {
+    setState(() {
+      _choices[task.taskId] = MemberTaskResolution(
+        taskId: task.taskId,
+        action: action,
+        replacementUserId: replacementUserId,
+      );
+    });
+  }
+
+  Future<void> _confirm() async {
+    final preview = _preview;
+    if (preview == null || !_canConfirm) return;
+    final generation = ++_generation;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final resolutions = _tasks
+        .map((entry) => _choices[entry.$2.taskId]!)
+        .toList(growable: false);
+    try {
+      if (_organizationScope) {
+        await widget.api.confirmOrgMemberDeactivation(
+          orgId: widget.organizationId,
+          userId: widget.member.userId,
+          snapshotHash: preview.snapshotHash,
+          resolutions: resolutions,
+        );
+      } else {
+        await widget.api.confirmProjectMemberRemoval(
+          projectId: widget.projectId!,
+          userId: widget.member.userId,
+          snapshotHash: preview.snapshotHash,
+          resolutions: resolutions,
+        );
+      }
+      if (mounted && generation == _generation) {
+        Navigator.of(context).pop(true);
+      }
+    } catch (error) {
+      if (!mounted || generation != _generation) return;
+      final code = error is ApiException ? error.code : null;
+      if (code == 'MEMBER_REMOVAL_PREVIEW_STALE' ||
+          code == 'MEMBER_REMOVAL_REPLACEMENT_INELIGIBLE') {
+        setState(() => _busy = false);
+        await _loadPreview(stale: true);
+      } else {
+        if (code == 'PROJECT_NOT_FOUND' || code == 'MEMBER_NOT_FOUND') {
+          await widget.onTargetMissing();
+          if (!mounted || generation != _generation) return;
+        }
+        setState(() => _error = memberRemovalErrorMessage(error));
+      }
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = _preview;
+    return PopScope(
+      canPop: !_busy,
+      child: AlertDialog(
+        title: Text(_organizationScope
+            ? 'Deactivate organization member'
+            : 'Remove project member'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Review assignments for ${widget.member.fullName}.'),
+                if (_loading) ...[
+                  const SizedBox(height: 12),
+                  const Center(child: CircularProgressIndicator()),
+                  const Text('Loading removal preview…'),
+                ],
+                if (_notice != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_notice!, style: const TextStyle(color: kViolet)),
+                ],
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  ErrorBanner(_error!),
+                  if (preview == null && !_loading)
+                    TextButton(
+                      onPressed: () => _loadPreview(),
+                      child: const Text('Retry preview'),
+                    ),
+                ],
+                if (preview != null) ...[
+                  for (final project in preview.affectedProjects) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                        'Project ${project.projectId} · ${project.lifecycle.replaceAll('_', ' ')}',
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                    if (project.ownerTransferRequired)
+                      const ErrorBanner(
+                          'Transfer project ownership before removal.'),
+                    if (project.managerInvariantBlocked)
+                      const ErrorBanner(
+                          'The project must retain an eligible active manager.'),
+                    if (project.tasks.isEmpty)
+                      const Text(
+                          'No open task assignments require a resolution.'),
+                    for (final task in project.tasks)
+                      _buildTaskResolution(project, task),
+                  ],
+                  for (final project in preview.affectedProjects)
+                    if (project.historicalAttributionsToInactivate.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 14),
+                        child: Text(
+                          '${project.historicalAttributionsToInactivate.length} completed or trashed task assignment(s) will be inactivated while preserving attribution.',
+                        ),
+                      ),
+                  for (final project in preview.expiredTrashCleanup)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: Text(
+                        'Expired Trash project ${project.projectId}: server-directed cleanup will process ${project.tasks.length} task assignment(s). No new assignment will be created.',
+                      ),
+                    ),
+                  if (preview.affectedTaskCount > 100)
+                    const ErrorBanner(
+                        'This operation exceeds the 100-task limit and was not submitted.'),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _busy ? null : () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: _canConfirm ? _confirm : null,
+            child: Text(_busy
+                ? 'Processing…'
+                : _organizationScope
+                    ? 'Deactivate member'
+                    : 'Remove member'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTaskResolution(
+      RemovalProjectPreview project, RemovalTaskPreview task) {
+    final choice = _choices[task.taskId];
+    final lifecycle =
+        task.requiredResolution == 'ACCEPT_LIFECYCLE_INACTIVATION';
+    return Card(
+      margin: const EdgeInsets.only(top: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(task.title,
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text(
+                '${task.status} · Current assignees: ${task.currentAssigneeIds.isEmpty ? 'None' : task.currentAssigneeIds.join(', ')}'),
+            if (lifecycle)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: choice?.action == 'ACCEPT_LIFECYCLE_INACTIVATION',
+                onChanged: _busy
+                    ? null
+                    : (checked) => checked == true
+                        ? _choose(task, 'ACCEPT_LIFECYCLE_INACTIVATION')
+                        : setState(() => _choices.remove(task.taskId)),
+                title: const Text(
+                    'Acknowledge lifecycle inactivation; no replacement will be assigned.'),
+              )
+            else ...[
+              DropdownButtonFormField<String>(
+                key: ValueKey('removal-action-${task.taskId}'),
+                initialValue:
+                    choice?.action == 'REASSIGN' || choice?.action == 'UNASSIGN'
+                        ? choice!.action
+                        : null,
+                decoration: const InputDecoration(labelText: 'Resolution'),
+                items: const [
+                  DropdownMenuItem(value: 'REASSIGN', child: Text('Reassign')),
+                  DropdownMenuItem(
+                      value: 'UNASSIGN', child: Text('Leave unassigned')),
+                ],
+                onChanged: _busy
+                    ? null
+                    : (action) {
+                        if (action == null) {
+                          setState(() => _choices.remove(task.taskId));
+                          return;
+                        }
+                        final resolutionAction = action;
+                        setState(() {
+                          if (resolutionAction == 'UNASSIGN') {
+                            _choices[task.taskId] = MemberTaskResolution(
+                              taskId: task.taskId,
+                              action: resolutionAction,
+                              replacementUserId: null,
+                            );
+                          } else if (resolutionAction == 'REASSIGN') {
+                            _choices[task.taskId] = MemberTaskResolution(
+                              taskId: task.taskId,
+                              action: resolutionAction,
+                              replacementUserId: '',
+                            );
+                          } else {
+                            _choices.remove(task.taskId);
+                          }
+                        });
+                      },
+              ),
+              if (choice?.action == 'REASSIGN')
+                DropdownButtonFormField<String>(
+                  key: ValueKey('removal-replacement-${task.taskId}'),
+                  initialValue: (choice?.replacementUserId?.isNotEmpty ?? false)
+                      ? choice!.replacementUserId
+                      : null,
+                  decoration:
+                      const InputDecoration(labelText: 'Eligible replacement'),
+                  items: project.eligibleReplacementMembers
+                      .map((member) => DropdownMenuItem(
+                            value: member.userId,
+                            child: Text(member.displayName),
+                          ))
+                      .toList(),
+                  onChanged: _busy
+                      ? null
+                      : (userId) => userId == null
+                          ? null
+                          : _choose(task, 'REASSIGN',
+                              replacementUserId: userId),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String memberRemovalErrorMessage(Object error) {
+  if (error is ApiException) {
+    const messages = {
+      'MEMBER_REMOVAL_FORBIDDEN':
+          'You do not have permission to remove this member.',
+      'MEMBER_RESOLUTION_REQUIRED':
+          'Resolve every affected task before confirming.',
+      'MEMBER_RESOLUTION_INVALID':
+          'One or more task resolutions are no longer valid.',
+      'MEMBER_REMOVAL_PREVIEW_STALE':
+          'Project or assignment data changed. Review a fresh preview before confirming.',
+      'MEMBER_REMOVAL_REPLACEMENT_INELIGIBLE':
+          'The selected replacement is no longer eligible. Review a fresh preview.',
+      'PROJECT_OWNER_TRANSFER_REQUIRED':
+          'Transfer project ownership before removing this member.',
+      'PROJECT_MUST_RETAIN_MANAGER':
+          'The project must retain at least one eligible active manager.',
+      'MEMBER_REMOVAL_CONFLICT':
+          'The workspace changed during removal. Review a fresh preview and retry.',
+      'MEMBER_RESOLUTION_LIMIT_EXCEEDED':
+          'This operation exceeds the supported task-resolution limit and was not applied.',
+      'ORGANIZATION_OWNER_CANNOT_BE_REMOVED':
+          'Transfer organization ownership before deactivating this member.',
+      'PROJECT_NOT_FOUND':
+          'The project is no longer available. Refresh the member list.',
+      'MEMBER_NOT_FOUND':
+          'The member is no longer available. Refresh the member list.',
+    };
+    return messages[error.code] ?? error.message;
+  }
+  return 'The request could not be completed. Check your connection and retry.';
 }
