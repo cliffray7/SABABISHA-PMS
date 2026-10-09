@@ -15,6 +15,7 @@ class AppState extends ChangeNotifier {
   String? _joinedOrganizationId;
   String? _joinedProjectId;
   bool _refreshingRealtime = false;
+  int _projectDataGeneration = 0;
 
   Future<void> connectRealtime() async {
     final session = await api.currentSession();
@@ -135,6 +136,8 @@ class AppState extends ChangeNotifier {
   // ─── Tasks ────────────────────────────────────────────────────────────────
   List<Task> tasks = [];
   DashboardMetrics? metrics;
+  ProjectProgress? projectProgress;
+  String? projectProgressError;
 
   // ─── Members ──────────────────────────────────────────────────────────────
   List<Member> orgMembers = [];
@@ -148,6 +151,7 @@ class AppState extends ChangeNotifier {
   bool loadingOrgs = false;
   bool loadingProjects = false;
   bool loadingTasks = false;
+  bool loadingProjectProgress = false;
   bool loadingNotifications = false;
 
   String? error;
@@ -204,6 +208,7 @@ class AppState extends ChangeNotifier {
   }
 
   void signOut() {
+    _projectDataGeneration++;
     account = null;
     isSuperAdmin = false;
     adminMetrics = null;
@@ -218,6 +223,9 @@ class AppState extends ChangeNotifier {
     selectedProject = null;
     tasks = [];
     metrics = null;
+    projectProgress = null;
+    projectProgressError = null;
+    loadingProjectProgress = false;
     orgMembers = [];
     projectMembers = [];
     invitations = [];
@@ -346,11 +354,15 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> selectOrg(Organization org) async {
+    _projectDataGeneration++;
     selectedOrg = org;
     projects = [];
     selectedProject = null;
     tasks = [];
     metrics = null;
+    projectProgress = null;
+    projectProgressError = null;
+    loadingProjectProgress = false;
     notifyListeners();
     await _loadOrgData(org.id);
     await _joinRealtimeGroups();
@@ -376,7 +388,18 @@ class AppState extends ChangeNotifier {
             projects.where((p) => p.id == selectedProject!.id).firstOrNull;
       }
       selectedProject ??= projects.firstOrNull;
-      if (selectedProject != null) await _loadProjectData(selectedProject!.id);
+      if (selectedProject != null) {
+        await _loadProjectData(selectedProject!.id);
+      } else {
+        _projectDataGeneration++;
+        tasks = [];
+        projectMembers = [];
+        metrics = null;
+        projectProgress = null;
+        projectProgressError = null;
+        loadingTasks = false;
+        loadingProjectProgress = false;
+      }
     } catch (e) {
       _setError(e);
     } finally {
@@ -386,33 +409,80 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> selectProject(Project project) async {
+    _projectDataGeneration++;
     selectedProject = project;
     tasks = [];
     metrics = null;
     projectMembers = [];
+    projectProgress = null;
+    projectProgressError = null;
     notifyListeners();
     await _loadProjectData(project.id);
     await _joinRealtimeGroups();
   }
 
   Future<void> _loadProjectData(String projectId) async {
+    final generation = ++_projectDataGeneration;
     loadingTasks = true;
+    loadingProjectProgress = true;
+    projectProgressError = null;
+    if (projectProgress?.projectId != projectId) projectProgress = null;
     notifyListeners();
+
+    final progressFuture = api.projectProgress(projectId);
     try {
       final results = await Future.wait([
         api.tasks(projectId),
         api.projectMembers(projectId),
         api.dashboardMetrics(projectId),
       ]);
-      tasks = results[0] as List<Task>;
-      projectMembers = results[1] as List<Member>;
-      metrics = results[2] as DashboardMetrics;
+      if (generation == _projectDataGeneration &&
+          selectedProject?.id == projectId) {
+        tasks = results[0] as List<Task>;
+        projectMembers = results[1] as List<Member>;
+        metrics = results[2] as DashboardMetrics;
+      }
     } catch (e) {
-      _setError(e);
-    } finally {
-      loadingTasks = false;
-      notifyListeners();
+      if (generation == _projectDataGeneration &&
+          selectedProject?.id == projectId) {
+        _setError(e);
+      }
     }
+
+    try {
+      final progress = await progressFuture;
+      if (generation != _projectDataGeneration ||
+          selectedProject?.id != projectId) {
+        return;
+      }
+      if (progress.projectId != projectId) {
+        projectProgress = null;
+        projectProgressError = 'Project progress is unavailable. Please retry.';
+      } else {
+        projectProgress = progress;
+        projectProgressError = null;
+      }
+    } catch (e) {
+      if (generation == _projectDataGeneration &&
+          selectedProject?.id == projectId) {
+        projectProgress = null;
+        projectProgressError =
+            e is ApiException ? e.message : 'Project progress is unavailable.';
+      }
+    } finally {
+      if (generation == _projectDataGeneration &&
+          selectedProject?.id == projectId) {
+        loadingTasks = false;
+        loadingProjectProgress = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> retryProjectProgress() async {
+    final projectId = selectedProject?.id;
+    if (projectId == null) return;
+    await _loadProjectData(projectId);
   }
 
   Future<void> refreshTasks() async {
@@ -496,6 +566,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       await api.updateTask(taskId: taskId, status: status);
+      await refreshTasks();
     } catch (e) {
       _setError(e);
       await refreshTasks(); // revert

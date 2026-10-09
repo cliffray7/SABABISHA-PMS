@@ -414,6 +414,71 @@ class DashboardMetrics {
       );
 }
 
+class ProjectProgress {
+  const ProjectProgress({
+    required this.projectId,
+    required this.projectStatus,
+    required this.hasTasks,
+    required this.totalEligibleTasks,
+    required this.completedTasks,
+    required this.progressPercent,
+    required this.outstandingTaskCount,
+    required this.overdueTaskCount,
+    required this.timezoneIdUsed,
+  });
+
+  final String projectId;
+  final String projectStatus;
+  final bool hasTasks;
+  final int totalEligibleTasks;
+  final int completedTasks;
+  final int? progressPercent;
+  final int outstandingTaskCount;
+  final int overdueTaskCount;
+  final String timezoneIdUsed;
+
+  factory ProjectProgress.fromJson(Map<String, dynamic> json) =>
+      ProjectProgress(
+        projectId: json['projectId'] as String,
+        projectStatus: json['projectStatus'] as String,
+        hasTasks: json['hasTasks'] as bool,
+        totalEligibleTasks: json['totalEligibleTasks'] as int,
+        completedTasks: json['completedTasks'] as int,
+        progressPercent: json['progressPercent'] as int?,
+        outstandingTaskCount: json['outstandingTaskCount'] as int,
+        overdueTaskCount: json['overdueTaskCount'] as int,
+        timezoneIdUsed: json['timezoneIdUsed'] as String,
+      );
+}
+
+String projectStatusLabel(String status) => switch (status) {
+      'PLANNING' => 'Planned',
+      'ACTIVE' => 'In Progress',
+      'ON_HOLD' => 'On Hold',
+      'COMPLETED' => 'Completed',
+      _ => _readableStatusFallback(status),
+    };
+
+String taskStatusLabel(String status) => switch (status) {
+      'TO DO' => 'To Do',
+      'IN PROGRESS' => 'In Progress',
+      'REVIEW' => 'In Review',
+      'DONE' => 'Done',
+      _ => _readableStatusFallback(status),
+    };
+
+String _readableStatusFallback(String status) {
+  final words =
+      status.replaceAll('_', ' ').trim().toLowerCase().split(RegExp(r'\s+'));
+  if (words.isEmpty || (words.length == 1 && words.single.isEmpty)) {
+    return 'Unknown';
+  }
+  return words
+      .where((word) => word.isNotEmpty)
+      .map((word) => '${word[0].toUpperCase()}${word.substring(1)}')
+      .join(' ');
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const taskStatuses = ['TO DO', 'IN PROGRESS', 'REVIEW', 'DONE'];

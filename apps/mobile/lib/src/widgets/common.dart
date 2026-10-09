@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../models/models.dart' show taskStatusLabel;
+
 // ─── Web design-system tokens ─────────────────────────────────────────────────
 // --violet: #4D40ED   --ink: #1F212B   --muted: #737887
 // --line:   #D9DBDE   --soft: #F0EFF9  --page: #F7F8FC
@@ -199,7 +201,7 @@ class StatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
-        status,
+        taskStatusLabel(status),
         style: TextStyle(
           fontSize: fs,
           fontWeight: FontWeight.w700,

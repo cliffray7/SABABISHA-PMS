@@ -504,6 +504,11 @@ class ApiClient {
     return DashboardMetrics.fromJson(_json(response));
   }
 
+  Future<ProjectProgress> projectProgress(String projectId) async {
+    final response = await _authorized('GET', '/projects/$projectId/progress');
+    return ProjectProgress.fromJson(_json(response));
+  }
+
   Future<List<Map<String, dynamic>>> workspaceActivityEvents({
     required String organizationId,
     int pageSize = 30,

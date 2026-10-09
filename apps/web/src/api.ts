@@ -119,6 +119,7 @@ export type Task = { id: string; projectId: string; parentTaskId?: string; title
 export type Subtask = { id: string; title: string; status: string; createdAt: string; completedAt?: string };
 export type TaskActivity = { createdAt: string; action: string; detail?: string };
 export type DashboardMetrics = { myTasks: number; overdueTasks: number; completedTasks: number; inProgressTasks: number; totalTasks: number };
+export type ProjectProgress = { projectId: string; projectStatus: string; hasTasks: boolean; totalEligibleTasks: number; completedTasks: number; progressPercent: number | null; outstandingTaskCount: number; overdueTaskCount: number; timezoneIdUsed: string };
 export type AiTaskSuggestion = { title: string; description: string; priority: string; subtasks: string[] };
 export type Notice = { id: string; message: string; isRead: boolean; createdAt: string; relatedId?: string; projectId?: string };
 export type TrashItem = { kind: 'project' | 'task' | 'subtask' | 'comment' | 'attachment'; id: string; parentId?: string | null; projectId: string; name: string; deletedAt: string };
@@ -127,6 +128,11 @@ export type Mail = { id: string; to: string; subject: string; link: string; crea
 export const statuses = ['TO DO', 'IN PROGRESS', 'REVIEW', 'DONE'];
 export const priorities = ['URGENT','HIGH','MEDIUM','LOW'];
 export const projectStatuses = ['PLANNING','ACTIVE','ON_HOLD','COMPLETED'];
+const projectStatusLabels: Record<string, string> = { PLANNING:'Planned', ACTIVE:'In Progress', ON_HOLD:'On Hold', COMPLETED:'Completed' };
+const taskStatusLabels: Record<string, string> = { 'TO DO':'To Do', 'IN PROGRESS':'In Progress', REVIEW:'In Review', DONE:'Done' };
+const readableStatusFallback = (status: string) => status.trim().replace(/_/g,' ').toLowerCase().replace(/\b\w/g, letter => letter.toUpperCase()) || 'Unknown';
+export const projectStatusLabel = (status: string) => projectStatusLabels[status] ?? readableStatusFallback(status);
+export const taskStatusLabel = (status: string) => taskStatusLabels[status] ?? readableStatusFallback(status);
 export const dateInput = (value?: string) => value?.slice(0,10) ?? '';
 export const dateLabel = (value?: string) => value ? new Date(value.slice(0,10) + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date';
 export const overdue = (task: Task) => Boolean(task.dueDate && task.status !== 'DONE' && task.dueDate.slice(0,10) < new Date().toLocaleDateString('en-CA'));

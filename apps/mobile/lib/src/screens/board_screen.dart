@@ -428,6 +428,7 @@ class _BoardColumns extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       children: taskStatuses.map((status) {
         final cols = tasks.where((t) => t.status == status).toList();
+        final heading = taskStatusLabel(status);
         final isDark = Theme.of(context).brightness == Brightness.dark;
         final colBg =
             isDark ? const Color(0xFF1A1C26) : const Color(0xFFF1F1F6);
@@ -445,7 +446,7 @@ class _BoardColumns extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(4, 2, 4, 10),
               child: Row(children: [
                 Text(
-                  status,
+                  heading,
                   style: GoogleFonts.dmSans(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
