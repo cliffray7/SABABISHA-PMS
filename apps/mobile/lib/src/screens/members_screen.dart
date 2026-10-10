@@ -310,11 +310,11 @@ class _OrgTabState extends State<_OrgTab> {
                           Text(inv.email,
                               style: const TextStyle(
                                   fontWeight: FontWeight.w600)),
-                          Text(
-                            '${inv.role} · Expires ${dateLabel(inv.expiresAt)}',
+                              Text(
+                                '${inv.role} · Expires ${dateLabel(inv.expiresAt)}',
                             style: const TextStyle(
                                 fontSize: 12, color: kMuted),
-                          ),
+                              ),
                         ]),
                       ),
                       TextButton(
@@ -348,6 +348,23 @@ class _OrgTabState extends State<_OrgTab> {
 
 // ─── Project members tab ──────────────────────────────────────────────────────
 
+String projectRoleErrorMessage(ApiException error) => switch (error.code) {
+      'invalid_project_role' => 'Choose one of the supported project roles.',
+      'self_role_change_not_allowed' =>
+        'You cannot change your own project role this way.',
+      'guest_project_role_must_be_viewer' =>
+        'Organization guests can only have the Viewer project role.',
+      'project_must_retain_manager' =>
+        'This project must keep at least one active project manager.',
+      'project_role_update_forbidden' =>
+        'You do not have permission to change project member roles.',
+      'project_manager_grant_forbidden' =>
+        'Only organization admins and project managers can grant the Project Manager role.',
+      'project_role_update_conflict' =>
+        'The project is busy. Refresh member data, then retry.',
+      _ => error.message,
+    };
+
 class _ProjectTab extends StatefulWidget {
   const _ProjectTab(
       {required this.state, required this.org, this.project});
@@ -362,6 +379,31 @@ class _ProjectTab extends StatefulWidget {
 class _ProjectTabState extends State<_ProjectTab> {
   bool _busy = false;
   String? _error;
+
+  Future<void> _updateRole(Member member, String role) async {
+    final project = widget.project;
+    if (project == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.state.api.updateProjectMemberRole(
+        projectId: project.id,
+        userId: member.userId,
+        role: role,
+      );
+      await widget.state.selectProject(project);
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = projectRoleErrorMessage(error));
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Could not update the project member role.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _showAddMemberDialog() async {
     final existing =
@@ -485,6 +527,10 @@ class _ProjectTabState extends State<_ProjectTab> {
 
     final members = widget.state.projectMembers;
     final isManager = project.isManagerOrLead;
+    final canEditProjectRoles =
+        widget.org.isAdminOrOwner || project.role == 'PROJECT_MANAGER';
+    final canGrantProjectManager =
+        widget.org.isAdminOrOwner || project.role == 'PROJECT_MANAGER';
     final accountId = widget.state.account?.id ?? '';
 
     return RefreshIndicator(
@@ -492,9 +538,7 @@ class _ProjectTabState extends State<_ProjectTab> {
       onRefresh: () => widget.state.selectProject(project),
       child: ListView(padding: const EdgeInsets.all(16), children: [
         if (_error != null)
-          ErrorBanner(_error!,
-              onDismiss: () => setState(() => _error = null)),
-
+          ErrorBanner(_error!, onDismiss: () => setState(() => _error = null)),
         _SectionHeading(
           eyebrow: project.name,
           title: 'Project',
@@ -503,7 +547,6 @@ class _ProjectTabState extends State<_ProjectTab> {
           onAction: isManager ? _showAddMemberDialog : null,
         ),
         const SizedBox(height: 16),
-
         if (members.isEmpty)
           const EmptyState(
             icon: Icons.group_outlined,
@@ -512,18 +555,54 @@ class _ProjectTabState extends State<_ProjectTab> {
         else
           ...members.map((m) {
             final canRemove = isManager && m.userId != accountId;
+            final isGuest = widget.state.orgMembers.any(
+              (organizationMember) =>
+                  organizationMember.userId == m.userId &&
+                  organizationMember.role == 'GUEST',
+            );
+            final displayedRole = isGuest ? 'VIEWER' : m.role;
+            final canEditRole = canEditProjectRoles && !isGuest;
             return _MemberRow(
               member: m,
-              trailing: canRemove
-                  ? IconButton(
-                      icon: const Icon(Icons.remove_circle_outline,
-                          color: kDanger, size: 20),
-                      onPressed:
-                          _busy ? null : () => _remove(m),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    )
-                  : RoleChip(m.role),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (canEditRole)
+                  Semantics(
+                    label: 'Project role for ${m.fullName}',
+                    child: DropdownButton<String>(
+                      key: ValueKey('project-role-${m.userId}'),
+                      value: displayedRole,
+                      isDense: true,
+                      items: projectRoles
+                          .where((role) =>
+                              canGrantProjectManager ||
+                              role != 'PROJECT_MANAGER')
+                          .map((role) => DropdownMenuItem(
+                                value: role,
+                                child: Text(role),
+                              ))
+                          .toList(),
+                      onChanged: _busy
+                          ? null
+                          : (role) {
+                              if (role != null && role != displayedRole) {
+                                _updateRole(m, role);
+                              }
+                            },
+                    ),
+                  )
+                else
+                  RoleChip(displayedRole),
+                if (canRemove) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline,
+                        color: kDanger, size: 20),
+                    onPressed: _busy ? null : () => _remove(m),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ]),
             );
           }),
         const SizedBox(height: 24),
@@ -552,9 +631,7 @@ class _SectionHeading extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Expanded(
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Eyebrow('$eyebrow / PEOPLE'),
           const SizedBox(height: 4),
           Text(
@@ -565,8 +642,7 @@ class _SectionHeading extends StatelessWidget {
               letterSpacing: -0.3,
             ),
           ),
-          Text(subtitle,
-              style: const TextStyle(fontSize: 14, color: kMuted)),
+          Text(subtitle, style: const TextStyle(fontSize: 14, color: kMuted)),
         ]),
       ),
       if (actionLabel != null)
@@ -575,13 +651,12 @@ class _SectionHeading extends StatelessWidget {
           style: FilledButton.styleFrom(
             backgroundColor: kViolet,
             minimumSize: const Size(0, 36),
-            padding: const EdgeInsets.symmetric(
-                horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           ),
           icon: const Icon(Icons.person_add_outlined, size: 16),
           label: Text(actionLabel!,
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w700)),
+              style:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
         ),
     ]);
   }
@@ -618,13 +693,11 @@ class _MemberRow extends StatelessWidget {
         const SizedBox(width: 12),
         // Name + email
         Expanded(
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(
               member.fullName,
-              style: const TextStyle(
-                  fontSize: 15, fontWeight: FontWeight.w600),
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             ),
             Text(
               member.email,

@@ -334,6 +334,18 @@ class ApiClient {
     await _authorized('POST', path, body: body);
   }
 
+  Future<void> updateProjectMemberRole({
+    required String projectId,
+    required String userId,
+    required String role,
+  }) async {
+    await _authorized(
+      'PATCH',
+      '/projects/$projectId/members/$userId',
+      body: {'role': role},
+    );
+  }
+
   // ─── Tasks ───────────────────────────────────────────────────────────────
 
   Future<List<Task>> tasks(String projectId) async {
