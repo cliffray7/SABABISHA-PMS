@@ -901,15 +901,18 @@ class AdminProjectMember {
 
 class AdminProjectTask {
   const AdminProjectTask({required this.id, required this.title, required this.status,
-    required this.priority, required this.effectiveAssigneeCount, required this.createdAt, this.dueDate});
+    required this.priority, required this.effectiveAssigneeCount, required this.createdAt,
+    this.dueDate, this.effectiveAssignees});
   final String id, title, status, priority, createdAt;
   final String? dueDate;
   final int effectiveAssigneeCount;
+  final List<String>? effectiveAssignees;
   factory AdminProjectTask.fromJson(Map<String, dynamic> json) => AdminProjectTask(
     id: json['id'] as String, title: json['title'] as String? ?? '',
     status: json['status'] as String? ?? 'TO DO', priority: json['priority'] as String? ?? 'MEDIUM',
     dueDate: json['dueDate'] as String?, createdAt: json['createdAt'] as String? ?? '',
-    effectiveAssigneeCount: json['effectiveAssigneeCount'] as int? ?? 0);
+    effectiveAssigneeCount: json['effectiveAssigneeCount'] as int? ?? 0,
+    effectiveAssignees: (json['effectiveAssignees'] as List<dynamic>?)?.whereType<String>().toList());
 }
 
 class AdminProjectPage<T> {

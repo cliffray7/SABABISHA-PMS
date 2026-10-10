@@ -1,5 +1,9 @@
 # Progress tracker
 
+## 2026-10-10
+
+- Extended the Super Admin project Tasks tab to identify current eligible assignees by display name in Web and Flutter. The protected project-task API returns names only for active assignment rows whose users pass the shared eligibility rules; it returns no IDs, emails, or inactive/historical identities. Added backend and Flutter API regression coverage. Verification: focused backend test 1/1 passed; Flutter API-client tests 9/9 passed; scoped Flutter analysis found no new issues and the two existing unused-widget warnings; Web production build passed with existing SignalR annotation and large-chunk warnings; `git diff --check` passed.
+
 ## 2026-10-08
 
 - Recorded product-owner acceptance of Slice 2 — Backend Project Ownership Transfer — in `docs/product-improvements-pre-implementation-review.md` and the ownership proposal. Acceptance uses previously reported results (27/27 focused, 7/7 SQL Server races, 94 standard-suite passes plus seven separately verified opt-in races, and `git diff --check`); tests were not rerun during this documentation checkpoint. Prepared `docs/product-improvements-slice-3-scope-review.md` covering cross-project deactivation, explicit per-task reassignment/unassignment, historical attribution, transaction consistency, and SQL Server concurrency. Slice 3 remains unauthorized. Suspended-account access remains a separate security follow-up; historical notification provenance remains deferred. Unrelated Flutter edits and unrelated roadmap/inventory changes remain outside the Slice 2 commit.
