@@ -17,12 +17,23 @@ Current admin routes include:
 | `DELETE /users/{id}` | Suspends an account. |
 | `DELETE /users/{id}?permanent=true` | Permanently deletes an account. |
 | `GET /organizations` | Returns organizations with owner and summary counts. |
-| `GET /projects` | Returns projects with organization, task count, and dates. |
+| `GET /projects` | Returns non-trashed projects with organization, task count, and dates. Optional `organizationId` scopes the list; `includeTrashed=true` includes retained soft-deleted projects. |
+| `GET /activity-events` | Returns the platform-wide cursor-paged activity feed. Optional `organizationId`, `projectId`, `category`, `search`, `from`, and `to` filters are applied server-side. A project filter is validated against the selected organization and does not require the Super Admin to be a tenant member. |
 | `GET /dashboard` | Returns platform totals. |
 | `GET /analytics` | Returns growth and task aggregates, with optional date bounds. |
 | `GET /reports?format=csv` | Downloads a broad current platform CSV report. |
 
 Health endpoints currently include `/api/v1/health` and `/api/v1/ready`. The readiness check includes the database. These routes do not currently expose a general service inventory or a platform audit trail.
+
+#### Super Admin Activity Explorer project drill-down
+
+`GET /api/v1/admin/activity-events` remains the read-only platform activity endpoint and retains its existing response shape and cursor behavior. The optional `projectId` query parameter narrows events to that project; when combined with `organizationId`, the project must belong to the requested organization. An unknown project or organization/project mismatch returns `404 PROJECT_NOT_FOUND`. The endpoint remains protected by the existing `SuperAdmin` policy and deliberately does not require organization or project membership.
+
+The existing `GET /api/v1/admin/projects` route accepts optional `organizationId` and `includeTrashed` query parameters for the Activity Explorer selector. Defaults preserve existing behavior by excluding trashed projects and returning all organizations' projects. Retained Trash projects are selectable and their events remain historical records; this does not restore the project or enable tenant mutations. Project activity details expose the IDs and available names already present in activity events. Event history is paged server-side and remains read-only.
+
+#### Super Admin project details
+
+The project detail view reuses the existing SuperAdmin policy and adds read-only routes: `GET /api/v1/admin/projects/{projectId}/details`, `/members?page=1&pageSize=50`, and `/tasks?page=1&pageSize=50`. Member/task pages are capped at 100 rows. The details response uses the shared project-progress calculation; member and task responses omit email addresses, task descriptions, and assignee identities. Task rows include only non-deleted top-level tasks and a count of effective assignees. None of these routes require workspace membership, mutate tenant data, or change the existing `/projects` and `/activity-events` response contracts. Unknown project IDs return 404; invalid page values return 400. Archived and retained-Trash project details are historical and read-only.
 
 ### Implementation facts that constrain new contracts
 

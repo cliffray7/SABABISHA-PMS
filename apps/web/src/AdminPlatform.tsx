@@ -21,7 +21,7 @@ function auditDateBound(value: string, endOfDay = false) {
   return date.toISOString();
 }
 
-type PlatformActivityItem = { eventId: string; organizationId: string | null; organizationName: string; actorUserId: string | null; actorName: string; category: string; action: string; entityType: string; entityId: string; entityName: string; projectName: string | null; description: string; status: string; correlationId: string; createdAt: string };
+type PlatformActivityItem = { eventId: string; organizationId: string | null; organizationName: string; projectId: string | null; actorUserId: string | null; actorName: string; category: string; action: string; entityType: string; entityId: string; entityName: string; projectName: string | null; description: string; status: string; correlationId: string; createdAt: string };
 type PlatformActivityPage = { items: PlatformActivityItem[]; nextCursor: string | null };
 const activityCategories = ['All', 'Projects', 'Tasks', 'People', 'Collaboration', 'System'];
 const activityCategoryIcon: Record<string, typeof Activity> = { Projects: FolderKanban, Tasks: ListTodo, People: Users, Collaboration: MessageSquare, System: Server };
@@ -85,18 +85,25 @@ function groupActivityByDay(items: PlatformActivityItem[]) {
   return groups;
 }
 
-export function AdminActivity() {
+export function AdminActivity({ projectId: scopedProjectId, organizationId: scopedOrganizationId, embedded = false }: { projectId?: string; organizationId?: string; embedded?: boolean } = {}) {
   const [category, setCategory] = useState('All');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
-  const [organizationId, setOrganizationId] = useState('');
+  const [organizationId, setOrganizationId] = useState(scopedOrganizationId ?? '');
+  const [projectId, setProjectId] = useState(scopedProjectId ?? '');
   const [range, setRange] = useState<ActivityRange>('7d');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [cursorStack, setCursorStack] = useState<Array<string | null>>([null]);
   const cursor = cursorStack[cursorStack.length - 1] ?? null;
-  const organizations = useQuery({ queryKey: ['admin-activity-organizations'], queryFn: async () => (await api.get<Array<{ id: string; name: string }>>('/admin/organizations')).data, retry: false });
+  const organizations = useQuery({ queryKey: ['admin-activity-organizations'], queryFn: async () => (await api.get<Array<{ id: string; name: string }>>('/admin/organizations')).data, retry: false, enabled: !embedded });
+  const projects = useQuery({
+    queryKey: ['admin-activity-projects', organizationId],
+    queryFn: async () => (await api.get<Array<{ id: string; name: string; status: string; archivedAt: string | null; deletedAt: string | null }>>('/admin/projects', { params: { organizationId, includeTrashed: true } })).data,
+    enabled: !embedded && Boolean(organizationId),
+    retry: false,
+  });
   useEffect(() => {
     const timeout = window.setTimeout(() => { setSearch(searchInput.trim()); setCursorStack([null]); }, 300);
     return () => window.clearTimeout(timeout);
@@ -111,12 +118,13 @@ export function AdminActivity() {
         : null
     : null;
   const query = useQuery({
-    queryKey: ['admin-activity-events', category, search, organizationId, range, from, to, cursor],
+    queryKey: ['admin-activity-events', category, search, organizationId, projectId, range, from, to, cursor],
     queryFn: async () => {
       const bounds = activityDateBounds(range, from, to);
       return (await api.get<PlatformActivityPage>('/admin/activity-events', { params: {
         category: category === 'All' ? undefined : category, search: search || undefined,
-        organizationId: organizationId || undefined, ...bounds, cursor: cursor || undefined, pageSize: 50,
+        organizationId: organizationId || undefined, projectId: projectId || undefined,
+        ...bounds, cursor: cursor || undefined, pageSize: 50,
       } })).data;
     },
     enabled: !validationError,
@@ -127,19 +135,21 @@ export function AdminActivity() {
   const queryErrorMessage = query.error ? errorMessage(query.error) : '';
   const missingActivitySchema = /ActivityEvent|activity_events/i.test(queryErrorMessage);
   const resetPage = () => setCursorStack([null]);
-  const hasActiveFilters = Boolean(category !== 'All' || search || organizationId || range !== 'all');
-  const clearFilters = () => { setCategory('All'); setOrganizationId(''); setRange('all'); setFrom(''); setTo(''); setSearch(''); setSearchInput(''); resetPage(); };
+  const hasActiveFilters = Boolean(category !== 'All' || search || organizationId || projectId || range !== 'all');
+  const clearFilters = () => { setCategory('All'); setOrganizationId(''); setProjectId(''); setRange('all'); setFrom(''); setTo(''); setSearch(''); setSearchInput(''); resetPage(); };
   const rangeLabels: Record<ActivityRange, string> = { today: 'today', '7d': 'the last 7 days', '30d': 'the last 30 days', all: 'all time', custom: 'the selected dates' };
   const lastUpdated = query.dataUpdatedAt ? relativeActivityTime(new Date(query.dataUpdatedAt).toISOString()) : '';
   return <Box className="admin-platform-page admin-activity-page admin-platform-activity">
-    <header className="admin-platform-page-header admin-activity-compact-header"><div className="admin-activity-title-row"><Typography component="h1">Activity</Typography><span className={`admin-activity-live${query.error ? ' is-error' : ''}`}><i/>{query.error ? 'Unavailable' : query.isLoading ? 'Connecting' : 'Live'}<small>{lastUpdated ? `Updated ${lastUpdated}` : 'Checking for updates'}</small></span></div></header>
+    {!embedded && <header className="admin-platform-page-header admin-activity-compact-header"><div className="admin-activity-title-row"><Typography component="h1">Activity</Typography><span className={`admin-activity-live${query.error ? ' is-error' : ''}`}><i/>{query.error ? 'Unavailable' : query.isLoading ? 'Connecting' : 'Live'}<small>{lastUpdated ? `Updated ${lastUpdated}` : 'Checking for updates'}</small></span></div></header>}
     <Box className="admin-activity-filters admin-platform-activity-filters" aria-label="Filter activity">
       <TextField fullWidth className="admin-activity-search" size="small" placeholder="Search people, work, or IDs…" inputProps={{ 'aria-label': 'Search activity, people, work, or IDs' }} value={searchInput} onChange={event => setSearchInput(event.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><Search size={17}/></InputAdornment> }}/>
-      <TextField fullWidth className="admin-activity-organization" select size="small" value={organizationId} SelectProps={{ displayEmpty: true, renderValue: selected => selected ? organizations.data?.find(organization => organization.id === selected)?.name ?? 'Organization' : 'All organizations' }} inputProps={{ 'aria-label': 'Filter by organization' }} onChange={event => { setOrganizationId(event.target.value); resetPage(); }}><MenuItem value="">All organizations</MenuItem>{organizations.data?.map(organization => <MenuItem key={organization.id} value={organization.id}>{organization.name}</MenuItem>)}</TextField>
+      {!embedded && <TextField fullWidth className="admin-activity-organization" select size="small" value={organizationId} SelectProps={{ displayEmpty: true, renderValue: selected => selected ? organizations.data?.find(organization => organization.id === selected)?.name ?? 'Organization' : 'All organizations' }} inputProps={{ 'aria-label': 'Filter by organization' }} onChange={event => { setOrganizationId(event.target.value); setProjectId(''); resetPage(); }}><MenuItem value="">All organizations</MenuItem>{organizations.data?.map(organization => <MenuItem key={organization.id} value={organization.id}>{organization.name}</MenuItem>)}</TextField>}
+      {!embedded && <TextField fullWidth className="admin-activity-project" select size="small" value={projectId} disabled={!organizationId || projects.isLoading || Boolean(projects.error)} SelectProps={{ displayEmpty: true, renderValue: selected => selected ? projects.data?.find(project => project.id === selected)?.name ?? 'Project' : organizationId ? 'All projects' : 'Select an organization first' }} inputProps={{ 'aria-label': 'Filter by project' }} onChange={event => { setProjectId(event.target.value); resetPage(); }}><MenuItem value="">All projects</MenuItem>{projects.data?.map(project => <MenuItem key={project.id} value={project.id}>{project.name}{project.deletedAt ? ' · In Trash' : project.archivedAt ? ' · Archived' : ''}</MenuItem>)}</TextField>}
       <TextField fullWidth className="admin-activity-range" select size="small" value={range} SelectProps={{ displayEmpty: true, renderValue: selected => ({ today: 'Today', '7d': 'Last 7 days', '30d': 'Last 30 days', all: 'All time', custom: 'Custom range' } as Record<ActivityRange, string>)[selected as ActivityRange] ?? 'Date range' }} inputProps={{ 'aria-label': 'Filter by date range' }} onChange={event => { const nextRange = event.target.value as ActivityRange; setRange(nextRange); if (nextRange === 'custom') setFiltersOpen(true); resetPage(); }}><MenuItem value="today">Today</MenuItem><MenuItem value="7d">Last 7 days</MenuItem><MenuItem value="30d">Last 30 days</MenuItem><MenuItem value="all">All time</MenuItem><MenuItem value="custom">Custom range</MenuItem></TextField>
       <Button className="admin-activity-filter-toggle" variant="outlined" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(open => !open)} startIcon={<Filter size={16}/>}>More filters</Button>
       <Button className="admin-activity-refresh" aria-label="Refresh activity" title="Refresh activity" variant="outlined" startIcon={query.isFetching ? <CircularProgress size={14}/> : <RefreshCw size={15}/>} disabled={query.isFetching} onClick={() => void query.refetch()}>Refresh</Button>
     </Box>
+    {organizationId && projects.error && <Alert severity="error">Unable to load projects for this organization. <Button size="small" onClick={() => void projects.refetch()}>Retry</Button></Alert>}
     {filtersOpen && <Box className="admin-activity-advanced-filters" aria-label="Advanced activity filters"><div><strong>Date range</strong><span>Choose inclusive calendar dates.</span></div><TextField fullWidth type="date" size="small" label="From" value={from} inputProps={{ max: today }} InputLabelProps={{ shrink: true }} onChange={event => { setRange('custom'); setFrom(event.target.value); resetPage(); }}/><TextField fullWidth type="date" size="small" label="To" value={to} inputProps={{ max: today }} InputLabelProps={{ shrink: true }} onChange={event => { setRange('custom'); setTo(event.target.value); resetPage(); }}/></Box>}
     <nav className="activity-category-tabs admin-activity-category-tabs" aria-label="Activity category filters">{activityCategories.map(item => { const Icon = activityCategoryIcon[item] ?? Activity; return <button key={item} className={category === item ? 'active' : ''} aria-pressed={category === item} onClick={() => { setCategory(item); resetPage(); }}><Icon size={15}/>{item}</button>; })}</nav>
     {validationError && <Alert severity="warning" role="alert">{validationError}</Alert>}
@@ -166,7 +176,7 @@ export function AdminActivity() {
                   </summary>
                   <div className="activity-event-details">
                     <span>{item.organizationId ? `Organization: ${item.organizationName} (${item.organizationId})` : 'Scope: Platform'}</span>
-                    {item.projectName && <span>Project: {item.projectName}</span>}
+                    {(item.projectName || item.projectId) && <span>Project: {item.projectName ?? 'Unknown project'}{item.projectId ? ` (${item.projectId})` : ''}</span>}
                     <span>Actor: {item.actorName}{item.actorUserId ? ` (${item.actorUserId})` : ''}</span>
                     <span>Action: {item.action} · {item.status}</span>
                     <span>Target: {item.entityType} · {item.entityName}{item.entityId !== '00000000-0000-0000-0000-000000000000' ? ` (${item.entityId})` : ''}</span>
