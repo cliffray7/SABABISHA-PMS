@@ -3144,11 +3144,25 @@ class _TasksTab extends StatelessWidget {
       final pages = calculatedPages < 1 ? 1 : calculatedPages;
       return Column(children: [Expanded(child: data.items.isEmpty ? const Center(child: Text('No non-deleted top-level tasks.')) : ListView.separated(
         padding: const EdgeInsets.all(12), itemCount: data.items.length, separatorBuilder: (_, __) => const Divider(height: 1),
-        itemBuilder: (_, index) { final task = data.items[index]; return ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.task_outlined)), title: Text(task.title),
-          subtitle: Text('${task.status.replaceAll('_', ' ')} · ${task.priority} · ${task.effectiveAssigneeCount} active assignees'),
-          trailing: Text(task.dueDate == null ? 'No due date' : _fmtDate(task.dueDate!), style: const TextStyle(fontSize: 10, color: _kMuted)),
-        ); })),
+        itemBuilder: (_, index) {
+          final task = data.items[index];
+          final assignees = task.effectiveAssignees;
+          final assignmentLabel = assignees == null
+              ? '${task.effectiveAssigneeCount} active assignees'
+              : assignees.isEmpty
+                  ? 'Unassigned'
+                  : 'Assigned to ${assignees.join(', ')}';
+          return ListTile(
+            leading: const CircleAvatar(child: Icon(Icons.task_outlined)),
+            title: Text(task.title),
+            subtitle: Text(
+                '${task.status.replaceAll('_', ' ')} · ${task.priority} · $assignmentLabel'),
+            trailing: Text(
+              task.dueDate == null ? 'No due date' : _fmtDate(task.dueDate!),
+              style: const TextStyle(fontSize: 10, color: _kMuted),
+            ),
+          );
+        })),
         _PageControls(page: page, pages: pages, total: data.totalCount, onPage: onPage),
       ]);
     });

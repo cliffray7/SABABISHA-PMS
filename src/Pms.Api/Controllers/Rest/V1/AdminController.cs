@@ -556,7 +556,7 @@ public sealed class AdminController(PmsDbContext db, ILogger<AdminController>? l
         var totalCount = await query.CountAsync(cancellationToken);
         var eligibleAssignees = WorkspaceAuthorization.EligibleTaskAssigneeIds(db, projectId);
         var skip = (int)Math.Min(((long)page - 1) * pageSize, int.MaxValue);
-        var items = await query.OrderByDescending(task => task.CreatedAt).ThenByDescending(task => task.Id)
+        var taskRows = await query.OrderByDescending(task => task.CreatedAt).ThenByDescending(task => task.Id)
             .Skip(skip).Take(pageSize)
             .Select(task => new
             {
@@ -565,10 +565,40 @@ public sealed class AdminController(PmsDbContext db, ILogger<AdminController>? l
                 task.Status,
                 task.Priority,
                 task.DueDate,
-                task.CreatedAt,
-                effectiveAssigneeCount = task.Assignees.Count(assignee => assignee.Status == "active"
-                    && eligibleAssignees.Contains(assignee.UserId))
+                task.CreatedAt
             }).ToListAsync(cancellationToken);
+
+        var taskIds = taskRows.Select(task => task.Id).ToArray();
+        var assignmentRows = await (from assignment in db.TaskAssignees.AsNoTracking()
+                     join user in db.Users.AsNoTracking() on assignment.UserId equals user.Id
+                     where taskIds.Contains(assignment.TaskId) && assignment.Status == "active"
+                         && eligibleAssignees.Contains(assignment.UserId)
+                     orderby user.FirstName, user.LastName
+                     select new { assignment.TaskId, user.FirstName, user.LastName })
+            .ToListAsync(cancellationToken);
+        var assigneesByTask = assignmentRows.GroupBy(assignment => assignment.TaskId)
+            .ToDictionary(group => group.Key, group => group
+                .Select(assignment =>
+                {
+                    var name = $"{assignment.FirstName} {assignment.LastName}".Trim();
+                    return name.Length > 0 ? name : "Unknown member";
+                })
+                .ToArray());
+        var items = taskRows.Select(task =>
+        {
+            var effectiveAssignees = assigneesByTask.GetValueOrDefault(task.Id) ?? [];
+            return new
+            {
+                task.Id,
+                task.Title,
+                task.Status,
+                task.Priority,
+                task.DueDate,
+                task.CreatedAt,
+                effectiveAssignees,
+                effectiveAssigneeCount = effectiveAssignees.Length
+            };
+        }).ToArray();
         return Ok(new { items, page, pageSize, totalCount });
     }
     

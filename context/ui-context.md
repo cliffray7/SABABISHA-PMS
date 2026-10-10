@@ -1,5 +1,7 @@
 ## Activity screens
 
+- Super Admin project details use the platform violet accent and restrained tinted surfaces. The Tasks tab shows current eligible assignee display names with an explicit Unassigned state; do not expose assignee IDs, email addresses, or inactive/historical assignments.
+
 - Shared-data workspace screens (dashboard, task board/detail, notifications, activity, members, project lists, and Trash) refresh when a same-organization/project change arrives. Events invalidate data; clients fetch authoritative data through authenticated REST. Keep reconnect/focus refresh and a visible-screen polling fallback on mobile.
 - Project members show an inline role selector only to organization admins/owners and project managers. Guests remain viewer-only; non-grantors do not receive a Project Manager option. Keep the project-members tab selected while role updates reload authoritative membership data, disable its selector during writes, and show stable API errors beside the affected member while restoring the last confirmed role on failure.
 

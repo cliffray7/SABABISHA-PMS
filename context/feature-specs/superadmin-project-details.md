@@ -10,7 +10,7 @@ Super Admins can open Organizations, move to that organization's projects, and o
 ## Authorization and data
 
 - All new project detail routes are under `/api/v1/admin/*` and inherit the existing `SuperAdmin` policy. They do not require tenant membership.
-- Responses are read-only and omit credentials, project/task descriptions, member email addresses, and task assignment identities.
+- Responses are read-only and omit credentials, project/task descriptions, member email addresses, and raw task-assignee identifiers. The task list may include display names for currently effective assignees only; historical or ineligible assignments are not disclosed.
 - Existing list defaults and the global activity contract remain unchanged.
 - Project overview uses the shared progress calculator and reports aggregate counts. Archived and retained-Trash projects are clearly identified as historical.
 - Member and task rows are paged, bounded at 100 per page, and scoped to the path project ID.
@@ -22,7 +22,7 @@ Super Admins can open Organizations, move to that organization's projects, and o
 
 - `GET /api/v1/admin/projects/{projectId}/details`: project/organization metadata, project owner display name, active member count, eligible top-level task aggregates, shared progress fields, and lifecycle timestamps.
 - `GET /api/v1/admin/projects/{projectId}/members?page=1&pageSize=50`: `{ items, page, pageSize, totalCount }`, with display name, project role/status, organization membership status, and account status.
-- `GET /api/v1/admin/projects/{projectId}/tasks?page=1&pageSize=50`: `{ items, page, pageSize, totalCount }`, with title, status, priority, due date, and effective assignee count.
+- `GET /api/v1/admin/projects/{projectId}/tasks?page=1&pageSize=50`: `{ items, page, pageSize, totalCount }`, with title, status, priority, due date, effective assignee count, and `effectiveAssignees` (display-name strings for active assignment rows whose users remain eligible in the project). No email addresses or user IDs are returned. Empty lists mean the task is currently unassigned; deleted assignments and assignments to suspended, inactive, or guest members are excluded while their backend history remains unchanged.
 - Invalid page sizes return `400`; unknown project IDs return `404`. `pageSize` is 1–100 and `page` is positive.
 
 ## Acceptance checks
@@ -31,10 +31,12 @@ Super Admins can open Organizations, move to that organization's projects, and o
 - All four detail tabs load read-only data for a Super Admin without tenant membership.
 - Project activity is project-scoped; the global Activity page continues to support platform-wide filtering.
 - Direct API calls remain protected by the SuperAdmin policy, including cross-tenant project IDs.
+- Task rows identify current eligible assignees in Web and Flutter, show an explicit unassigned state, and do not reveal assignee IDs, emails, or ineligible historical assignments.
 - Loading, empty, and error states are visible, and no client-side fallback fabricates data.
 
 ## Verification record
 
+- Current assignee visibility follow-up: focused backend integration test passed (1/1); Flutter API-client tests passed (9/9); scoped Flutter analysis reported only the two existing unused private-widget warnings in `admin_screen.dart`; Web production build passed with existing SignalR annotation and large-chunk warnings; `git diff --check` passed.
 - Backend API project build: passed with isolated output, zero warnings/errors. The normal output was locked by the running API process.
 - Web production build: passed; existing SignalR annotation and >500 kB chunk warnings remain.
 - Scoped Flutter analysis: zero errors; two existing unused private-widget warnings remain in `admin_screen.dart` (`_RecentProjectRow` and `_HorizBar`).
