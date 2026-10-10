@@ -2887,13 +2887,15 @@ class _AdminProjectDetailsState extends State<_AdminProjectDetails> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               TextButton.icon(onPressed: widget.onBack, icon: const Icon(Icons.arrow_back, size: 17), label: const Text('Back to projects')),
-              Row(children: [Expanded(child: Text(widget.project.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700))), IconButton(onPressed: _refresh, tooltip: 'Refresh project details', icon: const Icon(Icons.refresh))]),
-              Text('${widget.project.organizationName ?? 'Organization'} · ${widget.project.displayStatus}', style: const TextStyle(fontSize: 12, color: _kMuted)),
+              Row(children: [Expanded(child: _ProjectHero(project: widget.project)), IconButton(onPressed: _refresh, tooltip: 'Refresh project details', icon: const Icon(Icons.refresh))]),
             ]),
           ),
           const TabBar(isScrollable: true, tabs: [Tab(text: 'Overview'), Tab(text: 'Members'), Tab(text: 'Tasks'), Tab(text: 'Activity')]),
           Expanded(child: TabBarView(children: [
-            _OverviewTab(future: _details),
+            Builder(builder: (tabContext) => _OverviewTab(
+              future: _details,
+              onViewAll: () => DefaultTabController.of(tabContext).animateTo(3),
+            )),
             _MembersTab(future: _members, page: _memberPage, onPage: (page) => setState(() { _memberPage = page; _load(); })),
             _TasksTab(future: _tasks, page: _taskPage, onPage: (page) => setState(() { _taskPage = page; _load(); })),
             _ProjectActivityTab(projectId: widget.project.id, organizationId: widget.project.organizationId ?? ''),
@@ -2902,9 +2904,58 @@ class _AdminProjectDetailsState extends State<_AdminProjectDetails> {
       );
 }
 
+class _ProjectHero extends StatelessWidget {
+  const _ProjectHero({required this.project});
+  final AdminProject project;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final historical = project.isArchived || project.isTrashed;
+    final accent = theme.colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: _kLine),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [theme.colorScheme.surface, accent.withValues(alpha: .06)],
+        ),
+      ),
+      child: Row(children: [
+        Container(
+          width: 37,
+          height: 37,
+          decoration: BoxDecoration(color: accent.withValues(alpha: .11), borderRadius: BorderRadius.circular(10)),
+          child: Icon(Icons.folder_copy_outlined, color: accent, size: 19),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(project.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 3),
+          Text(project.organizationName ?? 'Organization', maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(fontSize: 10, color: _kMuted)),
+        ])),
+        const SizedBox(width: 7),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: historical ? const Color(0xFFFFF5DF) : const Color(0xFFEAF6EF),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Text(project.displayStatus, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: historical ? const Color(0xFF8A6928) : const Color(0xFF347654))),
+        ),
+      ]),
+    );
+  }
+}
+
 class _OverviewTab extends StatelessWidget {
-  const _OverviewTab({required this.future});
+  const _OverviewTab({required this.future, required this.onViewAll});
   final Future<AdminProjectDetails> future;
+  final VoidCallback onViewAll;
   @override
   Widget build(BuildContext context) => FutureBuilder<AdminProjectDetails>(
     future: future,
@@ -2915,14 +2966,14 @@ class _OverviewTab extends StatelessWidget {
       final historical = project.archivedAt != null || project.deletedAt != null;
       return ListView(padding: const EdgeInsets.all(16), children: [
         if (historical) const _InfoBanner('Historical project · viewing does not restore or change its lifecycle.'),
-        GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 1.8, children: [
-          _AdminMetricCard(label: 'Members', value: project.memberCount, icon: Icons.people_outline),
-          _AdminMetricCard(label: 'Tasks', value: project.hasTasks ? project.totalEligibleTasks : 'No tasks', icon: Icons.task_alt_outlined),
-          _AdminMetricCard(label: 'Progress', value: project.progressPercent == null ? '—' : '${project.progressPercent}%', icon: Icons.donut_small_outlined),
-          _AdminMetricCard(label: 'Overdue', value: project.overdueTaskCount, icon: Icons.schedule),
+        GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, mainAxisSpacing: 9, crossAxisSpacing: 9, childAspectRatio: 1.65, children: [
+          _AdminMetricCard(label: 'Active members', value: project.memberCount, detail: 'Current project access', icon: Icons.people_outline, tone: _MetricTone.violet),
+          _AdminMetricCard(label: 'Eligible tasks', value: project.hasTasks ? project.totalEligibleTasks : 'No tasks', detail: project.hasTasks ? '${project.completedTasks} completed' : 'Awaiting first task', icon: Icons.task_alt_outlined, tone: _MetricTone.blue),
+          _AdminMetricCard(label: 'Progress', value: project.progressPercent == null ? '—' : '${project.progressPercent}%', detail: project.hasTasks ? '${project.outstandingTaskCount} outstanding' : 'No task activity', icon: Icons.donut_small_outlined, tone: _MetricTone.green, progress: project.progressPercent),
+          _AdminMetricCard(label: 'Overdue', value: project.overdueTaskCount, detail: 'Organization local time', icon: Icons.schedule, tone: project.overdueTaskCount > 0 ? _MetricTone.amber : _MetricTone.neutral),
         ]),
         const SizedBox(height: 12),
-        _ChartCard(title: 'Project overview', subtitle: 'Read-only platform view', child: Column(children: [
+        _ChartCard(title: 'Project overview', subtitle: 'Ownership and lifecycle details', child: Column(children: [
           _DetailRow('Organization', project.organizationName), _DetailRow('Owner', project.ownerName ?? 'No owner listed'),
           _DetailRow('Status', historical ? '${project.status} · Historical' : project.status),
           _DetailRow('Completed tasks', '${project.completedTasks} of ${project.totalEligibleTasks}'),
@@ -2930,25 +2981,125 @@ class _OverviewTab extends StatelessWidget {
           _DetailRow('Due date', project.dueDate == null ? 'No due date' : _fmtDate(project.dueDate!)),
           _DetailRow('Created', _fmtDate(project.createdAt)),
         ])),
+        const SizedBox(height: 12),
+        _RecentProjectActivity(projectId: project.projectId, organizationId: project.organizationId, onViewAll: onViewAll),
       ]);
     });
 }
 
+class _RecentProjectActivity extends StatefulWidget {
+  const _RecentProjectActivity({required this.projectId, required this.organizationId, required this.onViewAll});
+  final String projectId;
+  final String organizationId;
+  final VoidCallback onViewAll;
+
+  @override
+  State<_RecentProjectActivity> createState() => _RecentProjectActivityState();
+}
+
+class _RecentProjectActivityState extends State<_RecentProjectActivity> {
+  late Future<PlatformActivityPage> _activity;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    _activity = context.read<AppState>().api.adminActivityPage(
+      projectId: widget.projectId,
+      organizationId: widget.organizationId,
+      pageSize: 4,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13), side: const BorderSide(color: _kLine)),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Recent activity', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+            SizedBox(height: 3),
+            Text('Latest recorded project changes', style: TextStyle(fontSize: 10, color: _kMuted)),
+          ])),
+          TextButton(onPressed: widget.onViewAll, child: const Text('View all', style: TextStyle(fontSize: 11))),
+        ]),
+        FutureBuilder<PlatformActivityPage>(future: _activity, builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) return const Padding(padding: EdgeInsets.all(18), child: Center(child: CircularProgressIndicator(strokeWidth: 2)));
+          if (snapshot.hasError || !snapshot.hasData) return Row(children: [const Expanded(child: Text('Could not load recent activity.', style: TextStyle(fontSize: 11, color: _kMuted))), TextButton(onPressed: () => setState(_load), child: const Text('Retry'))]);
+          final events = snapshot.data!.items.take(4).toList();
+          if (events.isEmpty) return const Padding(padding: EdgeInsets.symmetric(vertical: 20), child: Center(child: Text('No project activity recorded yet.', style: TextStyle(fontSize: 11, color: _kMuted))));
+          return Column(children: [
+            for (var index = 0; index < events.length; index++) ...[
+              if (index > 0) const Divider(height: 1),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: CircleAvatar(radius: 16, backgroundColor: const Color(0xFFEEECFF), child: Icon(_activityIcon(events[index].category), size: 15, color: _kViolet)),
+                title: Text('${events[index].actorName} ${events[index].description}', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                subtitle: Text(events[index].projectName ?? 'Project activity', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 9, color: _kMuted)),
+                trailing: Text(_shortActivityTime(events[index].createdAt), style: const TextStyle(fontSize: 9, color: _kMuted)),
+              ),
+            ],
+          ]);
+        }),
+      ]),
+    ),
+  );
+}
+
+IconData _activityIcon(String category) => switch (category.toLowerCase()) {
+  'tasks' => Icons.task_alt_outlined,
+  'people' => Icons.person_outline,
+  'collaboration' => Icons.forum_outlined,
+  'projects' => Icons.folder_outlined,
+  _ => Icons.bolt_outlined,
+};
+
+String _shortActivityTime(String value) {
+  final parsed = DateTime.tryParse(value)?.toLocal();
+  if (parsed == null) return 'Recently';
+  final difference = DateTime.now().difference(parsed);
+  if (difference.inMinutes < 1) return 'Now';
+  if (difference.inHours < 1) return '${difference.inMinutes}m ago';
+  if (difference.inDays < 1) return '${difference.inHours}h ago';
+  if (difference.inDays < 7) return '${difference.inDays}d ago';
+  return _fmtDate(value);
+}
+
+enum _MetricTone { violet, blue, green, amber, neutral }
+
 class _AdminMetricCard extends StatelessWidget {
-  const _AdminMetricCard({required this.label, required this.value, required this.icon});
+  const _AdminMetricCard({required this.label, required this.value, required this.icon, required this.detail, required this.tone, this.progress});
   final String label;
   final Object value;
+  final String detail;
   final IconData icon;
+  final _MetricTone tone;
+  final int? progress;
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(10), border: Border.all(color: _kLine)),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Icon(icon, size: 17, color: _kViolet),
-      Text(value.toString(), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
-      Text(label, style: const TextStyle(fontSize: 11, color: _kMuted)),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    final palette = switch (tone) {
+      _MetricTone.violet => (const Color(0xFFEEECFF), _kViolet),
+      _MetricTone.blue => (const Color(0xFFEAF2FF), const Color(0xFF4777C1)),
+      _MetricTone.green => (const Color(0xFFE8F6EF), const Color(0xFF398362)),
+      _MetricTone.amber => (const Color(0xFFFFF3DF), const Color(0xFFA47220)),
+      _MetricTone.neutral => (const Color(0xFFF0F1F5), _kMuted),
+    };
+    return Container(
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: _kLine), boxShadow: const [BoxShadow(color: Color(0x08000000), blurRadius: 8, offset: Offset(0, 2))]),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Row(children: [Container(width: 28, height: 28, decoration: BoxDecoration(color: palette.$1, borderRadius: BorderRadius.circular(8)), child: Icon(icon, size: 16, color: palette.$2)), const SizedBox(width: 7), Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: _kMuted, fontWeight: FontWeight.w600)))]),
+        Text(value.toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700, height: 1.1)),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(detail, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 9, color: _kMuted)), if (progress != null) ...[const SizedBox(height: 5), ClipRRect(borderRadius: BorderRadius.circular(5), child: LinearProgressIndicator(value: progress!.clamp(0, 100) / 100, minHeight: 4, backgroundColor: const Color(0xFFEAE8F7), color: _kViolet))]]),
+      ]),
+    );
+  }
 }
 
 class _MembersTab extends StatelessWidget {
@@ -2993,11 +3144,25 @@ class _TasksTab extends StatelessWidget {
       final pages = calculatedPages < 1 ? 1 : calculatedPages;
       return Column(children: [Expanded(child: data.items.isEmpty ? const Center(child: Text('No non-deleted top-level tasks.')) : ListView.separated(
         padding: const EdgeInsets.all(12), itemCount: data.items.length, separatorBuilder: (_, __) => const Divider(height: 1),
-        itemBuilder: (_, index) { final task = data.items[index]; return ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.task_outlined)), title: Text(task.title),
-          subtitle: Text('${task.status.replaceAll('_', ' ')} · ${task.priority} · ${task.effectiveAssigneeCount} active assignees'),
-          trailing: Text(task.dueDate == null ? 'No due date' : _fmtDate(task.dueDate!), style: const TextStyle(fontSize: 10, color: _kMuted)),
-        ); })),
+        itemBuilder: (_, index) {
+          final task = data.items[index];
+          final assignees = task.effectiveAssignees;
+          final assignmentLabel = assignees == null
+              ? '${task.effectiveAssigneeCount} active assignees'
+              : assignees.isEmpty
+                  ? 'Unassigned'
+                  : 'Assigned to ${assignees.join(', ')}';
+          return ListTile(
+            leading: const CircleAvatar(child: Icon(Icons.task_outlined)),
+            title: Text(task.title),
+            subtitle: Text(
+                '${task.status.replaceAll('_', ' ')} · ${task.priority} · $assignmentLabel'),
+            trailing: Text(
+              task.dueDate == null ? 'No due date' : _fmtDate(task.dueDate!),
+              style: const TextStyle(fontSize: 10, color: _kMuted),
+            ),
+          );
+        })),
         _PageControls(page: page, pages: pages, total: data.totalCount, onPage: onPage),
       ]);
     });

@@ -204,6 +204,48 @@ void main() {
     expect(projects.single.id, 'project-trashed');
     expect(projects.single.isTrashed, isTrue);
   });
+
+  test('adminProjectTasks parses effective assignee display names', () async {
+    final client = ApiClient(
+      sessionStore: _TestSessionStore(),
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/v1/admin/projects/project-1/tasks');
+        return http.Response(
+          jsonEncode({
+            'items': [
+              {
+                'id': 'task-1',
+                'title': 'Prepare release',
+                'status': 'IN PROGRESS',
+                'priority': 'HIGH',
+                'createdAt': '2026-10-10T09:00:00Z',
+                'effectiveAssigneeCount': 2,
+                'effectiveAssignees': ['Maya Chen', 'Noah Kim'],
+              },
+              {
+                'id': 'task-2',
+                'title': 'Review release',
+                'status': 'TODO',
+                'priority': 'MEDIUM',
+                'createdAt': '2026-10-10T09:00:00Z',
+                'effectiveAssigneeCount': 0,
+                'effectiveAssignees': [],
+              },
+            ],
+            'page': 1,
+            'pageSize': 50,
+            'totalCount': 2,
+          }),
+          200,
+        );
+      }),
+    );
+
+    final page = await client.adminProjectTasks('project-1');
+
+    expect(page.items.first.effectiveAssignees, ['Maya Chen', 'Noah Kim']);
+    expect(page.items.last.effectiveAssignees, isEmpty);
+  });
 }
 
 class _TestSessionStore extends SessionStore {
