@@ -1,6 +1,6 @@
 # Product Improvements: Pre-Implementation Review
 
-**Status:** Slice 1 and Slice 2 accepted for closure; Slice 3 scope review prepared; security and notification follow-ups tracked separately
+**Status:** Slices 1 and 2 accepted for closure; Slice 3 product rules approved, technical design revised for owner review; security and notification follow-ups tracked separately
 **Date:** 2026-10-08
 **Owner decisions:** [Approved decision record](product-improvements-owner-decisions.md)
 **Follow-ups:** [Security and notification follow-ups](security-follow-ups.md)
@@ -53,11 +53,11 @@ The product owner accepted Slice 2 — Backend Project Ownership Transfer — fo
 - No schema or client changes were made. Existing unrelated Flutter role-editing work remains outside the Slice 2 change boundary.
 - Acceptance baseline: focused ownership-transfer tests 27/27 passed; SQL Server concurrency tests 7/7 passed; standard suite reported 94 passed with 7 opt-in SQL Server tests skipped, which subsequently passed separately; `git diff --check` passed. These are prior reported results, not fresh executions during this review.
 
-Slice 2 is accepted and authorized for closure documentation and a scoped commit. The suspended-account authorization issue remains a separate security follow-up, and historical notification provenance remains deferred. Slice 3 is not authorized. See [Slice 3 Member Removal and Open-Task Resolution Scope Review](product-improvements-slice-3-scope-review.md) for the next review gate; it proposes scope only and does not authorize implementation.
+Slice 2 is accepted and authorized for closure documentation and a scoped commit. The suspended-account authorization issue remains a separate security follow-up, and historical notification provenance remains deferred. Slice 3 product rules are approved, but implementation is not authorized pending review of the revised technical design. See [Slice 3 Member Removal and Open-Task Resolution Scope Review](product-improvements-slice-3-scope-review.md).
 
 ## Implementation sequence and acceptance gates
 
-Implementation is authorized one slice at a time. Slices 1 and 2 are accepted for closure with the outstanding follow-up findings tracked separately. Slice 3 requires a separate scope review and implementation authorization.
+Implementation is authorized one slice at a time. Slices 1 and 2 are accepted for closure with the outstanding follow-up findings tracked separately. Slice 3 product rules are approved; implementation requires review and explicit authorization of the revised technical design.
 
 ### Slice 1 — Backend authorization and invariants
 
@@ -105,7 +105,7 @@ Implement owner display/transfer, removal and task-resolution workflows, trackin
 
 Check accepted CRUD actions against existing routes and both clients. Add only capabilities proven missing and included in the conditionally approved scope.
 
-No migration is planned. Existing owner, project-member, task-assignee, organization-time-zone, and append-only activity records appear sufficient. Reconsider schema work only if implementation tests prove an approved behavior cannot be represented safely with the current model.
+Slices 1 and 2 required no schema migration. The Slice 3 read-only design found that existing task-assignee/activity fields do not reliably capture assignment deactivation actor, time, outcome, and replacement identity; a nullable structured activity-details field is proposed for owner review. No migration is authorized. See the revised Slice 3 scope review for retention and legacy-history limitations.
 
 ### Slice 1 assignment-policy follow-up — 2026-10-08
 
@@ -115,8 +115,8 @@ Targeted tests cover omitted IDs with guest/suspended assignees, explicit unchan
 
 ### Final Slice 1 sign-off — 2026-10-08
 
-The product owner accepted Slice 1 for closure based on the reported code changes and verification; this is product-level sign-off, not an independent execution or inspection. Reported results: 71/71 backend tests passed, 52/52 focused tests passed, and all 4 SQL Server concurrency tests passed with no skips or failures; `git diff --check` passed. The two outstanding findings are tracked in `docs/security-follow-ups.md`. Slice 2 remains unauthorized pending a separate scope review. Existing Flutter role-editing changes remain untouched.
+The product owner accepted Slice 1 for closure based on the reported code changes and verification; this is product-level sign-off, not an independent execution or inspection. Reported results: 71/71 backend tests passed, 52/52 focused tests passed, and all 4 SQL Server concurrency tests passed with no skips or failures; `git diff --check` passed. The two outstanding findings are tracked in `docs/security-follow-ups.md`. Slice 2 was subsequently accepted in the final Slice 2 sign-off above. Existing Flutter role-editing changes remain untouched.
 
 ## Readiness boundary
 
-The approved product requirements, read-only source verification, Slice 1 changes, and test results are recorded. Stop here for review. Slices 2–6 remain unauthorized. Existing uncommitted Flutter role-editing changes are unrelated and remain untouched.
+The approved product requirements, read-only source verification, Slice 1 and Slice 2 changes, and test results are recorded. Slice 3 rules are approved for specification only; implementation awaits review of the revised design and explicit authorization. Slices 4–6 remain unauthorized. Existing uncommitted Flutter role-editing changes are unrelated and remain untouched.

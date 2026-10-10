@@ -1,7 +1,8 @@
 # Safe Product Improvements Roadmap
 
-**Status:** Planning proposal  
-**Date:** 2026-10-07  
+**Status:** Approved; pre-implementation verification pending
+**Date:** 2026-10-08
+**Approval record:** [Product Improvements Owner Decision Record](product-improvements-owner-decisions.md)
 **Scope:** Improve CRUD coverage, role management, project assignment, and progress visibility without disrupting existing TaskFlow behavior.
 
 ## Purpose
@@ -36,7 +37,9 @@ This is a targeted baseline from the current API/domain review, not a guarantee 
 
 Initial code inventory: [Product Improvements Phase 0 Inventory](product-improvements-inventory.md). Continue by confirming each action against the complete Web and Flutter flows, API authorization paths, and existing regression-test coverage. Include organizations, members/invitations, projects/members, tasks/subtasks/assignees, comments, attachments, notifications, and account/profile settings. Mark append-only/system-managed tables as lifecycle-managed rather than promising direct CRUD.
 
-**Gate:** Product owner accepts the module scope and confirms what “CRUD for every table” means. No implementation or schema changes in this phase.
+Candidate meaning of “CRUD for every table,” including the system-managed exclusions and observed API gaps, is recorded in [Proposed CRUD Scope](product-improvements-crud-scope.md). It remains pending product-owner acceptance. The concrete open items are comment editing/authority, organization profile editing, notification dismissal, standalone task retrieval, attachment metadata editing, and confirmed Web/Flutter parity.
+
+**Gate:** CRUD scope is conditionally approved. Verify every accepted action in the API, Web, and Flutter before adding any endpoint. No implementation or schema changes before that verification.
 
 ### Phase 1 — Close confirmed CRUD interaction gaps
 
@@ -46,32 +49,32 @@ For each accepted user-facing module, implement only missing UI/API interactions
 
 ### Phase 2 — Project assignment and ownership clarity
 
-First surface existing project owner, project members/roles, and task assignees consistently. The current project has an `OwnerId`, project membership, and multiple task assignees. Decide whether “assign project to users” means project membership, a distinct assignment list, or both before adding a new relationship. Define behavior for removing a project member who still owns or is assigned tasks.
+Current model findings and proposed semantics are recorded in [Project Assignment and Ownership](product-improvements-project-assignment.md). The candidate approach uses active `ProjectMember` rows for multiple project participants, keeps `Project.OwnerId` as one accountable owner, and keeps task assignees separate. The project list and client models currently omit owner identity; removal does not reconcile the owner reference or task-assignee rows. Resolve the listed owner/removal decisions before implementation.
 
-**Gate:** Assignment semantics and reassignment/notification behavior approved. Prefer current `ProjectMember` unless requirements demonstrate that it cannot represent the need.
+**Gate:** Product owner approves assignment semantics, owner transfer/removal rules, open-task reassignment policy, and notification/audit behavior independently of the CRUD and progress/status decisions. Prefer current `ProjectMember` unless requirements demonstrate that it cannot represent the need.
 
 ### Phase 3 — Progress and status reporting
 
-Start with a read-only project tracking view using existing project status, task statuses, due dates, subtasks, assignees, and current dashboard metrics where accurate. Propose progress as completed top-level tasks divided by all active top-level tasks; show “No tasks yet” when denominator is zero. Show outstanding and overdue counts separately. Keep this calculation server-authoritative and consistent across clients.
+The current behavior, formula proposal, status mapping, and owner decisions are in [Project Progress and Status Rules](product-improvements-progress-status.md). Keep project lifecycle status separate from task workflow status, and make any shared project progress calculation server-authoritative. Do not change persisted statuses until the owner accepts the mapping or transition rules.
 
-**Decision required:** Confirm whether progress is derived from tasks, weighted by subtasks, or manually entered. Also confirm whether the requested statuses map to existing statuses (for example Pending/To Do and Under Testing/Review) or require new persisted values.
+**Decision required:** Accept or edit the formula, empty-project behavior, audience, overdue date boundary, and status wording. Define “Pending” before considering a persisted value.
 
-**Gate:** Formula, status mapping, empty-project behavior, and archived/deleted task treatment approved before API/UI implementation.
+**Gate:** Formula, status mapping, empty-project behavior, audience, and archived/deleted task treatment approved independently of CRUD and assignment decisions before API/UI implementation.
 
 ### Phase 4 — Fixed-role management improvements
 
 If the need is to assign existing roles, improve the member-management UI and guardrails for current organization/project roles. Preserve owner protections, self-change restrictions, guest restrictions, and server checks. This delivers role administration without creating a custom permissions engine.
 
-First candidate slice spec: `context/feature-specs/project-member-role-management.md` (approved 2026-10-07; Slice 0 is committed and its tests passed).
+First candidate slice spec: `context/feature-specs/project-member-role-management.md` (approved 2026-10-07; Slice 0 and Slice 1 API/Web/Flutter implementation are complete).
 
 Required implementation order:
 
 1. **Slice 0 — guest write-check (completed 2026-10-07):** tests found reachable writes for legacy guest memberships above viewer; a shared authorization guard now denies guest writes, with viewer rejection preserved. Backend tests are green; see the progress tracker.
-2. **Slice 1 API — project-member role update:** add the server endpoint, manager invariant, invitation-reactivation guest-role clamp and audit, and atomic admin audit entry. Provide the historical-data query; add an idempotent migration only if the read-only audit finds affected rows and the owner approves it.
-3. **Slice 1 Web UI:** expose role editing after the API is deployed.
-4. **Slice 1 Flutter UI:** expose role editing after the API is deployed.
+2. **Slice 1 API - project-member role update (complete):** server endpoint, manager invariant, invitation-reactivation guest-role clamp and audit, and atomic admin audit entry are implemented. A historical-data query is provided; add an idempotent migration only if the read-only audit finds affected rows and the owner approves it.
+3. **Slice 1 Web UI (complete):** authorized role editing is implemented against the additive API.
+4. **Slice 1 Flutter UI (complete):** authorized role editing is implemented against the additive API. Flutter tests pass; analyzer reports two existing unused-element warnings in `admin_screen.dart`.
 
-Slice 1 must wait for Slice 0 completion and green backend tests. The AI task-suggestion guest gate is a small separate commit using the shared write-level authorization check and its own regression test. See the feature spec for the approved decisions and verification requirements.
+Slice 1 followed Slice 0 and green backend tests. The AI task-suggestion guest gate was committed separately using the shared write-level authorization check and its own regression test. See the feature spec and progress tracker for the approved decisions and verification results.
 
 **Gate:** Confirm fixed-role assignment meets the need. If so, stop here for role scope.
 
@@ -107,13 +110,10 @@ Database work requires an additive migration, existing-row backfill plan, pre/po
 | Schema/UI changes disrupt current users | Additive migrations, backward-compatible API, regression checks, staged release. |
 | Existing documentation describes stale stack/scope | Treat active `context/` docs and actual code as baseline; reconcile legacy docs only in scoped doc updates. |
 
-## Decisions to record before implementation
+## Implementation authorization
 
-1. Which modules are included in CRUD completion, and which entities are system-managed?
-2. Are fixed roles sufficient, or are custom roles and permissions required?
-3. Does project assignment mean membership, a separate assignment relationship, or both?
-4. What is the progress formula and how are subtasks, deleted tasks, and empty projects handled?
-5. Should Pending and Under Testing be display aliases or persisted statuses?
-6. Which clients are release targets for each phase (Web, Flutter, or both)?
+The CRUD scope, ownership/reassignment policy, and progress/status rules were approved independently on 2026-10-08. Their exact decisions are recorded in `docs/product-improvements-owner-decisions.md`.
 
-Until these are resolved, implementation can safely begin only with Phase 0 inventory and documentation/specification work.
+Before changing application behavior, verify the existing API authorization/fixed-role matrix; manager and owner invariants under concurrent transfers/removals; task reassignment and historical attribution; server-side progress calculation and tenant isolation; Web/Flutter loading, errors, refresh and realtime behavior; and backward compatibility. Document findings and a reviewable implementation plan. Until this verification is complete, do not change business rules, database schemas, API contracts, or client behavior for these improvements. No schema migration is approved unless verification proves an accepted requirement cannot be implemented safely with existing relationships.
+
+Role editing is complete. The historical guest data audit remains a pre-deployment operational task. Existing uncommitted Flutter role-editing changes were made under the prior approved Prompt E and are separate from these pending improvement decisions.
