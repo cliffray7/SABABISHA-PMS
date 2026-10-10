@@ -189,6 +189,7 @@ class AdminScreen extends StatefulWidget {
 class _AdminScreenState extends State<AdminScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   _AdminSection _section = _AdminSection.overview;
+  String? _adminOrganizationFilterId;
   ThemeMode _adminThemeMode = ThemeMode.light;
 
   void _toggleAdminTheme() {
@@ -199,7 +200,18 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   void _navigate(_AdminSection s) {
-    setState(() => _section = s);
+    setState(() {
+      _section = s;
+      if (s == _AdminSection.projects) _adminOrganizationFilterId = null;
+    });
+    _scaffoldKey.currentState?.closeDrawer();
+  }
+
+  void _openOrganizationProjects(String organizationId) {
+    setState(() {
+      _adminOrganizationFilterId = organizationId;
+      _section = _AdminSection.projects;
+    });
     _scaffoldKey.currentState?.closeDrawer();
   }
 
@@ -318,9 +330,9 @@ class _AdminScreenState extends State<AdminScreen> {
       case _AdminSection.users:
         return const _AdminUsers();
       case _AdminSection.organizations:
-        return const _AdminOrganizations();
+        return _AdminOrganizations(onOpenProjects: _openOrganizationProjects);
       case _AdminSection.projects:
-        return const _AdminProjects();
+        return _AdminProjects(organizationFilterId: _adminOrganizationFilterId);
       case _AdminSection.activity:
         return const _AdminActivity();
       case _AdminSection.audit:
@@ -2373,7 +2385,8 @@ class _CreateUserSheetState extends State<_CreateUserSheet> {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _AdminOrganizations extends StatefulWidget {
-  const _AdminOrganizations();
+  const _AdminOrganizations({required this.onOpenProjects});
+  final ValueChanged<String> onOpenProjects;
 
   @override
   State<_AdminOrganizations> createState() => _AdminOrganizationsState();
@@ -2555,6 +2568,10 @@ class _AdminOrganizationsState extends State<_AdminOrganizations> {
             _DetailRow('Projects', '${org.projectCount}'),
             _DetailRow('Created', _fmtDate(org.createdAt)),
             _DetailRow('Organization ID', org.id),
+            const SizedBox(height: 12),
+            SizedBox(width: double.infinity, child: FilledButton.icon(
+              onPressed: () { Navigator.of(context).pop(); widget.onOpenProjects(org.id); },
+              icon: const Icon(Icons.folder_open_outlined), label: const Text('View projects'))),
           ]),
         ),
       ),
@@ -2649,7 +2666,8 @@ class _DetailRow extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _AdminProjects extends StatefulWidget {
-  const _AdminProjects();
+  const _AdminProjects({this.organizationFilterId});
+  final String? organizationFilterId;
 
   @override
   State<_AdminProjects> createState() => _AdminProjectsState();
@@ -2661,6 +2679,7 @@ class _AdminProjectsState extends State<_AdminProjects> {
   String _statusFilter = '';
   String _sortBy = 'dueDate';
   Timer? _refreshTimer;
+  AdminProject? _selectedProject;
 
   @override
   void initState() {
@@ -2686,12 +2705,16 @@ class _AdminProjectsState extends State<_AdminProjects> {
                 p.name.toLowerCase().contains(q) ||
                 (p.organizationName ?? '').toLowerCase().contains(q) ||
                 p.displayStatus.toLowerCase().contains(q)) &&
-            (_statusFilter.isEmpty || p.displayStatus == _statusFilter);
+            (_statusFilter.isEmpty || p.displayStatus == _statusFilter) &&
+            (widget.organizationFilterId == null || p.organizationId == widget.organizationFilterId);
       }).toList();
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    if (_selectedProject != null) {
+      return _AdminProjectDetails(project: _selectedProject!, onBack: () => setState(() => _selectedProject = null));
+    }
     final rows = _filtered(state.adminProjects)
       ..sort((a, b) {
         String value(AdminProject project) => switch (_sortBy) {
@@ -2715,6 +2738,11 @@ class _AdminProjectsState extends State<_AdminProjects> {
               const SizedBox(height: 2),
               const Text('Read-only oversight of projects across the platform.',
                   style: TextStyle(fontSize: 12, color: _kMuted)),
+              if (widget.organizationFilterId != null) ...[
+                const SizedBox(height: 5),
+                Text('Filtered to ${state.adminOrgs.where((organization) => organization.id == widget.organizationFilterId).map((organization) => organization.name).firstOrNull ?? 'selected organization'}',
+                    style: const TextStyle(fontSize: 12, color: _kViolet)),
+              ],
               const SizedBox(height: 12),
               TextField(
                 controller: _searchCtrl,
@@ -2807,7 +2835,7 @@ class _AdminProjectsState extends State<_AdminProjects> {
                         separatorBuilder: (_, __) => const SizedBox(height: 4),
                         itemBuilder: (_, i) => _ProjectTile(
                           rows[i],
-                          onTap: () => _showProject(context, rows[i]),
+                          onTap: () => setState(() => _selectedProject = rows[i]),
                         ),
                       ),
                     ),
@@ -2816,27 +2844,210 @@ class _AdminProjectsState extends State<_AdminProjects> {
     );
   }
 
-  void _showProject(BuildContext context, AdminProject project) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(project.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-            const Divider(height: 24),
-            _DetailRow('Organization', project.organizationName ?? 'Unknown organization'),
-            _DetailRow('Status', project.displayStatus),
-            _DetailRow('Tasks', '${project.taskCount}'),
-            _DetailRow('Due date', project.dueDate == null ? 'No due date' : _fmtDate(project.dueDate!)),
-            _DetailRow('Created', _fmtDate(project.createdAt)),
-            _DetailRow('Project ID', project.id),
-          ]),
-        ),
-      ),
-    );
+}
+
+class _AdminProjectDetails extends StatefulWidget {
+  const _AdminProjectDetails({required this.project, required this.onBack});
+  final AdminProject project;
+  final VoidCallback onBack;
+
+  @override
+  State<_AdminProjectDetails> createState() => _AdminProjectDetailsState();
+}
+
+class _AdminProjectDetailsState extends State<_AdminProjectDetails> {
+  late Future<AdminProjectDetails> _details;
+  late Future<AdminProjectPage<AdminProjectMember>> _members;
+  late Future<AdminProjectPage<AdminProjectTask>> _tasks;
+  int _memberPage = 1, _taskPage = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
+
+  void _load() {
+    final api = context.read<AppState>().api;
+    _details = api.adminProjectDetails(widget.project.id);
+    _members = api.adminProjectMembers(widget.project.id, page: _memberPage);
+    _tasks = api.adminProjectTasks(widget.project.id, page: _taskPage);
+  }
+
+  Future<void> _refresh() async {
+    setState(_load);
+    await Future.wait([_details, _members, _tasks]);
+  }
+
+  @override
+  Widget build(BuildContext context) => DefaultTabController(
+        length: 4,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              TextButton.icon(onPressed: widget.onBack, icon: const Icon(Icons.arrow_back, size: 17), label: const Text('Back to projects')),
+              Row(children: [Expanded(child: Text(widget.project.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700))), IconButton(onPressed: _refresh, tooltip: 'Refresh project details', icon: const Icon(Icons.refresh))]),
+              Text('${widget.project.organizationName ?? 'Organization'} · ${widget.project.displayStatus}', style: const TextStyle(fontSize: 12, color: _kMuted)),
+            ]),
+          ),
+          const TabBar(isScrollable: true, tabs: [Tab(text: 'Overview'), Tab(text: 'Members'), Tab(text: 'Tasks'), Tab(text: 'Activity')]),
+          Expanded(child: TabBarView(children: [
+            _OverviewTab(future: _details),
+            _MembersTab(future: _members, page: _memberPage, onPage: (page) => setState(() { _memberPage = page; _load(); })),
+            _TasksTab(future: _tasks, page: _taskPage, onPage: (page) => setState(() { _taskPage = page; _load(); })),
+            _ProjectActivityTab(projectId: widget.project.id, organizationId: widget.project.organizationId ?? ''),
+          ])),
+        ]),
+      );
+}
+
+class _OverviewTab extends StatelessWidget {
+  const _OverviewTab({required this.future});
+  final Future<AdminProjectDetails> future;
+  @override
+  Widget build(BuildContext context) => FutureBuilder<AdminProjectDetails>(
+    future: future,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+      if (snapshot.hasError || !snapshot.hasData) return const _ErrorBanner('Could not load project overview.');
+      final project = snapshot.data!;
+      final historical = project.archivedAt != null || project.deletedAt != null;
+      return ListView(padding: const EdgeInsets.all(16), children: [
+        if (historical) const _InfoBanner('Historical project · viewing does not restore or change its lifecycle.'),
+        GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 1.8, children: [
+          _AdminMetricCard(label: 'Members', value: project.memberCount, icon: Icons.people_outline),
+          _AdminMetricCard(label: 'Tasks', value: project.hasTasks ? project.totalEligibleTasks : 'No tasks', icon: Icons.task_alt_outlined),
+          _AdminMetricCard(label: 'Progress', value: project.progressPercent == null ? '—' : '${project.progressPercent}%', icon: Icons.donut_small_outlined),
+          _AdminMetricCard(label: 'Overdue', value: project.overdueTaskCount, icon: Icons.schedule),
+        ]),
+        const SizedBox(height: 12),
+        _ChartCard(title: 'Project overview', subtitle: 'Read-only platform view', child: Column(children: [
+          _DetailRow('Organization', project.organizationName), _DetailRow('Owner', project.ownerName ?? 'No owner listed'),
+          _DetailRow('Status', historical ? '${project.status} · Historical' : project.status),
+          _DetailRow('Completed tasks', '${project.completedTasks} of ${project.totalEligibleTasks}'),
+          _DetailRow('Outstanding tasks', '${project.outstandingTaskCount}'),
+          _DetailRow('Due date', project.dueDate == null ? 'No due date' : _fmtDate(project.dueDate!)),
+          _DetailRow('Created', _fmtDate(project.createdAt)),
+        ])),
+      ]);
+    });
+}
+
+class _AdminMetricCard extends StatelessWidget {
+  const _AdminMetricCard({required this.label, required this.value, required this.icon});
+  final String label;
+  final Object value;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(10), border: Border.all(color: _kLine)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      Icon(icon, size: 17, color: _kViolet),
+      Text(value.toString(), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+      Text(label, style: const TextStyle(fontSize: 11, color: _kMuted)),
+    ]),
+  );
+}
+
+class _MembersTab extends StatelessWidget {
+  const _MembersTab({required this.future, required this.page, required this.onPage});
+  final Future<AdminProjectPage<AdminProjectMember>> future;
+  final int page;
+  final ValueChanged<int> onPage;
+  @override
+  Widget build(BuildContext context) => FutureBuilder<AdminProjectPage<AdminProjectMember>>(
+    future: future,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+      if (snapshot.hasError || !snapshot.hasData) return const _ErrorBanner('Could not load project members.');
+      final data = snapshot.data!;
+      final calculatedPages = (data.totalCount / data.pageSize).ceil();
+      final pages = calculatedPages < 1 ? 1 : calculatedPages;
+      return Column(children: [Expanded(child: data.items.isEmpty ? const Center(child: Text('No members recorded.')) : ListView.separated(
+        padding: const EdgeInsets.all(12), itemCount: data.items.length, separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (_, index) { final member = data.items[index]; return ListTile(
+          leading: const CircleAvatar(child: Icon(Icons.person_outline)), title: Text(member.displayName),
+          subtitle: Text('${member.projectRole.replaceAll('_', ' ')} · ${member.projectMembershipStatus} · ${member.accountStatus}'),
+          trailing: Text(member.organizationMembershipStatus ?? 'No org membership', style: const TextStyle(fontSize: 10, color: _kMuted)),
+        ); })),
+        _PageControls(page: page, pages: pages, total: data.totalCount, onPage: onPage),
+      ]);
+    });
+}
+
+class _TasksTab extends StatelessWidget {
+  const _TasksTab({required this.future, required this.page, required this.onPage});
+  final Future<AdminProjectPage<AdminProjectTask>> future;
+  final int page;
+  final ValueChanged<int> onPage;
+  @override
+  Widget build(BuildContext context) => FutureBuilder<AdminProjectPage<AdminProjectTask>>(
+    future: future,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+      if (snapshot.hasError || !snapshot.hasData) return const _ErrorBanner('Could not load project tasks.');
+      final data = snapshot.data!;
+      final calculatedPages = (data.totalCount / data.pageSize).ceil();
+      final pages = calculatedPages < 1 ? 1 : calculatedPages;
+      return Column(children: [Expanded(child: data.items.isEmpty ? const Center(child: Text('No non-deleted top-level tasks.')) : ListView.separated(
+        padding: const EdgeInsets.all(12), itemCount: data.items.length, separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (_, index) { final task = data.items[index]; return ListTile(
+          leading: const CircleAvatar(child: Icon(Icons.task_outlined)), title: Text(task.title),
+          subtitle: Text('${task.status.replaceAll('_', ' ')} · ${task.priority} · ${task.effectiveAssigneeCount} active assignees'),
+          trailing: Text(task.dueDate == null ? 'No due date' : _fmtDate(task.dueDate!), style: const TextStyle(fontSize: 10, color: _kMuted)),
+        ); })),
+        _PageControls(page: page, pages: pages, total: data.totalCount, onPage: onPage),
+      ]);
+    });
+}
+
+class _ProjectActivityTab extends StatefulWidget {
+  const _ProjectActivityTab({required this.projectId, required this.organizationId});
+  final String projectId, organizationId;
+  @override
+  State<_ProjectActivityTab> createState() => _ProjectActivityTabState();
+}
+
+class _ProjectActivityTabState extends State<_ProjectActivityTab> {
+  final List<String?> _cursors = [null];
+  late Future<PlatformActivityPage> _future;
+  @override
+  void initState() { super.initState(); _load(); }
+  void _load() => _future = context.read<AppState>().api.adminActivityPage(
+      projectId: widget.projectId, organizationId: widget.organizationId,
+      cursor: _cursors.last, pageSize: 30);
+  @override
+  Widget build(BuildContext context) => FutureBuilder<PlatformActivityPage>(future: _future, builder: (context, snapshot) {
+    if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+    if (snapshot.hasError || !snapshot.hasData) return const _ErrorBanner('Could not load project activity.');
+    final data = snapshot.data!;
+    if (data.items.isEmpty) return const Center(child: Text('No activity recorded for this project.'));
+    return Column(children: [Expanded(child: ListView.builder(padding: const EdgeInsets.all(12), itemCount: data.items.length, itemBuilder: (_, index) {
+      final event = data.items[index];
+      return Card(child: ExpansionTile(title: Text('${event.actorName} ${event.description}'), subtitle: Text('${event.category} · ${_fmtDateTime(event.createdAt)}'), childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12), children: [
+        _DetailRow('Actor', event.actorName), _DetailRow('Action', event.action), _DetailRow('Target', '${event.entityType}: ${event.entityName}'), _DetailRow('Organization', event.organizationName), _DetailRow('Project', event.projectName ?? widget.projectId), _DetailRow('Status', event.status), _DetailRow('Request', event.correlationId),
+      ]));
+    })),
+      Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        TextButton(onPressed: _cursors.length > 1 ? () => setState(() { _cursors.removeLast(); _load(); }) : null, child: const Text('Newer')),
+        Text('Page ${_cursors.length}', style: const TextStyle(fontSize: 11, color: _kMuted)),
+        TextButton(onPressed: data.nextCursor == null ? null : () => setState(() { _cursors.add(data.nextCursor); _load(); }), child: const Text('Older')),
+      ])),
+    ]);
+  });
+}
+
+class _PageControls extends StatelessWidget {
+  const _PageControls({required this.page, required this.pages, required this.total, required this.onPage});
+  final int page, pages, total;
+  final ValueChanged<int> onPage;
+  @override
+  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+    Text('Page $page of $pages · $total records', style: const TextStyle(fontSize: 11, color: _kMuted)),
+    Row(children: [IconButton(tooltip: 'Previous page', onPressed: page > 1 ? () => onPage(page - 1) : null, icon: const Icon(Icons.chevron_left)), IconButton(tooltip: 'Next page', onPressed: page < pages ? () => onPage(page + 1) : null, icon: const Icon(Icons.chevron_right))]),
+  ]));
 }
 
 class _ProjectTile extends StatelessWidget {
@@ -2945,6 +3156,12 @@ class _AdminActivityState extends State<_AdminActivity> {
   final List<String?> _cursorStack = [null];
   String _category = '';
   String _organizationId = '';
+  String _projectId = '';
+  List<AdminProject> _projects = [];
+  bool _loadingProjects = false;
+  String? _projectsError;
+  int _projectLoadGeneration = 0;
+  int _activityLoadGeneration = 0;
   String _range = '7d';
   DateTimeRange? _customRange;
   Timer? _refreshTimer;
@@ -2991,6 +3208,7 @@ class _AdminActivityState extends State<_AdminActivity> {
     return context.read<AppState>().api.adminActivityPage(
             category: _category,
             organizationId: _organizationId,
+            projectId: _projectId,
             search: _search.text.trim(),
             from: bounds.from,
             to: bounds.to,
@@ -2998,8 +3216,44 @@ class _AdminActivityState extends State<_AdminActivity> {
             pageSize: 50);
   }
 
-  Future<void> _refresh({bool resetPage = false}) async {
-    if (_requestInFlight || !mounted) return;
+  Future<void> _loadProjects(String organizationId) async {
+    final generation = ++_projectLoadGeneration;
+    if (!mounted || organizationId.isEmpty) return;
+    setState(() {
+      _loadingProjects = true;
+      _projectsError = null;
+      _projects = [];
+    });
+    try {
+      final projects = await context.read<AppState>().api.adminProjects(
+            organizationId: organizationId,
+            includeTrashed: true,
+          );
+      if (!mounted ||
+          generation != _projectLoadGeneration ||
+          _organizationId != organizationId) {
+        return;
+      }
+      setState(() => _projects = projects);
+    } catch (_) {
+      if (!mounted ||
+          generation != _projectLoadGeneration ||
+          _organizationId != organizationId) {
+        return;
+      }
+      setState(
+        () => _projectsError =
+            'Could not load projects for this organization.',
+      );
+    } finally {
+      if (mounted && generation == _projectLoadGeneration) {
+        setState(() => _loadingProjects = false);
+      }
+    }
+  }
+
+  Future<void> _refresh({bool resetPage = false, bool force = false}) async {
+    if ((_requestInFlight && !force) || !mounted) return;
     _requestInFlight = true;
     if (resetPage) {
       _cursorStack
@@ -3011,10 +3265,11 @@ class _AdminActivityState extends State<_AdminActivity> {
     setState(() {
       _page = request;
     });
+    final generation = ++_activityLoadGeneration;
     try {
       await request;
     } finally {
-      _requestInFlight = false;
+      if (generation == _activityLoadGeneration) _requestInFlight = false;
     }
   }
 
@@ -3131,12 +3386,85 @@ class _AdminActivityState extends State<_AdminActivity> {
                     DropdownMenuItem(value: org.id, child: Text(org.name, overflow: TextOverflow.ellipsis)),
                 ],
                 onChanged: (value) async {
-                  setState(() => _organizationId = value ?? '');
-                  await _refresh(resetPage: true);
+                  final organizationId = value ?? '';
+                  setState(() {
+                    _organizationId = organizationId;
+                    _projectId = '';
+                    _projects = [];
+                    _projectsError = null;
+                    _loadingProjects = organizationId.isNotEmpty;
+                  });
+                  if (organizationId.isNotEmpty) await _loadProjects(organizationId);
+                  await _refresh(resetPage: true, force: true);
                 },
               ),
             ),
-            const SizedBox(width: 8),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                initialValue: _projectId,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Project',
+                  isDense: true,
+                  suffixIcon: _loadingProjects
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : null,
+                ),
+                items: [
+                  DropdownMenuItem(
+                    value: '',
+                    child: Text(_organizationId.isEmpty
+                        ? 'Select an organization first'
+                        : 'All projects'),
+                  ),
+                  for (final project in _projects)
+                    DropdownMenuItem(
+                      value: project.id,
+                      child: Text(
+                        '${project.name}${project.isTrashed ? ' · In Trash' : project.isArchived ? ' · Archived' : ''}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: _organizationId.isEmpty ||
+                        _loadingProjects ||
+                        _projectsError != null
+                    ? null
+                    : (value) async {
+                        setState(() => _projectId = value ?? '');
+                        await _refresh(resetPage: true, force: true);
+                      },
+              ),
+            ),
+            if (_projectsError != null) ...[
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Retry loading projects',
+                onPressed: () => _loadProjects(_organizationId),
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ]),
+          if (_projectsError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                _projectsError!,
+                style: const TextStyle(color: Colors.red, fontSize: 12),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Row(children: [
             Expanded(
               child: DropdownButtonFormField<String>(
                 initialValue: _range,
@@ -3221,33 +3549,52 @@ class _ActivityCard extends StatelessWidget {
   const _ActivityCard({required this.item});
   final PlatformActivityItem item;
 
+  Widget _detailLine(String label, String value) => Padding(
+        padding: const EdgeInsets.only(bottom: 5),
+        child: Text('$label: $value', style: const TextStyle(fontSize: 12)),
+      );
+
   @override
   Widget build(BuildContext context) => Card(
         margin: const EdgeInsets.only(bottom: 9),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Icon(Icons.bolt_outlined, color: _kViolet, size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                        item.description.isEmpty
-                            ? item.action
-                            : item.description,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    Text('${item.actorName} · ${item.organizationName}',
-                        style: const TextStyle(fontSize: 12, color: _kMuted)),
-                    const SizedBox(height: 4),
-                    Text(
-                        '${item.category} · ${item.status} · ${_fmtDateTime(item.createdAt)}',
-                        style: const TextStyle(fontSize: 11, color: _kMuted)),
-                  ]),
+        child: ExpansionTile(
+          leading: const Icon(Icons.bolt_outlined, color: _kViolet, size: 20),
+          title: Text(
+            item.description.isEmpty ? item.action : item.description,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '${item.actorName} · ${item.organizationName} · ${_fmtDateTime(item.createdAt)}',
+              style: const TextStyle(fontSize: 12, color: _kMuted),
             ),
-          ]),
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          children: [
+            _detailLine(
+              'Actor',
+              '${item.actorName}${item.actorUserId.isEmpty ? '' : ' (${item.actorUserId})'}',
+            ),
+            _detailLine('Action', '${item.action} · ${item.category} · ${item.status}'),
+            _detailLine('Time', _fmtDateTime(item.createdAt)),
+            _detailLine(
+              'Organization',
+              item.organizationId.isEmpty
+                  ? 'Platform'
+                  : '${item.organizationName} (${item.organizationId})',
+            ),
+            if (item.projectName != null || item.projectId != null)
+              _detailLine(
+                'Project',
+                '${item.projectName ?? 'Unknown project'}${item.projectId == null ? '' : ' (${item.projectId})'}',
+              ),
+            _detailLine(
+              'Target',
+              '${item.entityType} · ${item.entityName} (${item.entityId})',
+            ),
+            _detailLine('Request', item.correlationId),
+          ],
         ),
       );
 }

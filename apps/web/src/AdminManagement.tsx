@@ -149,12 +149,11 @@ function CreateUserDialog({ open, onClose, onCreated }: CreateUserDialogProps) {
    MAIN COMPONENT
 ========================================================= */
 
-export default function AdminManagement({ page }: { page: Page }) {
+export default function AdminManagement({ page, navigate, organizationFilterId = '' }: { page: Page; navigate: (route: string) => void; organizationFilterId?: string }) {
   const [search, setSearch]           = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('');
   const [selectedOrganization, setSelectedOrganization] = useState<AdminOrganization | null>(null);
-  const [selectedProject, setSelectedProject] = useState<AdminProject | null>(null);
   const [createOpen, setCreateOpen]   = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(10);
@@ -185,10 +184,11 @@ export default function AdminManagement({ page }: { page: Page }) {
       const proj = row as AdminProject;
       return (
         matchesSearch([proj.name, proj.organizationName, proj.status], term) &&
-        (!statusFilter || proj.status === statusFilter)
+        (!statusFilter || proj.status === statusFilter) &&
+        (!organizationFilterId || proj.organizationId === organizationFilterId)
       );
     });
-  }, [query.data, search, statusFilter, ownerFilter, page]);
+  }, [query.data, search, statusFilter, ownerFilter, page, organizationFilterId]);
 
   const sortedRows = useMemo(() => {
     const valueFor = (row: AdminUser | AdminOrganization | AdminProject): string | number | null => {
@@ -338,7 +338,7 @@ export default function AdminManagement({ page }: { page: Page }) {
                 ) : page === 'organizations' ? (
                   <OrganizationRow key={row.id} row={row as AdminOrganization} onView={setSelectedOrganization} />
                 ) : (
-                  <ProjectRow key={row.id} row={row as AdminProject} onView={setSelectedProject} />
+                  <ProjectRow key={row.id} row={row as AdminProject} onView={project => navigate(`admin/projects/${project.id}?organizationId=${encodeURIComponent(project.organizationId ?? organizationFilterId)}`)} />
                 )
               )}
             </TableBody>
@@ -359,20 +359,9 @@ export default function AdminManagement({ page }: { page: Page }) {
           <DialogContent dividers className="admin-record-summary">
             <p>Organization summary</p>
             <dl><dt>Workspace slug</dt><dd>{selectedOrganization.slug}</dd><dt>Owner</dt><dd>{selectedOrganization.owner ?? 'No owner listed'}</dd><dt>Members</dt><dd>{selectedOrganization.memberCount.toLocaleString()} {selectedOrganization.memberCount === 1 ? 'member' : 'members'}</dd><dt>Projects</dt><dd>{selectedOrganization.projectCount.toLocaleString()} {selectedOrganization.projectCount === 1 ? 'project' : 'projects'}</dd><dt>Created</dt><dd>{dateLabel(selectedOrganization.createdAt)}</dd></dl>
-            <span>This view shows organization totals only. Member details and activity are unavailable here.</span>
+            <span>This view shows organization totals. Open its projects to review project details and activity.</span>
           </DialogContent>
-          <DialogActions><Button onClick={() => setSelectedOrganization(null)}>Close</Button></DialogActions>
-        </>}
-      </Dialog>
-      <Dialog open={Boolean(selectedProject)} onClose={() => setSelectedProject(null)} maxWidth="xs" fullWidth>
-        {selectedProject && <>
-          <DialogTitle>{selectedProject.name}</DialogTitle>
-          <DialogContent dividers className="admin-record-summary">
-            <p>Project summary</p>
-            <dl><dt>Organization</dt><dd>{selectedProject.organizationName ?? 'No organization listed'}</dd><dt>Status</dt><dd>{selectedProject.archivedAt ? 'Archived' : selectedProject.status.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())}</dd><dt>Tasks</dt><dd>{selectedProject.taskCount.toLocaleString()} {selectedProject.taskCount === 1 ? 'task' : 'tasks'}</dd><dt>Due date</dt><dd>{selectedProject.dueDate ? dateLabel(selectedProject.dueDate) : 'No due date'}</dd><dt>Created</dt><dd>{dateLabel(selectedProject.createdAt)}</dd></dl>
-            <span>Task details and project activity are not included in the current platform project data.</span>
-          </DialogContent>
-          <DialogActions><Button onClick={() => setSelectedProject(null)}>Close</Button></DialogActions>
+          <DialogActions><Button onClick={() => setSelectedOrganization(null)}>Close</Button><Button variant="contained" onClick={() => { const id = selectedOrganization.id; setSelectedOrganization(null); navigate(`admin/projects?organizationId=${encodeURIComponent(id)}`); }}>View projects</Button></DialogActions>
         </>}
       </Dialog>
     </Box>
@@ -502,7 +491,7 @@ function relativeDate(value: string): string {
 
 function ProjectRow({ row, onView }: { row: AdminProject; onView: (project: AdminProject) => void }) {
   const statusClass = row.archivedAt ? 'archived' : row.status.toLowerCase().replace(/_/g, '-');
-  const statusLabel = row.archivedAt ? 'Archived' : row.status.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+  const statusLabel = row.deletedAt ? 'In Trash' : row.archivedAt ? 'Archived' : row.status.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
   return (
     <TableRow hover tabIndex={0} aria-label={`Open summary for ${row.name}`} sx={{ cursor: 'pointer' }} onClick={() => onView(row)} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onView(row); } }}>
       <TableCell><span className="admin-management-project"><span className="admin-management-project-mark"><FolderKanban size={15}/></span><strong>{row.name}</strong></span></TableCell>
@@ -510,7 +499,7 @@ function ProjectRow({ row, onView }: { row: AdminProject; onView: (project: Admi
       <TableCell><Chip size="small" label={statusLabel} className={`admin-management-status ${statusClass}`}/></TableCell>
       <TableCell><span className="admin-management-number">{row.taskCount.toLocaleString()}<small>{row.taskCount === 1 ? 'task' : 'tasks'}</small></span></TableCell>
       <TableCell>{row.dueDate ? dateLabel(row.dueDate) : <span className="admin-management-no-owner">No due date</span>}</TableCell>
-      <TableCell align="right"><Button size="small" className="admin-management-view-link" endIcon={<ChevronRight size={14} />} onClick={event => { event.stopPropagation(); onView(row); }} aria-label={`View ${row.name} project summary`}>View</Button></TableCell>
+      <TableCell align="right"><Button size="small" className="admin-management-view-link" endIcon={<ChevronRight size={14} />} onClick={event => { event.stopPropagation(); onView(row); }} aria-label={`Open ${row.name} project details`}>Open</Button></TableCell>
     </TableRow>
   );
 }

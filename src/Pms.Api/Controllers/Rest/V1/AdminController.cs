@@ -8,6 +8,8 @@ using System.Text;
 using System.Security.Cryptography;
 using Microsoft.Data.SqlClient;
 using Pms.Api.Reports;
+using Pms.Api.Auth;
+using Pms.Api.Progress;
 
 namespace Pms.Api.Controllers.Rest.V1;
 
@@ -22,7 +24,7 @@ public sealed record AdminCreateUserRequest(
 [ApiController]
 [Route("api/v1/admin")]
 [Authorize(Policy = "SuperAdmin")]
-public sealed class AdminController(PmsDbContext db) : ControllerBase
+public sealed class AdminController(PmsDbContext db, ILogger<AdminController>? logger = null) : ControllerBase
 {
     // =====================================================
     // CREATE USER
@@ -285,6 +287,7 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
     [HttpGet("activity-events")]
     public async Task<IActionResult> GetActivityEvents(
         [FromQuery] Guid? organizationId,
+        [FromQuery] Guid? projectId,
         [FromQuery] string? category,
         [FromQuery] string? search,
         [FromQuery] DateTimeOffset? from,
@@ -301,6 +304,16 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
         if (pageSize is < 1 or > 100 || category?.Length > 40 || search?.Length > 100 || cursor?.Length > 1024)
             return BadRequest(new { code = "INVALID_FILTER", message = "An activity filter is invalid or too long." });
 
+        if (projectId is not null)
+        {
+            var projectOrganizationId = await db.Projects.AsNoTracking()
+                .Where(project => project.Id == projectId.Value)
+                .Select(project => (Guid?)project.OrganizationId)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (projectOrganizationId is null || (organizationId is not null && projectOrganizationId != organizationId))
+                return NotFound(new { code = "PROJECT_NOT_FOUND", message = "The project was not found." });
+        }
+
         category = string.IsNullOrWhiteSpace(category) ? null : category.Trim();
         search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
         Guid? idTerm = search is not null && Guid.TryParse(search, out var parsedId) ? parsedId : null;
@@ -311,6 +324,7 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
                     from project in projectRows.DefaultIfEmpty()
                     select new { Event = activity, OrganizationName = organization == null ? "Platform" : organization.Name, ProjectName = project == null ? null : project.Name };
         if (organizationId is not null) query = query.Where(item => item.Event.OrganizationId == organizationId.Value);
+        if (projectId is not null) query = query.Where(item => item.Event.ProjectId == projectId.Value);
         if (category is not null) query = query.Where(item => item.Event.Category == category);
         if (search is not null)
             query = query.Where(item => item.Event.ActorName.Contains(search) || item.Event.EntityName.Contains(search)
@@ -420,16 +434,143 @@ public sealed class AdminController(PmsDbContext db) : ControllerBase
         }).ToListAsync(cancellationToken));
 
     [HttpGet("projects")]
-    public async Task<IActionResult> GetProjects(CancellationToken cancellationToken) => Ok(await db.Projects
+    public async Task<IActionResult> GetProjects(
+        [FromQuery] Guid? organizationId,
+        [FromQuery] bool includeTrashed,
+        CancellationToken cancellationToken) => Ok(await db.Projects
         .AsNoTracking()
-        .Where(project => project.DeletedAt == null)
+        .Where(project => (includeTrashed || project.DeletedAt == null)
+            && (organizationId == null || project.OrganizationId == organizationId.Value))
         .OrderByDescending(project => project.CreatedAt)
         .Select(project => new
         {
-            project.Id, project.Name, project.Status, project.CreatedAt, project.DueDate, project.ArchivedAt,
+            project.Id, project.OrganizationId, project.Name, project.Status, project.CreatedAt, project.DueDate, project.ArchivedAt, project.DeletedAt,
             OrganizationName = db.Organizations.Where(organization => organization.Id == project.OrganizationId).Select(organization => organization.Name).FirstOrDefault(),
             TaskCount = db.Tasks.Count(task => task.ProjectId == project.Id && task.ParentTaskId == null && task.DeletedAt == null)
         }).ToListAsync(cancellationToken));
+
+    // Read-only project detail routes for Super Admin oversight. These do not
+    // use workspace membership authorization; the controller policy is the boundary.
+    [HttpGet("projects/{projectId:guid}/details")]
+    public async Task<IActionResult> GetProjectDetails(Guid projectId, CancellationToken cancellationToken)
+    {
+        var project = await (from candidate in db.Projects.AsNoTracking()
+                             join organization in db.Organizations.AsNoTracking()
+                                 on candidate.OrganizationId equals organization.Id
+                             join ownerRow in db.Users.AsNoTracking()
+                                 on candidate.OwnerId equals ownerRow.Id into ownerRows
+                             from owner in ownerRows.DefaultIfEmpty()
+                             where candidate.Id == projectId
+                             select new
+                             {
+                                 Project = candidate,
+                                 OrganizationName = organization.Name,
+                                 organization.Timezone,
+                                 OwnerName = owner == null ? null : owner.FirstName + " " + owner.LastName
+                             }).SingleOrDefaultAsync(cancellationToken);
+        if (project is null) return NotFound(new { code = "PROJECT_NOT_FOUND", message = "The project was not found." });
+
+        var activeMemberCount = await (from member in db.ProjectMembers.AsNoTracking()
+                                       join organizationMember in db.OrganizationMembers.AsNoTracking()
+                                           on new { member.ProjectId, member.UserId } equals new { ProjectId = projectId, organizationMember.UserId }
+                                       join user in db.Users.AsNoTracking() on member.UserId equals user.Id
+                                       where member.ProjectId == projectId && member.Status == "active"
+                                           && organizationMember.OrganizationId == project.Project.OrganizationId
+                                           && organizationMember.Status == "active" && user.Status == "active"
+                                       select member.Id).CountAsync(cancellationToken);
+
+        var progressTasks = await db.Tasks.AsNoTracking()
+            .Where(task => task.ProjectId == projectId && task.ParentTaskId == null && task.DeletedAt == null)
+            .Select(task => new ProjectProgressTask(task.Status, task.DueDate, task.ParentTaskId, task.DeletedAt))
+            .ToListAsync(cancellationToken);
+        var progress = ProjectProgressCalculator.Calculate(progressTasks, project.Timezone,
+            DateTime.UtcNow, project.Project.OrganizationId, logger);
+
+        return Ok(new
+        {
+            projectId = project.Project.Id,
+            project.Project.Name,
+            project.Project.Status,
+            project.Project.OrganizationId,
+            organizationName = project.OrganizationName,
+            ownerName = project.OwnerName,
+            project.Project.StartDate,
+            project.Project.DueDate,
+            project.Project.CreatedAt,
+            project.Project.ArchivedAt,
+            project.Project.DeletedAt,
+            memberCount = activeMemberCount,
+            progress.HasTasks,
+            progress.TotalEligibleTasks,
+            progress.CompletedTasks,
+            progress.ProgressPercent,
+            progress.OutstandingTaskCount,
+            progress.OverdueTaskCount,
+            progress.TimezoneIdUsed
+        });
+    }
+
+    [HttpGet("projects/{projectId:guid}/members")]
+    public async Task<IActionResult> GetProjectMembers(Guid projectId, [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
+    {
+        if (page < 1 || pageSize is < 1 or > 100)
+            return BadRequest(new { code = "INVALID_PAGE", message = "Page must be positive and pageSize must be between 1 and 100." });
+        if (!await db.Projects.AsNoTracking().AnyAsync(project => project.Id == projectId, cancellationToken))
+            return NotFound(new { code = "PROJECT_NOT_FOUND", message = "The project was not found." });
+
+        var query = from member in db.ProjectMembers.AsNoTracking()
+                    join user in db.Users.AsNoTracking() on member.UserId equals user.Id
+                    where member.ProjectId == projectId
+                    select new
+                    {
+                        displayName = user.FirstName + " " + user.LastName,
+                        projectRole = member.Role,
+                        projectMembershipStatus = member.Status,
+                        organizationMembershipStatus = db.OrganizationMembers
+                            .Where(organizationMember => organizationMember.OrganizationId == db.Projects
+                                .Where(project => project.Id == projectId).Select(project => project.OrganizationId).FirstOrDefault()
+                                && organizationMember.UserId == member.UserId)
+                            .Select(organizationMember => organizationMember.Status).FirstOrDefault(),
+                        accountStatus = user.Status,
+                        member.JoinedAt
+                    };
+        var totalCount = await query.CountAsync(cancellationToken);
+        var skip = (int)Math.Min(((long)page - 1) * pageSize, int.MaxValue);
+        var items = await query.OrderBy(item => item.displayName).ThenBy(item => item.projectRole)
+            .Skip(skip).Take(pageSize).ToListAsync(cancellationToken);
+        return Ok(new { items, page, pageSize, totalCount });
+    }
+
+    [HttpGet("projects/{projectId:guid}/tasks")]
+    public async Task<IActionResult> GetProjectTasks(Guid projectId, [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
+    {
+        if (page < 1 || pageSize is < 1 or > 100)
+            return BadRequest(new { code = "INVALID_PAGE", message = "Page must be positive and pageSize must be between 1 and 100." });
+        if (!await db.Projects.AsNoTracking().AnyAsync(project => project.Id == projectId, cancellationToken))
+            return NotFound(new { code = "PROJECT_NOT_FOUND", message = "The project was not found." });
+
+        var query = db.Tasks.AsNoTracking().Where(task => task.ProjectId == projectId
+            && task.ParentTaskId == null && task.DeletedAt == null);
+        var totalCount = await query.CountAsync(cancellationToken);
+        var eligibleAssignees = WorkspaceAuthorization.EligibleTaskAssigneeIds(db, projectId);
+        var skip = (int)Math.Min(((long)page - 1) * pageSize, int.MaxValue);
+        var items = await query.OrderByDescending(task => task.CreatedAt).ThenByDescending(task => task.Id)
+            .Skip(skip).Take(pageSize)
+            .Select(task => new
+            {
+                task.Id,
+                task.Title,
+                task.Status,
+                task.Priority,
+                task.DueDate,
+                task.CreatedAt,
+                effectiveAssigneeCount = task.Assignees.Count(assignee => assignee.Status == "active"
+                    && eligibleAssignees.Contains(assignee.UserId))
+            }).ToListAsync(cancellationToken);
+        return Ok(new { items, page, pageSize, totalCount });
+    }
     
     // SUPER ADMIN DASHBOARD
     // GET /api/v1/admin/dashboard

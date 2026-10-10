@@ -17,6 +17,7 @@ import { useIsFetching } from '@tanstack/react-query';
 import { RefreshingIndicator } from './components/AdminLoading';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarHeader, SidebarOverlay, SidebarProvider, SidebarTrigger } from './components/ui/sidebar';
 import AdminManagement from './AdminManagement';
+import AdminProjectDetails from './AdminProjectDetails';
 import { AdminActivity, AdminAuditTrail, AdminHealth, AdminSettings } from './AdminPlatform';
 import ActivityCenter, { ActivityWidget } from './ActivityCenter';
 import { ProjectMemberRoleControl } from './ProjectMemberRoleControl';
@@ -158,8 +159,10 @@ function App({ mode, toggleTheme }: { mode: ColorMode; toggleTheme: () => void }
   }, [authenticated, adminAccess, projectId, version, liveDataVersion, projectProgressRetry]);
   useEffect(() => {
     if (adminAccess === 'checking') return;
-    if (adminAccess === 'admin' && !adminRoutes.has(route.split('?')[0])) navigate('admin');
-    if (adminAccess === 'user' && adminRoutes.has(route.split('?')[0])) navigate('dashboard');
+    const path = route.split('?')[0];
+    const isAdminPage = adminRoutes.has(path) || /^admin\/projects\/[^/]+$/.test(path);
+    if (adminAccess === 'admin' && !isAdminPage) navigate('admin');
+    if (adminAccess === 'user' && isAdminPage) navigate('dashboard');
   }, [adminAccess, route]);
   useEffect(() => { if (route === 'notifications') void reloadNotifications(); }, [route, reloadNotifications]);
   useEffect(() => { if (pendingTask) { const task = tasks.find(t => t.id === pendingTask); if (task) { setSelected(task); setModal('task'); setPendingTask(''); } } }, [tasks,pendingTask]);
@@ -173,7 +176,11 @@ function App({ mode, toggleTheme }: { mode: ColorMode; toggleTheme: () => void }
   if (authMode === 'inbox') return <Inbox navigate={navigate}/>;
   if (adminAccess === 'checking' || loading) return <main className="auth-page"><div className="auth-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 32px', textAlign: 'center' }}><Brand/><div style={{ margin: '40px 0 24px', width: 28, height: 28, border: '3px solid #f3f4f6', borderTopColor: '#5141e8', borderRadius: '50%', animation: 'spinner 0.65s linear infinite' }} /><p role="status" style={{ color: '#6b7280', fontSize: 14, fontWeight: 500, margin: 0, letterSpacing: '-0.01em' }}>Authenticating your workspace…</p></div></main>;
   if (adminAccess === 'unavailable') return <main className="auth-page"><section className="auth-card platform-access-error"><Brand/><h1>Platform unavailable</h1><p className="muted">TaskFlow couldn’t verify platform access or load your account.</p><Feedback error={error}/><div className="button-row"><button className="primary" onClick={() => { setError(''); refresh(); }}>Try again</button><button className="secondary" onClick={logout}>Sign out</button></div></section></main>;
-  if (adminAccess === 'admin') return <PlatformShell route={authMode} navigate={navigate} logout={logout} busy={action.busy} person={person} mode={mode} toggleTheme={toggleTheme}>{authMode === 'admin/analytics' ? <AdminAnalytics /> : authMode === 'admin/users' ? <AdminManagement page="users"/> : authMode === 'admin/organizations' ? <AdminManagement page="organizations"/> : authMode === 'admin/projects' ? <AdminManagement page="projects"/> : authMode === 'admin/activity' ? <AdminActivity/> : authMode === 'admin/audit' ? <AdminAuditTrail/> : authMode === 'admin/health' ? <AdminHealth/> : authMode === 'admin/reports' ? <AdminReports /> : authMode === 'admin/settings' ? <AdminSettings/> : <AdminDashboard person={person} />}</PlatformShell>;
+  if (adminAccess === 'admin') {
+    const projectDetail = authMode.match(/^admin\/projects\/([^/]+)$/);
+    const params = new URLSearchParams(route.split('?')[1] ?? '');
+    return <PlatformShell route={authMode} navigate={navigate} logout={logout} busy={action.busy} person={person} mode={mode} toggleTheme={toggleTheme}>{projectDetail ? <AdminProjectDetails projectId={decodeURIComponent(projectDetail[1])} organizationIdHint={params.get('organizationId') ?? undefined} navigate={navigate}/> : authMode === 'admin/analytics' ? <AdminAnalytics /> : authMode === 'admin/users' ? <AdminManagement page="users" navigate={navigate}/> : authMode === 'admin/organizations' ? <AdminManagement page="organizations" navigate={navigate}/> : authMode === 'admin/projects' ? <AdminManagement page="projects" navigate={navigate} organizationFilterId={params.get('organizationId') ?? ''}/> : authMode === 'admin/activity' ? <AdminActivity/> : authMode === 'admin/audit' ? <AdminAuditTrail/> : authMode === 'admin/health' ? <AdminHealth/> : authMode === 'admin/reports' ? <AdminReports /> : authMode === 'admin/settings' ? <AdminSettings/> : <AdminDashboard person={person} />}</PlatformShell>;
+  }
   if (authMode === 'invite') return <main className="auth-page"><div className="auth-card"><Brand/><h1>Join your team</h1><p className="muted">You are signed in as {person?.email}. Accept this invitation to access your organization.</p><Feedback error={action.error}/><button className="primary" disabled={action.busy} onClick={() => void action.run(async () => { const token = new URLSearchParams(route.split('?')[1]).get('token'); const response = await api.post('/organizations/invitations/accept',{token}); sessionStorage.removeItem('taskflow.invitation'); chooseOrg(response.data.organizationId); navigate('dashboard'); refresh(); })}>Accept invitation</button><button className="text-button" onClick={() => { sessionStorage.setItem('taskflow.invitation',route); logout(); }}>Use a different account</button><button className="text-button" onClick={() => navigate('dashboard')}>Back to workspace</button></div></main>;
   const filtered = tasks.filter(t => (t.title + ' ' + (t.description ?? '')).toLowerCase().includes(search.toLowerCase()) && (!priority || t.priority === priority) && (!dashboardTaskFilter || (dashboardTaskFilter === 'OPEN' ? t.status !== 'DONE' : dashboardTaskFilter === 'OVERDUE' ? overdue(t) : dashboardTaskFilter === 'COMPLETED' ? t.status === 'DONE' : t.assigneeIds.includes(person?.id ?? ''))));
   const manager = ['PROJECT_MANAGER','TEAM_LEAD'].includes(project?.role ?? ''); const writable = Boolean(project && project.role !== 'VIEWER');
@@ -294,6 +301,7 @@ function PlatformShell({ route, navigate, logout, busy, person, mode, toggleThem
     return () => window.removeEventListener('keydown', focusSearch);
   }, [platformAdmin]);
   const adminPageTitle:Record<string,string> = { 'admin/analytics':'Analytics','admin/users':'Users','admin/organizations':'Organizations','admin/projects':'Projects','admin/activity':'Activity','admin/audit':'Audit Trail','admin/health':'System health','admin/reports':'Reports','admin/settings':'Settings' };
+  const routePath = route.split('?')[0];
   const sidebarIsCollapsed = platformAdmin && sidebarCollapsed && !mobileNavOpen;
   const isRefreshing = useIsFetching() > 0;
   const setSidebarCollapsedPersisted = () => {
@@ -307,7 +315,7 @@ function PlatformShell({ route, navigate, logout, busy, person, mode, toggleThem
         {platformAdmin && <SidebarTrigger mobile/>}
         {overview ? <>
         <div className="platform-overview-title"><span>Platform</span><b>/</b> Overview</div>
-        </> : <div className="crumb platform-title">Platform <span>/</span> {adminPageTitle[route] ?? 'Administration'}</div>}
+        </> : <div className="crumb platform-title">Platform <span>/</span> {adminPageTitle[routePath] ?? (routePath.startsWith('admin/projects/') ? 'Project details' : 'Administration')}</div>}
         {platformAdmin && <label className="admin-command-search"><Search size={17} aria-hidden="true"/><Input aria-label="Search platform pages" value={navSearch} onChange={event => setNavSearch(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setNavSearch(''); }} placeholder="Search pages and tools…"/>{navSearch && <button type="button" className="admin-command-clear" aria-label="Clear search" onClick={() => setNavSearch('')}><X size={14}/></button>}<kbd>Ctrl</kbd><kbd>K</kbd></label>}
       <div className="top-actions"><ThemeToggle mode={mode} toggle={toggleTheme}/><button className="avatar" aria-label="Account settings" onClick={() => navigate('admin')}>{person ? <Avatar className="admin-account-avatar" url={person.avatarUrl} fallback={initials(person.firstName,person.lastName)}/> : '…'}</button></div>
     </header>
