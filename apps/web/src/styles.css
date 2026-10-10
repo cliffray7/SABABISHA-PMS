@@ -1056,3 +1056,104 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 }
 
 .project-role-control{display:grid;gap:4px;min-width:160px}.project-role-control select{width:100%}.project-role-error{max-width:240px;color:#b42318;font-size:11px;line-height:1.35}
+
+/* Super Admin project details: calm surfaces, clear hierarchy, and the shared violet accent. */
+.admin-project-details { --project-surface: var(--overview-card, #fff); --project-page: var(--overview-page, #f5f6f8); --project-border: var(--overview-border, #e9e9ee); --project-ink: var(--overview-ink, #252532); --project-muted: var(--overview-muted, #858492); }
+.admin-project-back.MuiButton-root { min-height:36px; margin:0 0 10px -8px; padding:0 9px; border-radius:8px; color:var(--project-muted); font-size:12px; text-transform:none; }
+.admin-project-back.MuiButton-root:hover { background:var(--project-surface); color:var(--project-ink); }
+.admin-project-loading { display:grid; min-height:280px; place-content:center; justify-items:center; gap:12px; }
+.admin-project-hero { position:relative; overflow:hidden; margin-bottom:17px; padding:22px 24px; border:1px solid #dedbfa; border-radius:15px; background:radial-gradient(ellipse at 88% 0%,rgba(108,91,231,.12),transparent 40%),linear-gradient(120deg,#fff 0%,#f8f7ff 100%); }
+.admin-project-hero:after { position:absolute; right:-36px; bottom:-110px; width:230px; height:230px; border:1px solid rgba(91,81,205,.08); border-radius:50%; content:""; pointer-events:none; }
+.admin-project-hero-topline,.admin-project-hero-main { position:relative; z-index:1; display:flex; align-items:center; }
+.admin-project-hero-topline { justify-content:space-between; margin-bottom:18px; }
+.admin-project-eyebrow { display:inline-flex; align-items:center; gap:7px; color:#6659ca; font-size:10px; font-weight:750; letter-spacing:.12em; }
+.admin-project-refresh.MuiButton-root { min-height:34px; padding:0 10px; border-color:#ddd9f6; border-radius:8px; background:rgba(255,255,255,.75); color:#5b50bd; font-size:11px; text-transform:none; }
+.admin-project-hero-main { gap:14px; }
+.admin-project-mark { display:grid; width:48px; height:48px; flex:none; place-items:center; border:1px solid #e0dcfb; border-radius:13px; background:#eeecff; color:#5b50bd; }
+.admin-project-heading-copy { min-width:0; }
+.admin-project-heading-copy h1.MuiTypography-root { overflow-wrap:anywhere; color:var(--project-ink); font-size:clamp(22px,3vw,30px); font-weight:680; line-height:1.2; letter-spacing:-.65px; }
+.admin-project-org-link.MuiButton-root { min-height:25px; margin:4px 0 0 -7px; padding:0 7px; color:#6257bf; font-size:12px; text-transform:none; }
+.admin-project-status.MuiChip-root { height:29px; flex:none; margin-left:auto; border:1px solid #bde5d3; background:#eaf7f0; color:#327755; font-size:11px; font-weight:650; }
+.admin-project-status .MuiChip-icon { color:inherit; }
+.admin-project-status.is-historical.MuiChip-root { border-color:#e6d9bb; background:#fbf5e8; color:#856629; }
+.admin-project-history-note.MuiAlert-root { position:relative; z-index:1; margin-top:15px; border-radius:9px; font-size:12px; }
+.admin-project-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:0 0 18px; }
+.admin-project-metric.MuiCard-root,.admin-project-info-card.MuiCard-root,.admin-project-activity-card.MuiCard-root,.admin-project-data-card.MuiCard-root { border:1px solid var(--project-border); border-radius:12px; background:var(--project-surface); box-shadow:0 2px 7px rgba(35,35,55,.025); }
+.admin-project-metric .MuiCardContent-root { position:relative; min-height:126px; padding:16px 17px; }
+.admin-project-metric .MuiCardContent-root:last-child { padding-bottom:16px; }
+.admin-project-metric-top { display:flex; align-items:center; gap:9px; color:var(--project-muted); }
+.admin-project-metric-top .MuiTypography-root { font-size:11px; font-weight:550; }
+.admin-project-metric-icon { display:grid; width:31px; height:31px; place-items:center; border-radius:9px; background:#eeecff; color:#5b50bd; }
+.admin-project-metric-value { display:block; margin-top:10px; color:var(--project-ink); font-size:25px; font-weight:700; line-height:1.1; letter-spacing:-.5px; }
+.admin-project-metric-detail { display:block; margin-top:5px; color:var(--project-muted); font-size:10px; }
+.admin-project-metric.tone-blue .admin-project-metric-icon { background:#eaf2ff; color:#4777c1; }
+.admin-project-metric.tone-green .admin-project-metric-icon { background:#e8f6ef; color:#398362; }
+.admin-project-metric.tone-amber .admin-project-metric-icon { background:#fff3df; color:#a47220; }
+.admin-project-metric.tone-neutral .admin-project-metric-icon { background:#f0f1f5; color:#727789; }
+.admin-project-metric.tone-amber .admin-project-metric-value { color:#a47220; }
+.admin-project-progress-line.MuiLinearProgress-root { height:4px; margin-top:9px; border-radius:9px; background:#ebe9fa; }
+.admin-project-progress-line .MuiLinearProgress-bar { border-radius:9px; background:#6659d2; }
+.admin-project-tabs.MuiTabs-root { min-height:44px; margin:0 0 15px; border-bottom:1px solid var(--project-border); }
+.admin-project-tabs .MuiTab-root { min-height:44px; padding:0 16px; color:var(--project-muted); font-size:12px; font-weight:550; text-transform:none; }
+.admin-project-tabs .Mui-selected { color:#5b50bd; font-weight:700; }
+.admin-project-tabs .MuiTabs-indicator { height:3px; border-radius:3px 3px 0 0; background:#6256cf; }
+.admin-project-overview-grid { display:grid; grid-template-columns:minmax(280px,.9fr) minmax(0,1.35fr); align-items:stretch; gap:14px; }
+.admin-project-info-card .MuiCardContent-root,.admin-project-activity-card .MuiCardContent-root,.admin-project-data-card .MuiCardContent-root { padding:19px 20px; }
+.admin-project-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.admin-project-section-heading h6.MuiTypography-root { color:var(--project-ink); font-size:14px; font-weight:650; }
+.admin-project-section-heading .MuiTypography-body2 { margin-top:3px; color:var(--project-muted); font-size:11px; }
+.admin-project-section-heading>.MuiChip-root { border-color:var(--project-border); color:var(--project-muted); font-size:10px; }
+.admin-project-section-icon { display:grid; width:33px; height:33px; flex:none; place-items:center; border-radius:9px; background:#eeecff; color:#5b50bd; }
+.admin-project-facts { display:grid; gap:0; margin:8px 0 0; }
+.admin-project-facts>div { display:grid; grid-template-columns:minmax(105px,.7fr) minmax(0,1fr); align-items:center; gap:12px; min-height:39px; border-bottom:1px solid color-mix(in srgb,var(--project-border) 72%,transparent); }
+.admin-project-facts>div:last-child { border-bottom:0; }
+.admin-project-facts dt { color:var(--project-muted); font-size:11px; }
+.admin-project-facts dd { min-width:0; margin:0; color:var(--project-ink); font-size:11px; font-weight:550; overflow-wrap:anywhere; }
+.admin-project-facts dd .MuiChip-root { height:23px; border-color:var(--project-border); background:var(--project-page); color:var(--project-muted); font-size:10px; }
+.admin-project-activity-card .admin-project-section-heading { margin-bottom:12px; }
+.admin-project-activity-card .admin-project-section-heading .MuiButton-root { flex:none; color:#5b50bd; font-size:11px; text-transform:none; }
+.admin-project-activity-card .admin-project-section-heading .MuiButton-endIcon { transform:rotate(180deg); }
+.admin-project-activity-preview { display:grid; gap:0; margin:0; padding:0; list-style:none; }
+.admin-project-activity-preview li { display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:start; gap:10px; padding:12px 0; border-top:1px solid color-mix(in srgb,var(--project-border) 75%,transparent); }
+.admin-project-event-mark { display:grid; width:31px; height:31px; place-items:center; border-radius:9px; background:#eeecff; color:#6256cf; }
+.admin-project-event-mark.category-tasks { background:#eaf2ff; color:#4777c1; }
+.admin-project-event-mark.category-people { background:#e9f6ef; color:#398362; }
+.admin-project-event-mark.category-collaboration { background:#fff3df; color:#a47220; }
+.admin-project-activity-preview li>div { display:grid; gap:4px; min-width:0; padding-top:1px; }
+.admin-project-activity-preview li strong { color:var(--project-ink); font-size:11px; font-weight:600; line-height:1.45; }
+.admin-project-activity-preview li>div>span { color:var(--project-muted); font-size:10px; }
+.admin-project-activity-preview time { padding-top:2px; color:var(--project-muted); font-size:10px; white-space:nowrap; }
+.admin-project-activity-state,.admin-project-activity-empty,.admin-project-table-state { display:flex; min-height:130px; align-items:center; justify-content:center; gap:10px; color:var(--project-muted); font-size:11px; }
+.admin-project-activity-empty { flex-direction:column; gap:8px; text-align:center; }
+.admin-project-activity-empty svg { color:#7a70d6; }
+.admin-project-table-wrap { overflow-x:auto; border:1px solid var(--project-border); border-radius:9px; }
+.admin-project-data-card .MuiTableCell-head { background:var(--project-page); color:var(--project-muted); font-size:10px; font-weight:650; white-space:nowrap; }
+.admin-project-data-card .MuiTableCell-body { border-color:var(--project-border); color:var(--project-ink); font-size:11px; }
+.admin-project-data-card .MuiTableRow-root:last-child .MuiTableCell-body { border-bottom:0; }
+.admin-project-person { display:flex; align-items:center; gap:9px; min-width:150px; }
+.admin-project-person .MuiAvatar-root { width:28px; height:28px; background:#eeecff; color:#5b50bd; font-size:10px; font-weight:650; }
+.admin-project-person strong,.admin-project-task-title { color:var(--project-ink); font-size:11px; font-weight:600; }
+.admin-project-role-chip.MuiChip-root,.admin-project-task-status.MuiChip-root { height:23px; border:1px solid var(--project-border); background:var(--project-page); color:var(--project-muted); font-size:9px; }
+.admin-project-task-status.done.MuiChip-root { border-color:#bfe5d2; background:#eaf7f0; color:#327755; }
+.admin-project-task-status.in-progress.MuiChip-root { border-color:#c9daf7; background:#edf4ff; color:#4771b3; }
+.admin-project-task-status.in-review.MuiChip-root { border-color:#f0ddb6; background:#fff7e7; color:#98722d; }
+.admin-project-account-status { display:inline-flex; align-items:center; gap:6px; color:var(--project-muted); font-size:10px; }
+.admin-project-account-status i { width:6px; height:6px; border-radius:50%; background:#9396a3; }
+.admin-project-account-status.active i { background:#42a777; }
+.admin-project-pagination { display:flex; align-items:center; justify-content:space-between; gap:10px; padding-top:12px; color:var(--project-muted); }
+.admin-project-pagination .MuiTypography-root { font-size:10px; }
+.admin-project-pagination>div { display:flex; gap:5px; }
+.admin-project-pagination .MuiButton-root { border-color:var(--project-border); color:#5b50bd; font-size:10px; text-transform:none; }
+.admin-project-empty { display:grid; min-height:180px; place-content:center; justify-items:center; gap:7px; text-align:center; }
+.admin-project-empty>span { display:grid; width:42px; height:42px; place-items:center; border-radius:12px; background:#eeecff; color:#6256cf; }
+.admin-project-empty strong { color:var(--project-ink); font-size:12px; }
+.admin-project-empty p { margin:0; color:var(--project-muted); font-size:11px; }
+.admin-project-full-activity .admin-activity-filters { margin-top:0; }
+:root[data-theme="dark"] .admin-project-details { --project-surface:#1c1e28; --project-page:#171820; --project-border:#343642; --project-ink:#f0f0f5; --project-muted:#a0a1af; }
+:root[data-theme="dark"] .admin-project-hero { border-color:#38334f; background:radial-gradient(ellipse at 88% 0%,rgba(108,91,231,.17),transparent 40%),linear-gradient(120deg,#1d1e29 0%,#232238 100%); }
+:root[data-theme="dark"] .admin-project-mark,:root[data-theme="dark"] .admin-project-metric-icon,:root[data-theme="dark"] .admin-project-section-icon,:root[data-theme="dark"] .admin-project-event-mark,:root[data-theme="dark"] .admin-project-empty>span { background:#302d4d; color:#c4bcff; }
+:root[data-theme="dark"] .admin-project-refresh.MuiButton-root { border-color:#464153; background:#272632; color:#c4bcff; }
+:root[data-theme="dark"] .admin-project-status.MuiChip-root { border-color:#355d4a; background:#20382d; color:#9ad6b3; }
+:root[data-theme="dark"] .admin-project-status.is-historical.MuiChip-root { border-color:#65532e; background:#38301e; color:#dfc27f; }
+@media(max-width:1000px) { .admin-project-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }.admin-project-overview-grid { grid-template-columns:1fr; } }
+@media(max-width:620px) { .admin-project-hero { padding:17px 15px; }.admin-project-hero-topline { margin-bottom:14px; }.admin-project-hero-main { align-items:flex-start; gap:10px; }.admin-project-mark { width:40px; height:40px; border-radius:11px; }.admin-project-mark svg { width:20px; }.admin-project-heading-copy { flex:1; }.admin-project-heading-copy h1.MuiTypography-root { font-size:21px; }.admin-project-status.MuiChip-root { height:auto; min-height:25px; max-width:128px; margin-top:1px; font-size:9px; }.admin-project-status .MuiChip-label { padding:0 7px; white-space:normal; }.admin-project-metrics { gap:8px; }.admin-project-metric .MuiCardContent-root { min-height:116px; padding:12px; }.admin-project-metric-value { font-size:21px; }.admin-project-metric-detail { font-size:9px; }.admin-project-tabs .MuiTab-root { min-width:auto; padding:0 12px; font-size:11px; }.admin-project-info-card .MuiCardContent-root,.admin-project-activity-card .MuiCardContent-root,.admin-project-data-card .MuiCardContent-root { padding:15px 13px; }.admin-project-activity-preview li { grid-template-columns:31px minmax(0,1fr); gap:8px; }.admin-project-activity-preview time { grid-column:2; padding:0; }.admin-project-facts>div { grid-template-columns:100px minmax(0,1fr); gap:8px; }.admin-project-pagination { align-items:flex-start; flex-direction:column; }.admin-project-pagination>div { width:100%; justify-content:space-between; } }
