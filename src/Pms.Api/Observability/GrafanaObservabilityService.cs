@@ -11,7 +11,17 @@ public sealed record GrafanaMetricSummary(
     double? ServerErrorsPerSecond,
     double? ServerErrorPercent,
     double? P95DurationMilliseconds,
+    IReadOnlyList<GrafanaMetricPoint> Series,
     string Message);
+
+public sealed record GrafanaMetricPoint(
+    DateTimeOffset Timestamp,
+    double? RequestsPerSecond,
+    double? ServerErrorsPerSecond,
+    double? ServerErrorPercent,
+    double? P50DurationMilliseconds,
+    double? P95DurationMilliseconds,
+    double? P99DurationMilliseconds);
 
 public sealed record GrafanaLogEntry(DateTimeOffset Timestamp, string Severity, string Message);
 
@@ -45,9 +55,10 @@ public sealed class GrafanaObservabilityService(
         var rangeDuration = ParseRange(normalizedRange);
         var queriedAt = DateTimeOffset.UtcNow;
 
-        var metricsTask = QueryMetricsAsync(normalizedRange, cancellationToken);
-        var logsTask = QueryLogsAsync(queriedAt - rangeDuration, queriedAt, cancellationToken);
-        var tracesTask = QueryTracesAsync(queriedAt - rangeDuration, queriedAt, cancellationToken);
+        var rangeStart = queriedAt - rangeDuration;
+        var metricsTask = QueryMetricsAsync(normalizedRange, rangeStart, queriedAt, cancellationToken);
+        var logsTask = QueryLogsAsync(rangeStart, queriedAt, cancellationToken);
+        var tracesTask = QueryTracesAsync(rangeStart, queriedAt, cancellationToken);
         await Task.WhenAll(metricsTask, logsTask, tracesTask);
 
         return new GrafanaObservabilityResponse(
@@ -58,51 +69,66 @@ public sealed class GrafanaObservabilityService(
             await tracesTask);
     }
 
-    private async Task<GrafanaMetricSummary> QueryMetricsAsync(string range, CancellationToken cancellationToken)
+    private async Task<GrafanaMetricSummary> QueryMetricsAsync(
+        string range, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken)
     {
         if (!TryGetDataSource("Metrics", out var endpoint, out var username, out var token))
-            return new GrafanaMetricSummary("not_configured", null, null, null, null,
+            return new GrafanaMetricSummary("not_configured", null, null, null, null, Array.Empty<GrafanaMetricPoint>(),
                 "Grafana metrics read access is not configured.");
 
         try
         {
+            var (step, rateWindow) = GetQueryResolution(range);
             var queryTasks = new[]
             {
-                QueryPrometheusValueAsync(endpoint, username, token,
-                    $"sum(rate(http_server_request_duration_seconds_count{{service_name=\"{ServiceName}\"}}[{range}]))", cancellationToken),
-                QueryPrometheusValueAsync(endpoint, username, token,
-                    $"sum(rate(http_server_request_duration_seconds_count{{service_name=\"{ServiceName}\",http_response_status_code=~\"5..\"}}[{range}]))", cancellationToken),
-                QueryPrometheusValueAsync(endpoint, username, token,
-                    $"histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{{service_name=\"{ServiceName}\"}}[{range}])) by (le))", cancellationToken)
+                QueryPrometheusSeriesAsync(endpoint, username, token,
+                    $"sum(rate(http_server_request_duration_seconds_count{{service_name=\"{ServiceName}\"}}[{rateWindow}]))", from, to, step, cancellationToken),
+                QueryPrometheusSeriesAsync(endpoint, username, token,
+                    $"sum(rate(http_server_request_duration_seconds_count{{service_name=\"{ServiceName}\",http_response_status_code=~\"5..\"}}[{rateWindow}]))", from, to, step, cancellationToken),
+                QueryPrometheusSeriesAsync(endpoint, username, token,
+                    $"histogram_quantile(0.50, sum(rate(http_server_request_duration_seconds_bucket{{service_name=\"{ServiceName}\"}}[{rateWindow}])) by (le))", from, to, step, cancellationToken),
+                QueryPrometheusSeriesAsync(endpoint, username, token,
+                    $"histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{{service_name=\"{ServiceName}\"}}[{rateWindow}])) by (le))", from, to, step, cancellationToken),
+                QueryPrometheusSeriesAsync(endpoint, username, token,
+                    $"histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{{service_name=\"{ServiceName}\"}}[{rateWindow}])) by (le))", from, to, step, cancellationToken)
             };
             var values = await Task.WhenAll(queryTasks);
-            var requestRate = values[0];
+            var timestamps = values.SelectMany(series => series.Keys).Distinct().Order().Take(MaxSeriesPoints).ToArray();
+            var points = timestamps.Select(timestamp =>
+            {
+                var requestRate = GetSample(values[0], timestamp);
+                double? serverErrorRate = requestRate.HasValue ? GetSample(values[1], timestamp) ?? 0d : null;
+                double? errorPercent = requestRate is > 0 && serverErrorRate.HasValue
+                    ? Math.Round(serverErrorRate.Value / requestRate.Value * 100d, 2)
+                    : requestRate == 0 ? 0d : null;
+                return new GrafanaMetricPoint(timestamp, requestRate, serverErrorRate, errorPercent,
+                    ToMilliseconds(GetSample(values[2], timestamp)),
+                    ToMilliseconds(GetSample(values[3], timestamp)),
+                    ToMilliseconds(GetSample(values[4], timestamp)));
+            }).ToArray();
+            var latestRequests = LatestValue(points, point => point.RequestsPerSecond);
+            var latestErrors = LatestValue(points, point => point.ServerErrorsPerSecond);
+            var latestErrorPercent = LatestValue(points, point => point.ServerErrorPercent);
+            var latestP95 = LatestValue(points, point => point.P95DurationMilliseconds);
             // If request telemetry exists but there are no 5xx samples, that is a real zero-error result.
             // If the request series itself is absent, keep the error metrics unknown instead of inventing zeroes.
-            double? serverErrorRate = requestRate.HasValue ? values[1] ?? 0d : null;
-            double? errorPercent = null;
-            if (requestRate is { } requestRateValue)
-            {
-                if (requestRateValue > 0 && serverErrorRate is { } errorRate)
-                    errorPercent = Math.Round(errorRate / requestRateValue * 100d, 2);
-                else if (requestRateValue == 0)
-                    errorPercent = 0d;
-            }
-            double? p95DurationMilliseconds = values[2] is { } p95 ? p95 * 1000d : null;
-            var hasData = requestRate.HasValue || values[2].HasValue;
+            var hasData = points.Any(point => point.RequestsPerSecond.HasValue
+                || point.P50DurationMilliseconds.HasValue || point.P95DurationMilliseconds.HasValue
+                || point.P99DurationMilliseconds.HasValue);
 
             return new GrafanaMetricSummary(
                 hasData ? "available" : "no_data",
-                requestRate,
-                serverErrorRate,
-                errorPercent,
-                p95DurationMilliseconds,
-                hasData ? $"Live Prometheus query results for Pms.Api over {range}. Missing individual series are shown as no data." : "No matching request metric series were returned for Pms.Api in this range.");
+                latestRequests,
+                latestErrors,
+                latestErrorPercent,
+                latestP95,
+                points,
+                hasData ? $"Prometheus time-series results for Pms.Api over {range}. Missing individual series are shown as no data." : "No matching metric series were returned for Pms.Api in this range.");
         }
         catch (Exception exception) when (IsProviderFailure(exception))
         {
             logger.LogWarning("Grafana metrics query failed with {ExceptionType}", exception.GetType().Name);
-            return new GrafanaMetricSummary("unavailable", null, null, null, null,
+            return new GrafanaMetricSummary("unavailable", null, null, null, null, Array.Empty<GrafanaMetricPoint>(),
                 "Grafana metrics could not be queried. Check the server-side read configuration and retry.");
         }
     }
@@ -209,21 +235,54 @@ public sealed class GrafanaObservabilityService(
         }
     }
 
-    private async Task<double?> QueryPrometheusValueAsync(
-        Uri endpoint, string username, string token, string query, CancellationToken cancellationToken)
+    private async Task<IReadOnlyDictionary<DateTimeOffset, double>> QueryPrometheusSeriesAsync(
+        Uri endpoint, string username, string token, string query, DateTimeOffset from, DateTimeOffset to, string step,
+        CancellationToken cancellationToken)
     {
-        var url = AddQuery(AppendPath(endpoint, "api/v1/query"), ("query", query));
+        var url = AddQuery(AppendPath(endpoint, "api/v1/query_range"),
+            ("query", query), ("start", from.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture)),
+            ("end", to.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture)), ("step", step));
         using var document = await SendJsonAsync(url, username, token, cancellationToken);
+        var samples = new SortedDictionary<DateTimeOffset, double>();
         if (!TryGetProperty(document.RootElement, "data", out var data)
             || !TryGetProperty(data, "result", out var result)
             || result.ValueKind != JsonValueKind.Array
-            || result.GetArrayLength() == 0
-            || !TryGetProperty(result[0], "value", out var pair)
-            || pair.ValueKind != JsonValueKind.Array || pair.GetArrayLength() < 2
-            || !double.TryParse(pair[1].GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
-            || !double.IsFinite(value))
-            return null;
-        return value;
+            || result.GetArrayLength() == 0)
+            return samples;
+
+        // All allowlisted PromQL expressions aggregate to a single series. Ignore any extra
+        // provider series and cap parsed samples even if a provider violates the requested step.
+        var first = result[0];
+        if (!TryGetProperty(first, "values", out var values) || values.ValueKind != JsonValueKind.Array)
+            return samples;
+        foreach (var pair in values.EnumerateArray().Take(MaxSeriesPoints))
+        {
+            if (pair.ValueKind != JsonValueKind.Array || pair.GetArrayLength() < 2
+                || !TryGetDouble(pair[0], out var unixSeconds)
+                || !TryGetDouble(pair[1], out var value)
+                || unixSeconds < 0 || unixSeconds > DateTimeOffset.MaxValue.ToUnixTimeSeconds())
+                continue;
+            try
+            {
+                samples[DateTimeOffset.FromUnixTimeMilliseconds((long)(unixSeconds * 1000d))] = value;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // Ignore malformed timestamps from the telemetry provider.
+            }
+        }
+        return samples;
+    }
+
+    private static double? GetSample(IReadOnlyDictionary<DateTimeOffset, double> samples, DateTimeOffset timestamp) =>
+        samples.TryGetValue(timestamp, out var value) ? value : null;
+    private static double? LatestValue(IEnumerable<GrafanaMetricPoint> points, Func<GrafanaMetricPoint, double?> selector) =>
+        points.LastOrDefault(point => selector(point).HasValue) is { } latest ? selector(latest) : null;
+    private static double? ToMilliseconds(double? seconds) => seconds is { } value ? value * 1000d : null;
+    private static bool TryGetDouble(JsonElement element, out double value)
+    {
+        var raw = element.ValueKind == JsonValueKind.String ? element.GetString() : element.ToString();
+        return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value) && double.IsFinite(value);
     }
 
     private async Task<JsonDocument> SendJsonAsync(Uri url, string username, string token, CancellationToken cancellationToken)
@@ -275,13 +334,21 @@ public sealed class GrafanaObservabilityService(
         return builder.Uri;
     }
 
-    private static string NormalizeRange(string? range) => range is "15m" or "1h" or "6h" or "24h" ? range : "1h";
+    private const int MaxSeriesPoints = 168;
+    private static string NormalizeRange(string? range) => range is "1h" or "6h" or "24h" or "7d" ? range : "1h";
     private static TimeSpan ParseRange(string range) => range switch
     {
-        "15m" => TimeSpan.FromMinutes(15),
         "6h" => TimeSpan.FromHours(6),
         "24h" => TimeSpan.FromHours(24),
+        "7d" => TimeSpan.FromDays(7),
         _ => TimeSpan.FromHours(1)
+    };
+    private static (string Step, string RateWindow) GetQueryResolution(string range) => range switch
+    {
+        "6h" => ("5m", "5m"),
+        "24h" => ("15m", "15m"),
+        "7d" => ("1h", "1h"),
+        _ => ("1m", "5m")
     };
     private static string ToUnixNanoseconds(DateTimeOffset value) =>
         checked(value.ToUnixTimeMilliseconds() * 1_000_000).ToString(CultureInfo.InvariantCulture);

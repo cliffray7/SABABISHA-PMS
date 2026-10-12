@@ -37,18 +37,58 @@ public sealed class GrafanaObservabilityTests
         Assert.Equal(2, response.Metrics.ServerErrorsPerSecond);
         Assert.Equal(20, response.Metrics.ServerErrorPercent);
         Assert.Equal(250, response.Metrics.P95DurationMilliseconds);
+        var point = Assert.Single(response.Metrics.Series);
+        Assert.Equal(100, point.P50DurationMilliseconds);
+        Assert.Equal(500, point.P99DurationMilliseconds);
         Assert.Equal("available", response.Logs.Status);
         Assert.Equal("Sanitized application warning or error. Log content is intentionally withheld.",
             Assert.Single(response.Logs.Items).Message);
         Assert.Equal("available", response.Traces.Status);
         Assert.Equal("aabbccdd", Assert.Single(response.Traces.Items).TraceId);
 
-        Assert.Contains(handler.Requests, request => request.Path == "/api/prom/api/v1/query");
+        Assert.Equal(5, handler.Requests.Count(request => request.Path == "/api/prom/api/v1/query_range"));
+        Assert.Contains(handler.Requests, request => request.Path == "/api/prom/api/v1/query_range" && request.Query.Contains("step=1m", StringComparison.Ordinal));
         Assert.Contains(handler.Requests, request => request.Path == "/loki/loki/api/v1/query_range");
         Assert.Contains(handler.Requests, request => request.Path == "/tempo/api/search");
         Assert.All(handler.Requests, request => Assert.Equal("Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes("reader-id:read-token")), request.Authorization));
         Assert.Contains(handler.Requests, request => request.Query.Contains("service_name%3D%22Pms.Api%22", StringComparison.Ordinal));
         Assert.DoesNotContain(handler.Requests, request => request.Query.Contains("999h", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SevenDayRangeUsesCoarseBoundedResolutionAndReturnsHistoricalSamples()
+    {
+        var handler = new RecordingHandler();
+        var service = CreateService(handler, Configuration());
+
+        var response = await service.QueryAsync("7d", CancellationToken.None);
+
+        Assert.Equal("7d", response.Range);
+        Assert.Equal("available", response.Metrics.Status);
+        Assert.NotEmpty(response.Metrics.Series);
+        Assert.All(handler.Requests.Where(request => request.Path == "/api/prom/api/v1/query_range"), request =>
+        {
+            Assert.Contains("step=1h", request.Query, StringComparison.Ordinal);
+            Assert.Contains("start=", request.Query, StringComparison.Ordinal);
+            Assert.Contains("end=", request.Query, StringComparison.Ordinal);
+            Assert.DoesNotContain("7d", request.Query, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public async Task MissingPrometheusSeriesRemainsNoDataInsteadOfZero()
+    {
+        var handler = new RecordingHandler(request => request.RequestUri!.AbsolutePath == "/api/prom/api/v1/query_range"
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"status\":\"success\",\"data\":{\"result\":[]}}", Encoding.UTF8, "application/json") }
+            : null);
+        var service = CreateService(handler, Configuration());
+
+        var response = await service.QueryAsync("1h", CancellationToken.None);
+
+        Assert.Equal("no_data", response.Metrics.Status);
+        Assert.Empty(response.Metrics.Series);
+        Assert.Null(response.Metrics.RequestsPerSecond);
+        Assert.Null(response.Metrics.ServerErrorPercent);
     }
 
     [Fact]
@@ -94,7 +134,7 @@ public sealed class GrafanaObservabilityTests
         public HttpClient CreateClient(string name) => client;
     }
 
-    private sealed class RecordingHandler(Func<HttpRequestMessage, HttpResponseMessage>? responseFactory = null) : HttpMessageHandler
+    private sealed class RecordingHandler(Func<HttpRequestMessage, HttpResponseMessage?>? responseFactory = null) : HttpMessageHandler
     {
         public ConcurrentBag<RecordedRequest> Requests { get; } = [];
 
@@ -102,18 +142,22 @@ public sealed class GrafanaObservabilityTests
         {
             Requests.Add(new RecordedRequest(request.RequestUri!.AbsolutePath, request.RequestUri.Query,
                 request.Headers.Authorization?.ToString()));
-            if (responseFactory is not null)
-                return Task.FromResult(responseFactory(request));
+            var customResponse = responseFactory?.Invoke(request);
+            if (customResponse is not null)
+                return Task.FromResult(customResponse);
 
-            if (request.RequestUri!.AbsolutePath.EndsWith("/api/v1/query", StringComparison.Ordinal))
+            if (request.RequestUri!.AbsolutePath.EndsWith("/api/v1/query_range", StringComparison.Ordinal)
+                && request.RequestUri.AbsolutePath.StartsWith("/api/prom/", StringComparison.Ordinal))
             {
                 var query = Uri.UnescapeDataString(request.RequestUri.Query);
-                var value = query.Contains("histogram_quantile", StringComparison.Ordinal) ? "0.25"
+                var value = query.Contains("histogram_quantile(0.50", StringComparison.Ordinal) ? "0.10"
+                    : query.Contains("histogram_quantile(0.99", StringComparison.Ordinal) ? "0.50"
+                    : query.Contains("histogram_quantile", StringComparison.Ordinal) ? "0.25"
                     : query.Contains("http_response_status_code", StringComparison.Ordinal) ? "2"
                     : "10";
-                return Json($"{{\"status\":\"success\",\"data\":{{\"result\":[{{\"value\":[1,\"{value}\"]}}]}}}}");
+                return Json($"{{\"status\":\"success\",\"data\":{{\"result\":[{{\"metric\":{{}},\"values\":[[1791800000,\"{value}\"]]}}]}}}}");
             }
-            if (request.RequestUri.AbsolutePath.EndsWith("/query_range", StringComparison.Ordinal))
+            if (request.RequestUri.AbsolutePath.EndsWith("/loki/api/v1/query_range", StringComparison.Ordinal))
                 return Json("{\"status\":\"success\",\"data\":{\"result\":[{\"stream\":{\"level\":\"ERROR\"},\"values\":[[\"1791800000000000000\",\"private log body must not be returned\"]]}]}}");
             return Json("{\"traces\":[{\"traceID\":\"aabbccdd\",\"startTimeUnixNano\":1791800000000000000,\"durationMs\":12.5}]}");
         }

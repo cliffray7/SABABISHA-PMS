@@ -2,7 +2,7 @@
 
 ## Status
 
-Phase 1 implementation and focused verification are complete locally. Phase 2A secure logging and OpenTelemetry foundation is implemented locally. The user reports successful local Grafana Cloud ingestion and querying for Prometheus, Loki, and Tempo; production ingestion remains unverified. Phase 2B now adds a SuperAdmin-only read proxy and Web telemetry overview. The API reports overall status as unknown when SQL connectivity succeeds because email/AI delivery and SignalR/jobs are not actively measured; database failure reports degraded. This specification distinguishes current health signals from telemetry query results.
+Phase 1 implementation and focused verification are complete locally. Phase 2A secure logging and OpenTelemetry foundation is implemented locally. The user reports successful local Grafana Cloud ingestion and querying for Prometheus, Loki, and Tempo; production ingestion remains unverified. Phase 2B added a SuperAdmin-only read proxy and Web telemetry overview. Phase 2C adds bounded historical Prometheus charts to that Web view. The API reports overall status as unknown when SQL connectivity succeeds because email/AI delivery and SignalR/jobs are not actively measured; database failure reports degraded. This specification distinguishes current health signals from telemetry query results.
 
 ## Product intent
 
@@ -31,7 +31,7 @@ Historical incident management, affected-user counts, frontend/mobile crash repo
 - Do not expose secrets or internal exception details.
 - Grafana query access is server-side only. Use a distinct read-only access policy token with `metrics:read`, `logs:read`, and `traces:read`; never reuse the OTLP write token unless it independently has only the required read scopes.
 - Query URLs, datasource user IDs, and the read token are server configuration. Require HTTPS endpoints and never return upstream error bodies or authorization details.
-- Expose only fixed TaskFlow API queries, 15-minute/1-hour/6-hour/24-hour windows, at most 50 sanitized log summaries and 20 trace summaries. The API does not accept arbitrary PromQL, LogQL, TraceQL, upstream URLs, or tenant identifiers.
+- Expose only fixed TaskFlow API queries, 1-hour/6-hour/24-hour/7-day windows, at most 168 metric points per series, 50 sanitized log summaries, and 20 trace summaries. The API does not accept arbitrary PromQL, LogQL, TraceQL, upstream URLs, or tenant identifiers.
 - Grafana configuration absence, query failure, and an empty result are distinct statuses. Telemetry status does not change the independent live health checks.
 
 ## Acceptance
@@ -54,13 +54,20 @@ Historical incident management, affected-user counts, frontend/mobile crash repo
 
 ## Phase 2B — Read-only Grafana overview (2026-10-12)
 
-- Added SuperAdmin-only `GET /api/v1/admin/observability` with a fixed Grafana query allowlist, bounded range choices (15m/1h/6h/24h), eight-second upstream timeout, response limits, HTTPS-only datasource endpoints, and sanitized provider-failure states.
-- Prometheus summary queries report request rate, 5xx rate/percentage, and p95 duration; Loki returns only sanitized timestamp/severity summaries; Tempo returns capped trace IDs, service name, start time, and duration. No raw log lines, upstream errors, task data, or Grafana credentials are returned.
+- Added SuperAdmin-only `GET /api/v1/admin/observability` with a fixed Grafana query allowlist, bounded ranges, eight-second upstream timeout, response limits, HTTPS-only datasource endpoints, and sanitized provider-failure states.
+- Prometheus reports request rate, 5xx rate/percentage, and p95 duration; Loki returns only sanitized timestamp/severity summaries; Tempo returns capped trace IDs, service name, start time, and duration. No raw log lines, upstream errors, task data, or Grafana credentials are returned.
 - Prometheus queries select the OpenTelemetry `service_name` resource label used by TaskFlow telemetry and use the selected bounded time range. Missing metric series remain null and are rendered as “No data”; an observed request series with no 5xx series is represented as zero errors, while absence of the request series remains `no_data`.
 - The Web health summary labels API/SQL Server as core health, email/AI as configuration-only integration readiness, and SignalR/background jobs as observability coverage. Grafana warning/error log search can legitimately return no rows; `no_data` remains distinct from query failure.
 - Web System Health now displays telemetry source status, metric summaries, sanitized log events, and trace summaries. Telemetry queries are manual/page-entry only and do not affect the existing health status.
 - Server configuration keys: `Observability:Grafana:QueryToken`; per source, `Observability:Grafana:{Metrics|Logs|Traces}:Endpoint` and `...:User`. Use the datasource endpoint and user/instance ID from Grafana Cloud, and a separate read-only access policy token. For Render, set the matching double-underscore environment variable names as protected secrets/configuration.
 - Focused backend tests passed 3/3. Web production build passed with existing SignalR annotation and >500 kB chunk warnings. The route-intercepted Web smoke passed with mocked telemetry states. A live Grafana read query remains pending because no separate read token or datasource query configuration was available in this implementation session; production monitoring is not verified.
+
+## Phase 2C — Historical charts and bounded trace/log overview (2026-10-12)
+
+- Extended the existing SuperAdmin-only Grafana endpoint with five fixed Prometheus `query_range` series: request rate, 5xx rate, and p50/p95/p99 duration percentiles. The endpoint accepts only 1h, 6h, 24h, and 7d windows; it selects a fixed step/rate window per range and caps each series and merged response at 168 points.
+- All graph samples use the same server-selected start/end interval as the associated Loki and Tempo searches. Metric series are joined by timestamp. Missing samples remain null; absent Prometheus results return `no_data` and an empty series rather than invented zeroes. A request sample with no corresponding 5xx sample remains a measured zero-error point.
+- The Web selector now offers 1h/6h/24h/7d and shows request traffic, 5xx error percentage, and latency percentile charts using the existing Recharts dependency. Each chart has an explicit no-matching-samples state. The existing trace panel remains a capped, sanitized recent-trace explorer (IDs, service, start time, duration); detailed span inspection and arbitrary trace queries remain out of scope.
+- Focused `GrafanaObservabilityTests` passed 5/5, including bounded 7d requests and empty-series behavior. Web production build passed with existing SignalR annotation and large-chunk warnings. The route-intercepted System Health smoke passed for no-data states, rendered historical chart lines, and existing health retry/status behavior. Live Grafana read queries and production deployment remain unverified.
 
 ## Phase 1 verification follow-up (2026-10-10)
 

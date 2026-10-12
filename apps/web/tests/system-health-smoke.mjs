@@ -18,12 +18,26 @@ try {
     const path = new URL(route.request().url()).pathname.replace(/^.*\/api\/v1/, '');
     if (path === '/account') return route.fulfill({ json: { id: 'health-smoke-admin', firstName: 'Platform', lastName: 'Admin', email: 'admin@example.invalid' } });
     if (path === '/admin/dashboard') return route.fulfill({ json: {} });
-    if (path === '/admin/observability') return route.fulfill({ json: {
-      range: '1h', queriedAt: '2026-10-10T09:00:00Z',
-      metrics: { status: 'not_configured', requestsPerSecond: null, serverErrorsPerSecond: null, serverErrorPercent: null, p95DurationMilliseconds: null, message: 'Grafana metrics read access is not configured.' },
-      logs: { status: 'not_configured', items: [], message: 'Grafana logs read access is not configured.' },
-      traces: { status: 'not_configured', items: [], message: 'Grafana traces read access is not configured.' }
-    } });
+    if (path === '/admin/observability') {
+      const range = new URL(route.request().url()).searchParams.get('range') ?? '1h';
+      const isConfigured = range === '7d';
+      return route.fulfill({ json: {
+        range, queriedAt: '2026-10-10T09:00:00Z',
+        metrics: isConfigured ? {
+          status: 'available', requestsPerSecond: 10, serverErrorsPerSecond: 1, serverErrorPercent: 10,
+          p95DurationMilliseconds: 250, message: 'Prometheus time-series results.',
+          series: [
+            { timestamp: '2026-10-10T08:00:00Z', requestsPerSecond: 8, serverErrorsPerSecond: 0, serverErrorPercent: 0, p50DurationMilliseconds: 80, p95DurationMilliseconds: 180, p99DurationMilliseconds: 300 },
+            { timestamp: '2026-10-10T09:00:00Z', requestsPerSecond: 10, serverErrorsPerSecond: 1, serverErrorPercent: 10, p50DurationMilliseconds: 100, p95DurationMilliseconds: 250, p99DurationMilliseconds: 420 }
+          ]
+        } : {
+          status: 'not_configured', requestsPerSecond: null, serverErrorsPerSecond: null, serverErrorPercent: null,
+          p95DurationMilliseconds: null, message: 'Grafana metrics read access is not configured.', series: []
+        },
+        logs: { status: 'not_configured', items: [], message: 'Grafana logs read access is not configured.' },
+        traces: { status: 'not_configured', items: [], message: 'Grafana traces read access is not configured.' }
+      } });
+    }
     if (path === '/admin/system-health') {
       healthRequests.push(route.request());
       if (healthRequests.length === 1) return route.abort('timedout');
@@ -46,17 +60,22 @@ try {
   await page.getByRole('heading', { name: 'System health', exact: true }).waitFor();
   await page.getByRole('heading', { name: 'Telemetry overview' }).waitFor();
   await page.getByText('Grafana metrics read access is not configured.').waitFor();
+  await page.getByText('No matching metric samples for this chart and time range. Missing data is not shown as zero.').first().waitFor();
+  await page.getByRole('combobox', { name: 'Time range' }).click();
+  await page.getByRole('option', { name: 'Last 7 days' }).click();
+  await page.locator('.recharts-line').first().waitFor();
+  assert.equal(await page.locator('.recharts-line').count(), 6, 'Historical metrics render request, error, and latency percentile lines.');
   await page.getByText('Unable to load system health.', { exact: false }).waitFor();
   await page.getByRole('button', { name: 'Refresh checks' }).click();
   await page.getByText('Unable to load system health.', { exact: false }).waitFor();
   await page.getByRole('button', { name: 'Refresh checks' }).click();
-  await page.getByText('Platform core: unknown.', { exact: false }).waitFor();
+  await page.getByText('Core health: healthy.', { exact: false }).waitFor();
   await page.getByText('configured', { exact: true }).first().waitFor();
   await page.getByText('not instrumented', { exact: true }).first().waitFor();
   assert.equal(healthRequests.length, 3, 'Timeout and server failure recover only after explicit retries.');
-  assert.equal(await page.locator('.admin-health-overall').getAttribute('class').then(value => value.includes('MuiAlert-standardSuccess')), false,
-    'Unknown overall status must not be rendered as healthy.');
-  console.log('System Health smoke passed: timeout/server failure, explicit retry, and unknown/configured semantics.');
+  assert.equal(await page.locator('.admin-health-overall').getAttribute('class').then(value => value.includes('MuiAlert-standardSuccess')), true,
+    'The core status is healthy because both API and database checks passed; unmeasured services remain separate.');
+  console.log('System Health smoke passed: no-data states, historical charts, and health retry/status semantics.');
 } finally {
   await browser.close();
 }
