@@ -687,6 +687,11 @@
 .admin-observability-metric .MuiCardContent-root { display: grid; gap: 8px; }
 .admin-observability-metric span { color: var(--admin-muted, #667085); font-size: .82rem; }
 .admin-observability-metric strong { font-size: 1.45rem; }
+.admin-observability-charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.admin-observability-chart-panel { min-width: 0; }
+.admin-observability-chart-panel h3 { margin: 0 0 12px; font-size: 1rem; }
+.admin-observability-chart { width: 100%; height: 230px; }
+.admin-observability-chart-panel .admin-observability-empty { min-height: 180px; display: grid; place-items: center; text-align: center; }
 .admin-observability-results-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .admin-observability-panel h3 { margin: 0; font-size: 1rem; }
 .admin-observability-panel p { margin: 6px 0 14px; color: var(--admin-muted, #667085); font-size: .82rem; }
@@ -697,5 +702,6 @@
 .admin-observability-severity.error { background: #fdecea; color: #a12622; }
 .admin-observability-trace-id { max-width: 150px; overflow: hidden; font-family: monospace; text-overflow: ellipsis; }
 .admin-observability-empty { padding: 14px; border-radius: 10px; background: var(--admin-subtle, #f7f8fa); color: var(--admin-muted, #667085); font-size: .85rem; }
-@media (max-width: 900px) { .admin-observability-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .admin-observability-results-grid { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .admin-observability-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .admin-observability-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .admin-observability-charts, .admin-observability-results-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .admin-observability-header { align-items: stretch; flex-direction: column; } .admin-observability-range.MuiFormControl-root { width:100%; min-width:0; flex-basis:auto; } }
