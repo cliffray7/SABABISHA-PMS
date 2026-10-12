@@ -27,7 +27,7 @@ public sealed class DeletedContentPurger(
             }
             catch (Exception error)
             {
-                logger.LogError(error, "The 30-day deleted-content purge failed; it will retry on the next interval.");
+                logger.LogError("The 30-day deleted-content purge failed with exception type {ExceptionType}; it will retry on the next interval.", error.GetType().FullName);
             }
 
             try
@@ -60,7 +60,7 @@ public sealed class DeletedContentPurger(
             try { await PurgeProjectAsync(db, media, project, cancellationToken); }
             catch (Exception error) when (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogError(error, "Could not permanently purge deleted project {ProjectId}.", project.Id);
+                logger.LogError("Could not permanently purge deleted project; exception type {ExceptionType}.", error.GetType().FullName);
             }
         }
 
@@ -73,7 +73,7 @@ public sealed class DeletedContentPurger(
             try { await PurgeTaskAsync(db, media, task, cancellationToken); }
             catch (Exception error) when (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogError(error, "Could not permanently purge deleted task {TaskId}.", task.Id);
+                logger.LogError("Could not permanently purge deleted task; exception type {ExceptionType}.", error.GetType().FullName);
             }
         }
 
@@ -87,7 +87,7 @@ public sealed class DeletedContentPurger(
             try { await PurgeCommentAsync(db, media, comment, cancellationToken); }
             catch (Exception error) when (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogError(error, "Could not permanently purge deleted comment {CommentId}.", comment.Id);
+                logger.LogError("Could not permanently purge deleted comment; exception type {ExceptionType}.", error.GetType().FullName);
             }
         }
 
@@ -107,7 +107,7 @@ public sealed class DeletedContentPurger(
             }
             catch (Exception error) when (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogError(error, "Could not permanently purge deleted attachment {AttachmentId}.", attachment.Id);
+                logger.LogError("Could not permanently purge deleted attachment; exception type {ExceptionType}.", error.GetType().FullName);
             }
         }
     }
@@ -128,7 +128,7 @@ public sealed class DeletedContentPurger(
         db.ProjectMembers.RemoveRange(await db.ProjectMembers.Where(member => member.ProjectId == project.Id).ToListAsync(ct));
         db.Projects.Remove(project);
         await db.SaveChangesAsync(ct);
-        logger.LogInformation("Permanently purged project {ProjectId} and its content after retention.", project.Id);
+        logger.LogInformation("Permanently purged a project and its content after retention.");
     }
 
     private async Task PurgeTaskAsync(PmsDbContext db, ICloudinaryStorage media, WorkTask root, CancellationToken ct)
@@ -146,7 +146,7 @@ public sealed class DeletedContentPurger(
         foreach (var attachment in attachments) RemoveLegacyUpload(attachment.Id);
         await RemoveTaskContentAsync(db, tasks, comments, attachments, ct);
         await db.SaveChangesAsync(ct);
-        logger.LogInformation("Permanently purged task {TaskId} and its content after retention.", root.Id);
+        logger.LogInformation("Permanently purged a task and its content after retention.");
     }
 
     private async Task PurgeCommentAsync(PmsDbContext db, ICloudinaryStorage media, Comment root, CancellationToken ct)

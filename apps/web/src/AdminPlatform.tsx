@@ -1,7 +1,8 @@
 import { Alert, Box, Button, Card, CardContent, CircularProgress, InputAdornment, MenuItem, TextField, Typography } from '@mui/material';
-import { Activity, Blocks, ChevronRight, CircleHelp, Database, Filter, FolderKanban, HeartPulse, ListTodo, LockKeyhole, MessageSquare, Palette, RefreshCw, Search, Server, Users } from 'lucide-react';
+import { Activity, Blocks, ChevronRight, CircleHelp, ClipboardList, Database, Filter, FolderKanban, HeartPulse, ListTodo, LockKeyhole, MessageSquare, Palette, RefreshCw, Search, Server, Users } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, errorMessage } from './api';
 
 type AuditEvent = { eventId: string; occurredAt: string; actor: { id: string; displayName: string }; action: string; target: { type: string; id: string; displayName: string }; outcome: string; reason?: string | null; correlationId: string };
@@ -253,11 +254,30 @@ export function AdminAuditTrail() {
 }
 type SystemHealthComponent = { id: string; name: string; status: string; signal: string; summary: string };
 type SystemHealthResponse = { overallStatus: string; checkedAt: string; components: SystemHealthComponent[] };
-type GrafanaMetricSummary = { status: string; requestsPerSecond: number | null; serverErrorsPerSecond: number | null; serverErrorPercent: number | null; p95DurationMilliseconds: number | null; message: string };
+type GrafanaMetricPoint = { timestamp: string; requestsPerSecond: number | null; serverErrorsPerSecond: number | null; serverErrorPercent: number | null; p50DurationMilliseconds: number | null; p95DurationMilliseconds: number | null; p99DurationMilliseconds: number | null };
+type GrafanaMetricSummary = { status: string; requestsPerSecond: number | null; serverErrorsPerSecond: number | null; serverErrorPercent: number | null; p95DurationMilliseconds: number | null; series: GrafanaMetricPoint[]; message: string };
 type GrafanaDataResult<T> = { status: string; items: T[]; message: string };
 type GrafanaLogEntry = { timestamp: string; severity: string; message: string };
 type GrafanaTraceEntry = { traceId: string; serviceName: string; startedAt: string; durationMilliseconds: number };
 type GrafanaObservabilityResponse = { range: string; queriedAt: string; metrics: GrafanaMetricSummary; logs: GrafanaDataResult<GrafanaLogEntry>; traces: GrafanaDataResult<GrafanaTraceEntry> };
+
+type MetricSeriesKey = Exclude<keyof GrafanaMetricPoint, 'timestamp'>;
+function ObservabilityChart({ title, series, lines }: { title: string; series: GrafanaMetricPoint[]; lines: Array<{ key: MetricSeriesKey; name: string; color: string }> }) {
+  const hasData = series.some(point => lines.some(line => point[line.key] !== null));
+  return <Card className="admin-observability-chart-panel"><CardContent>
+    <Typography component="h3">{title}</Typography>
+    {hasData ? <div className="admin-observability-chart" role="img" aria-label={`${title} time series`}>
+      <ResponsiveContainer width="100%" height="100%"><LineChart data={series} margin={{ top: 8, right: 12, bottom: 0, left: -18 }}>
+        <CartesianGrid vertical={false} stroke="var(--admin-border, #e5e7eb)" strokeDasharray="3 4"/>
+        <XAxis dataKey="timestamp" tickFormatter={value => new Date(String(value)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} tickLine={false} axisLine={false} minTickGap={24} tick={{ fill: 'var(--admin-muted, #667085)', fontSize: 11 }}/>
+        <YAxis width={54} tickLine={false} axisLine={false} tick={{ fill: 'var(--admin-muted, #667085)', fontSize: 11 }}/>
+        <Tooltip labelFormatter={value => new Date(String(value)).toLocaleString()} contentStyle={{ border: '1px solid var(--admin-border, #e5e7eb)', borderRadius: 8, background: 'var(--admin-surface, #fff)', color: 'var(--admin-ink, #1f2937)' }}/>
+        <Legend iconType="circle" iconSize={8}/>
+        {lines.map(line => <Line key={line.key} type="monotone" dataKey={line.key} name={line.name} stroke={line.color} strokeWidth={2} dot={false} connectNulls={false} activeDot={{ r: 4 }}/>) }
+      </LineChart></ResponsiveContainer>
+    </div> : <div className="admin-observability-empty">No matching metric samples for this chart and time range. Missing data is not shown as zero.</div>}
+  </CardContent></Card>;
+}
 
 export function AdminHealth() {
   const [observabilityRange, setObservabilityRange] = useState('1h');
@@ -362,6 +382,20 @@ export function AdminHealth() {
             {metricCards.map(([label, value, format]) => <Card className="admin-observability-metric" key={label}><CardContent>
               <span>{label}</span><strong>{value !== null ? format(value) : 'No data'}</strong>
             </CardContent></Card>)}
+          </div>
+          <div className="admin-observability-charts" aria-label="Historical API metrics">
+            <ObservabilityChart title="Request traffic" series={observability.data.metrics.series} lines={[
+              { key: 'requestsPerSecond', name: 'Requests / sec', color: '#4f46e5' },
+              { key: 'serverErrorsPerSecond', name: '5xx / sec', color: '#dc4c64' },
+            ]}/>
+            <ObservabilityChart title="5xx error trend" series={observability.data.metrics.series} lines={[
+              { key: 'serverErrorPercent', name: '5xx rate', color: '#dc4c64' },
+            ]}/>
+            <ObservabilityChart title="Request latency percentiles" series={observability.data.metrics.series} lines={[
+              { key: 'p50DurationMilliseconds', name: 'p50', color: '#0f9d78' },
+              { key: 'p95DurationMilliseconds', name: 'p95', color: '#4f46e5' },
+              { key: 'p99DurationMilliseconds', name: 'p99', color: '#dd8b18' },
+            ]}/>
           </div>
           {observability.data.metrics.status !== 'available' && <Alert severity={observability.data.metrics.status === 'unavailable' ? 'warning' : 'info'}>{observability.data.metrics.message}</Alert>}
           <div className="admin-observability-results-grid">

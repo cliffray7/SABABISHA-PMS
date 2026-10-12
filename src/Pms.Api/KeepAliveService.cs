@@ -29,7 +29,7 @@ public sealed class KeepAliveService(IConfiguration config, ILogger<KeepAliveSer
         var pingUrl = baseUrl.TrimEnd('/') + "/api/v1/live";
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 
-        logger.LogInformation("KeepAliveService: will ping {Url} every 14 minutes.", pingUrl);
+        logger.LogInformation("Keep-alive service started with the configured interval.");
 
         // Initial delay — wait 2 minutes after startup before first ping.
         await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
@@ -43,7 +43,7 @@ public sealed class KeepAliveService(IConfiguration config, ILogger<KeepAliveSer
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger.LogWarning("KeepAliveService: ping failed — {Message}", ex.Message);
+                logger.LogWarning("Keep-alive request failed with exception type {ExceptionType}.", ex.GetType().FullName);
             }
 
             await Task.Delay(TimeSpan.FromMinutes(14), stoppingToken);

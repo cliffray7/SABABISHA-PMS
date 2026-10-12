@@ -69,7 +69,7 @@ public sealed class CloudinaryStorage(
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            logger.LogError("Cloudinary upload failed with status {StatusCode}: {Response}", response.StatusCode, body);
+            logger.LogError("Media provider upload failed with status {StatusCode}.", (int)response.StatusCode);
             throw new CloudinaryStorageException("The media storage service rejected the upload.");
         }
 
@@ -111,13 +111,13 @@ public sealed class CloudinaryStorage(
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            logger.LogError("Cloudinary delete failed with status {StatusCode}: {Response}", response.StatusCode, body);
+            logger.LogError("Media provider delete failed with status {StatusCode}.", (int)response.StatusCode);
             throw new CloudinaryStorageException("The media storage service could not delete the expired asset.");
         }
         var result = JsonSerializer.Deserialize<DeleteResponse>(body)?.Result;
         if (result is not ("ok" or "not found"))
         {
-            logger.LogError("Cloudinary returned an unsuccessful delete response: {Response}", body);
+            logger.LogError("Media provider returned an unsuccessful delete response.");
             throw new CloudinaryStorageException("The media storage service could not delete the expired asset.");
         }
     }

@@ -146,7 +146,7 @@ public sealed class CollaborationController(PmsDbContext db, IWebHostEnvironment
         catch
         {
             try { await media.DeleteAsync(uploaded.PublicId, uploaded.ResourceType, ct); }
-            catch (Exception cleanupError) { logger.LogError(cleanupError, "Could not remove unreferenced Cloudinary attachment {PublicId}.", uploaded.PublicId); }
+            catch (Exception cleanupError) { logger.LogError("Could not remove an unreferenced attachment; exception type {ExceptionType}.", cleanupError.GetType().FullName); }
             throw;
         }
         await Publish(task.ProjectId, "collaboration", ct);

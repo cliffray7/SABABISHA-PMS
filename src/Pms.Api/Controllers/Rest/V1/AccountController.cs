@@ -96,14 +96,14 @@ public sealed class AccountController(PmsDbContext db, TokenService tokens, IPas
         catch
         {
             try { await media.DeleteAsync(uploaded.PublicId, uploaded.ResourceType, ct); }
-            catch (Exception cleanupError) { logger.LogError(cleanupError, "Could not remove the unreferenced Cloudinary avatar {PublicId}.", uploaded.PublicId); }
+            catch (Exception cleanupError) { logger.LogError("Could not remove an unreferenced avatar; exception type {ExceptionType}.", cleanupError.GetType().FullName); }
             throw;
         }
 
         if (!string.IsNullOrWhiteSpace(oldPublicId))
         {
             try { await media.DeleteAsync(oldPublicId, "image", ct); }
-            catch (CloudinaryStorageException cleanupError) { logger.LogError(cleanupError, "Could not remove the replaced Cloudinary avatar {PublicId}.", oldPublicId); }
+            catch (CloudinaryStorageException cleanupError) { logger.LogError("Could not remove a replaced avatar; exception type {ExceptionType}.", cleanupError.GetType().FullName); }
         }
         return await Me(ct);
     }
