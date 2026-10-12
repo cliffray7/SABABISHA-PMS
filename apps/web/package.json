@@ -19,7 +19,8 @@
     "test:project-progress": "node tests/project-progress-smoke.mjs",
     "test:notifications": "node tests/notifications-smoke.mjs",
     "test:attachments": "node tests/attachments-smoke.mjs",
-    "test:superadmin-activity": "node tests/superadmin-activity-explorer-smoke.mjs"
+    "test:superadmin-activity": "node tests/superadmin-activity-explorer-smoke.mjs",
+    "test:system-health": "node tests/system-health-smoke.mjs"
   },
   "dependencies": {
     "@apollo/client": "^4.2.12",

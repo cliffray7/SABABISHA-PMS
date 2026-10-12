@@ -790,18 +790,8 @@ class ApiClient {
   }
 
   Future<AdminHealthStatus> adminHealth() async {
-    final results = await Future.wait([
-      _authorized('GET', '/health'),
-      _authorized('GET', '/ready'),
-    ]);
-    final apiStatus = _json(results[0])['status'] as String? ?? 'Unknown';
-    final readyBody = _json(results[1]);
-    final dbStatus =
-        ((readyBody['entries'] as Map<String, dynamic>?)?['database']
-                as Map<String, dynamic>?)?['status'] as String? ??
-            readyBody['status'] as String? ??
-            'Unknown';
-    return AdminHealthStatus(api: apiStatus, database: dbStatus);
+    final response = await _authorized('GET', '/admin/system-health');
+    return AdminHealthStatus.fromJson(_json(response));
   }
 
   // ─── Private helpers ─────────────────────────────────────────────────────

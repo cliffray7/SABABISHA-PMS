@@ -1102,8 +1102,50 @@ class AdminAuditPage {
       );
 }
 
+class AdminHealthComponent {
+  const AdminHealthComponent({
+    required this.id,
+    required this.name,
+    required this.status,
+    required this.signal,
+    required this.summary,
+  });
+
+  final String id;
+  final String name;
+  final String status;
+  final String signal;
+  final String summary;
+
+  factory AdminHealthComponent.fromJson(Map<String, dynamic> json) =>
+      AdminHealthComponent(
+        id: json['id'] as String? ?? 'unknown',
+        name: json['name'] as String? ?? 'Unknown service',
+        status: json['status'] as String? ?? 'unknown',
+        signal: json['signal'] as String? ?? 'unknown',
+        summary: json['summary'] as String? ?? '',
+      );
+}
+
 class AdminHealthStatus {
-  const AdminHealthStatus({required this.api, required this.database});
-  final String api;
-  final String database;
+  const AdminHealthStatus({
+    required this.overallStatus,
+    required this.checkedAt,
+    required this.components,
+  });
+
+  final String overallStatus;
+  final DateTime checkedAt;
+  final List<AdminHealthComponent> components;
+
+  factory AdminHealthStatus.fromJson(Map<String, dynamic> json) =>
+      AdminHealthStatus(
+        overallStatus: json['overallStatus'] as String? ?? 'unknown',
+        checkedAt: DateTime.tryParse(json['checkedAt'] as String? ?? '') ??
+            DateTime.now().toUtc(),
+        components: ((json['components'] as List<dynamic>?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(AdminHealthComponent.fromJson)
+            .toList(growable: false),
+      );
 }

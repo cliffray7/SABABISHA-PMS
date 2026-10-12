@@ -325,6 +325,7 @@ class AppState extends ChangeNotifier {
     try {
       adminHealth = await api.adminHealth();
     } catch (e) {
+      adminHealth = null;
       _setError(e);
     } finally {
       loadingAdminHealth = false;
