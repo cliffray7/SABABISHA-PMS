@@ -79,10 +79,16 @@ public sealed class GrafanaObservabilityService(
             var requestRate = values[0];
             // If request telemetry exists but there are no 5xx samples, that is a real zero-error result.
             // If the request series itself is absent, keep the error metrics unknown instead of inventing zeroes.
-            var serverErrorRate = requestRate.HasValue ? values[1] ?? 0d : null;
-            double? errorPercent = requestRate is > 0 && serverErrorRate.HasValue
-                ? Math.Round(serverErrorRate.Value / requestRate.Value * 100d, 2)
-                : requestRate == 0 ? 0d : null;
+            double? serverErrorRate = requestRate.HasValue ? values[1] ?? 0d : null;
+            double? errorPercent = null;
+            if (requestRate is { } requestRateValue)
+            {
+                if (requestRateValue > 0 && serverErrorRate is { } errorRate)
+                    errorPercent = Math.Round(errorRate / requestRateValue * 100d, 2);
+                else if (requestRateValue == 0)
+                    errorPercent = 0d;
+            }
+            double? p95DurationMilliseconds = values[2] is { } p95 ? p95 * 1000d : null;
             var hasData = requestRate.HasValue || values[2].HasValue;
 
             return new GrafanaMetricSummary(
@@ -90,7 +96,7 @@ public sealed class GrafanaObservabilityService(
                 requestRate,
                 serverErrorRate,
                 errorPercent,
-                values[2] is { } p95 ? p95 * 1000d : null,
+                p95DurationMilliseconds,
                 hasData ? $"Live Prometheus query results for Pms.Api over {range}. Missing individual series are shown as no data." : "No matching request metric series were returned for Pms.Api in this range.");
         }
         catch (Exception exception) when (IsProviderFailure(exception))

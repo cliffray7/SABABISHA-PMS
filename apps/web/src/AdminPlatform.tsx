@@ -1,5 +1,5 @@
 import { Alert, Box, Button, Card, CardContent, CircularProgress, InputAdornment, MenuItem, TextField, Typography } from '@mui/material';
-import { Activity, Blocks, ChevronRight, CircleHelp, Database, Filter, FolderKanban, HeartPulse, ListTodo, LockKeyhole, MessageSquare, Palette, RefreshCw, Search, Server, Users } from 'lucide-react';
+import { Activity, Blocks, ChevronRight, CircleHelp, ClipboardList, Database, Filter, FolderKanban, HeartPulse, ListTodo, LockKeyhole, MessageSquare, Palette, RefreshCw, Search, Server, Users } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, errorMessage } from './api';
@@ -211,22 +211,41 @@ export function AdminAuditTrail() {
   const error = query.error ? errorMessage(query.error) : null;
   const updateFilter = (update: () => void) => { update(); resetPage(); };
   return <Box className="admin-platform-page admin-activity-page admin-audit-trail">
-    <header className="admin-platform-page-header admin-audit-header"><div><Typography component="h1">Audit Trail</Typography><p>Recorded administrative account changes.</p></div><Button variant="outlined" className="admin-audit-refresh" startIcon={query.isFetching ? <CircularProgress size={14}/> : <RefreshCw size={15}/>} disabled={query.isFetching} onClick={() => void query.refetch()}>Refresh</Button></header>
+    <header className="admin-platform-page-header admin-audit-header"><div><span className="admin-audit-eyebrow"><ClipboardList size={14}/> Platform security</span><Typography component="h1">Audit Trail</Typography><p>Review recorded administrative account changes and their request context.</p></div><Button variant="outlined" className="admin-audit-refresh" startIcon={query.isFetching ? <CircularProgress size={14}/> : <RefreshCw size={15}/>} disabled={query.isFetching} onClick={() => void query.refetch()}>Refresh</Button></header>
     <Box className="admin-activity-filters admin-audit-filters" aria-label="Filter audit events">
       <TextField className="admin-audit-action" select size="small" value={action} SelectProps={{ displayEmpty: true, renderValue: selected => selected ? actionLabels[String(selected)] ?? String(selected) : 'All recorded actions' }} inputProps={{ 'aria-label': 'Filter by action' }} onChange={event => updateFilter(() => setAction(event.target.value))}>
         <MenuItem value="">All recorded actions</MenuItem><MenuItem value="user.create">User created</MenuItem><MenuItem value="user.suspend">User suspended</MenuItem><MenuItem value="user.delete.permanent">User permanently deleted</MenuItem>
       </TextField>
       <TextField className="admin-audit-date" type="date" size="small" label="From" inputProps={{ 'aria-label': 'From date' }} value={from} InputLabelProps={{ shrink: true }} onChange={event => updateFilter(() => setFrom(event.target.value))}/>
       <TextField className="admin-audit-date" type="date" size="small" label="To" inputProps={{ 'aria-label': 'To date' }} value={to} InputLabelProps={{ shrink: true }} onChange={event => updateFilter(() => setTo(event.target.value))}/>
-      <span>Up to 50 events per page. The date range includes both selected dates.</span>
+      <span className="admin-audit-filter-note">Up to 50 events per page. Selected start and end dates are included.</span>
     </Box>
     {validationError && <Alert severity="warning" role="alert">{validationError}</Alert>}
     {!validationError && query.isLoading && <div className="admin-health-skeletons" role="status" aria-label="Loading activity"><span/><span/></div>}
     {!validationError && query.error && <Alert severity="error">Unable to load administrative activity{error ? `: ${error}` : '.'} If this is a deployment setup issue, confirm migration 002 is applied, then refresh.</Alert>}
     {!validationError && query.data?.items.length === 0 && <section className="admin-activity-empty"><span className="admin-activity-empty-icon"><Activity size={21}/></span><Typography component="h2">No matching activity</Typography><p>No recorded account changes match this date range and action.</p><span className="admin-activity-note"><CircleHelp size={14}/> Only successful user creation, suspension, and permanent deletion are recorded. To verify the setup, confirm the frontend uses the intended API and that migration 002 was applied to that API’s database. This audit feed does not backfill earlier actions.</span></section>}
     {!validationError && query.data && query.data.items.length > 0 && <>
-      <div className="admin-activity-list" aria-live="polite">{query.data.items.map(event => <Card className="admin-activity-event" key={event.eventId}><CardContent>
-        <span className="admin-activity-event-icon"><Activity size={17}/></span><div className="admin-activity-event-main"><strong>{actionLabels[event.action] ?? event.action}</strong><span>{event.target.displayName} <small>({event.target.type}: {event.target.id})</small></span><small>Outcome: {event.outcome}</small>{event.reason && <small>Reason: {event.reason}</small>}</div><div className="admin-activity-event-meta"><span>By {event.actor.displayName}</span><small>Administrator ID: {event.actor.id}</small><time dateTime={event.occurredAt}>{new Date(event.occurredAt).toLocaleString()}</time><small>Request {event.correlationId}</small></div>
+      <div className="admin-audit-results-heading" aria-live="polite"><div><Typography component="h2">Recorded changes</Typography><span>Most recent events matching your filters</span></div><span className="admin-audit-result-count">{query.data.items.length} events</span></div>
+      <div className="admin-audit-event-list" aria-live="polite">{query.data.items.map(event => <Card className="admin-audit-event" key={event.eventId}><CardContent>
+        <span className="admin-audit-event-icon"><Activity size={17}/></span>
+        <div className="admin-audit-event-main">
+          <div className="admin-audit-event-heading"><strong>{actionLabels[event.action] ?? event.action}</strong><span className={`admin-audit-outcome ${event.outcome.toLowerCase()}`}>{event.outcome}</span></div>
+          <span className="admin-audit-target">{event.target.displayName}</span>
+          <small className="admin-audit-target-type">{event.target.type}</small>
+        </div>
+        <div className="admin-audit-event-meta">
+          <div><span>Performed by</span><strong>{event.actor.displayName}</strong></div>
+          <time dateTime={event.occurredAt}>{new Date(event.occurredAt).toLocaleString()}</time>
+          <details className="admin-audit-event-details">
+            <summary>Event details</summary>
+            <dl>
+              <div><dt>Administrator ID</dt><dd>{event.actor.id}</dd></div>
+              <div><dt>Target ID</dt><dd>{event.target.id}</dd></div>
+              <div><dt>Request ID</dt><dd>{event.correlationId}</dd></div>
+              {event.reason && <div><dt>Reason</dt><dd>{event.reason}</dd></div>}
+            </dl>
+          </details>
+        </div>
       </CardContent></Card>)}</div>
       <div className="admin-activity-pagination"><span>Page {cursorStack.length} · {query.data.items.length} events</span><div><Button variant="text" disabled={cursorStack.length <= 1 || query.isFetching} onClick={() => setCursorStack(stack => stack.slice(0, -1))}>Previous</Button> <Button variant="outlined" disabled={!query.data.nextCursor || query.isFetching} onClick={() => { if (query.data?.nextCursor) setCursorStack(stack => [...stack, query.data!.nextCursor]); }}>Next page</Button></div></div>
     </>}
