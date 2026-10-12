@@ -368,7 +368,7 @@ export function AdminHealth() {
         <header className="admin-platform-page-header admin-observability-header">
           <div><Typography component="h2" id="admin-observability-title">Telemetry overview</Typography><p>Read-only Grafana Cloud data for the TaskFlow API. Grafana credentials stay on the server.</p></div>
           <TextField className="admin-observability-range" select size="small" label="Time range" value={observabilityRange} onChange={event => setObservabilityRange(event.target.value)}>
-            <MenuItem value="1h">Last hour</MenuItem><MenuItem value="6h">Last 6 hours</MenuItem><MenuItem value="24h">Last 24 hours</MenuItem><MenuItem value="7d">Last 7 days</MenuItem>
+            <MenuItem value="15m">Last 15 minutes</MenuItem><MenuItem value="1h">Last hour</MenuItem><MenuItem value="6h">Last 6 hours</MenuItem><MenuItem value="24h">Last 24 hours</MenuItem>
           </TextField>
         </header>
         {observability.error && <Alert severity="error" role="alert">Unable to query telemetry. Check the TaskFlow API and retry.</Alert>}
