@@ -21,6 +21,20 @@ Set these variables at the API host:
 | `Gemini__ApiKey` | Gemini API key (keep secret; set on the API host, never Vercel) |
 | `Gemini__Model` | `gemini-3.8-flash` (override only with a model enabled for this key) |
 
+For the optional Super Admin Grafana overview, configure a separate read-only Grafana access-policy token and datasource identifiers on the API host. Keep these out of the Web/Vercel environment:
+
+| Variable | Purpose |
+| --- | --- |
+| `Observability__Grafana__QueryToken` | Grafana read-only token with only the required metrics/logs/traces read scopes |
+| `Observability__Grafana__Metrics__Endpoint` | HTTPS Prometheus query endpoint |
+| `Observability__Grafana__Metrics__User` | Prometheus instance/user identifier |
+| `Observability__Grafana__Logs__Endpoint` | HTTPS Loki query endpoint |
+| `Observability__Grafana__Logs__User` | Loki instance/user identifier |
+| `Observability__Grafana__Traces__Endpoint` | HTTPS Tempo query endpoint |
+| `Observability__Grafana__Traces__User` | Tempo instance/user identifier |
+
+These are Grafana **read** credentials and must be separate from `Observability__Otlp__Headers`, which is used only for telemetry **write**. The read overview returns `not_configured` until all values for a source and the read token are present. OTLP export stays disabled unless `Observability__Otlp__Enabled=true`; enabling it also requires its HTTPS endpoint and write authorization header. Verify both paths against the deployed API after configuring secrets.
+
 Do not commit Brevo credentials or sender addresses to `appsettings.json`. The API's local inbox for OTPs and reset links is Development-only. After setting the host variables, redeploy the API and verify the sender domain/address in Brevo.
 
 Gemini task drafting defaults to `gemini-3.8-flash`. If the API host already has an older `Gemini__Model` override such as `gemini-1.5-flash`, update that variable and redeploy the API; environment variables override `appsettings.json`.
