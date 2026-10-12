@@ -268,6 +268,16 @@ export function AdminHealth() {
     return <HeartPulse size={18}/>;
   };
   const statusLabel = (status: string) => status.split('_').join(' ');
+  const healthComponents = query.data?.components ?? [];
+  const coreComponents = healthComponents.filter(component => component.id === 'api' || component.id === 'database');
+  const readinessComponents = healthComponents.filter(component => component.id === 'email' || component.id === 'ai');
+  const coverageComponents = healthComponents.filter(component => component.id === 'realtime' || component.id === 'background_jobs');
+  const otherComponents = healthComponents.filter(component => !['api', 'database', 'email', 'ai', 'realtime', 'background_jobs'].includes(component.id));
+  const coreStatus = coreComponents.length === 2 && coreComponents.every(component => component.status === 'healthy')
+    ? 'healthy'
+    : coreComponents.some(component => ['degraded', 'unhealthy', 'unavailable'].includes(component.status))
+      ? 'degraded'
+      : 'unknown';
   const metricCards: Array<[string, number | null, (value: number) => string]> = [
     ['Requests / sec', observability.data?.metrics.requestsPerSecond ?? null, value => value.toFixed(2)],
     ['5xx / sec', observability.data?.metrics.serverErrorsPerSecond ?? null, value => value.toFixed(2)],
@@ -283,32 +293,42 @@ export function AdminHealth() {
       {query.error && <Alert severity="error" className="admin-health-error">Unable to load system health. Check your Super Admin access and API connection, then retry.</Alert>}
       {query.isLoading && <div className="admin-health-skeletons" role="status" aria-label="Checking service status"><span/><span/></div>}
       {query.data && <>
-        <Alert severity={query.data.overallStatus === 'healthy' ? 'success' : 'warning'} className="admin-health-overall">
-          Platform core: {statusLabel(query.data.overallStatus)}. Only the API request and database connectivity are checked; provider availability and uninstrumented services are not included in this overall status.
+        <Alert severity={coreStatus === 'healthy' ? 'success' : coreStatus === 'degraded' ? 'warning' : 'info'} className="admin-health-overall">
+          Core health: {statusLabel(coreStatus)}. This summary covers the API and SQL Server checks only; provider readiness and observability coverage are shown separately.
         </Alert>
-        <Box className="admin-health-grid" aria-live="polite">
-          {query.data.components.map(component => (
-            <Card key={component.id} className={`admin-health-card ${statusClass(component.status)}`}>
-              <CardContent className="admin-health-card-content">
-                <span className="admin-health-service-icon">{iconFor(component.id, component.status)}</span>
-                <div className="admin-health-service-copy">
-                  <span>{component.name} · {statusLabel(component.signal)}</span>
-                  <strong>{statusLabel(component.status)}</strong>
-                  <small>{component.summary}</small>
-                </div>
-                <span className="admin-health-indicator" aria-hidden="true"/>
-              </CardContent>
-            </Card>
-          ))}
-        </Box>
-        <Alert severity="info" className="admin-health-note">Live signals are shown only when Grafana returns data. Platform health checks and telemetry query status are reported separately.</Alert>
+        {[
+          ['Core health', coreComponents],
+          ['Integration readiness', readinessComponents],
+          ['Observability coverage', coverageComponents],
+          ['Other health signals', otherComponents],
+        ].filter(([, components]) => components.length > 0).map(([group, components]) => (
+          <section className="admin-health-group" key={group as string} aria-label={group as string}>
+            <Typography component="h2">{group as string}</Typography>
+            <Box className="admin-health-grid" aria-live="polite">
+              {(components as SystemHealthComponent[]).map(component => (
+                <Card key={component.id} className={`admin-health-card ${statusClass(component.status)}`}>
+                  <CardContent className="admin-health-card-content">
+                    <span className="admin-health-service-icon">{iconFor(component.id, component.status)}</span>
+                    <div className="admin-health-service-copy">
+                      <span>{component.name} · {statusLabel(component.signal)}</span>
+                      <strong>{statusLabel(component.status)}</strong>
+                      <small>{component.summary}</small>
+                    </div>
+                    <span className="admin-health-indicator" aria-hidden="true"/>
+                  </CardContent>
+                </Card>
+              ))}
+            </Box>
+          </section>
+        ))}
+        <Alert severity="info" className="admin-health-note">Email and AI show integration readiness (configuration only); SignalR and background jobs show observability coverage. Configuration does not mean provider availability.</Alert>
       </>}
       {query.data?.checkedAt && <Typography className="admin-health-checked">Checked {new Date(query.data.checkedAt).toLocaleString()}</Typography>}
 
       <section className="admin-observability-section" aria-labelledby="admin-observability-title">
         <header className="admin-platform-page-header admin-observability-header">
           <div><Typography component="h2" id="admin-observability-title">Telemetry overview</Typography><p>Read-only Grafana Cloud data for the TaskFlow API. Grafana credentials stay on the server.</p></div>
-          <TextField select size="small" label="Time range" value={observabilityRange} onChange={event => setObservabilityRange(event.target.value)}>
+          <TextField className="admin-observability-range" select size="small" label="Time range" value={observabilityRange} onChange={event => setObservabilityRange(event.target.value)}>
             <MenuItem value="15m">Last 15 minutes</MenuItem><MenuItem value="1h">Last hour</MenuItem><MenuItem value="6h">Last 6 hours</MenuItem><MenuItem value="24h">Last 24 hours</MenuItem>
           </TextField>
         </header>
@@ -321,7 +341,7 @@ export function AdminHealth() {
           </div>
           <div className="admin-observability-metrics" aria-label="API request metrics">
             {metricCards.map(([label, value, format]) => <Card className="admin-observability-metric" key={label}><CardContent>
-              <span>{label}</span><strong>{value !== null ? format(value) : '—'}</strong>
+              <span>{label}</span><strong>{value !== null ? format(value) : 'No data'}</strong>
             </CardContent></Card>)}
           </div>
           {observability.data.metrics.status !== 'available' && <Alert severity={observability.data.metrics.status === 'unavailable' ? 'warning' : 'info'}>{observability.data.metrics.message}</Alert>}
@@ -335,11 +355,11 @@ export function AdminHealth() {
             <Card className="admin-observability-panel"><CardContent>
               <Typography component="h3">Recent traces</Typography><p>{observability.data.traces.message}</p>
               {observability.data.traces.items.length === 0 ? <div className="admin-observability-empty">No traces in this range.</div> : <ul>
-                {observability.data.traces.items.map(trace => <li key={trace.traceId}><span className="admin-observability-trace-id" title={trace.traceId}>{trace.traceId}</span><span>{trace.serviceName} request</span><time>{trace.durationMilliseconds.toFixed(1)} ms Â· {new Date(trace.startedAt).toLocaleString()}</time></li>)}
+                {observability.data.traces.items.map(trace => <li key={trace.traceId}><span className="admin-observability-trace-id" title={trace.traceId}>{trace.traceId}</span><span>{trace.serviceName} request</span><time>{trace.durationMilliseconds.toFixed(1)} ms · {new Date(trace.startedAt).toLocaleString()}</time></li>)}
               </ul>}
             </CardContent></Card>
           </div>
-          <Typography className="admin-health-checked">Telemetry queried {new Date(observability.data.queriedAt).toLocaleString()} Â· Range: {observability.data.range}</Typography>
+          <Typography className="admin-health-checked">Telemetry queried {new Date(observability.data.queriedAt).toLocaleString()} · Range: {observability.data.range}</Typography>
         </>}
       </section>
     </Box>

@@ -544,6 +544,8 @@
 .admin-health-card.unavailable .admin-health-indicator { background:#d64545; }
 .admin-health-service-copy>small { color:var(--overview-muted,#71717a); font-size:11px; line-height:1.45; }
 .admin-health-overall.MuiAlert-root,.admin-health-note.MuiAlert-root { margin-bottom:14px; border-radius:9px; }
+.admin-health-group { display:grid; gap:10px; margin:16px 0; }
+.admin-health-group>h2 { margin:0; color:var(--overview-ink,#18181b); font-size:14px; font-weight:650; }
 .admin-health-card.healthy .admin-health-service-icon { background:#e6f7ee; color:#27764f; }
 .admin-health-card.healthy .admin-health-indicator { background:#36a36d; box-shadow:0 0 0 4px #e6f7ee; }
 .admin-health-card.degraded .admin-health-service-icon { background:#fff1e3; color:#a86a1a; }
@@ -674,6 +676,7 @@
 .admin-observability-section { display: grid; gap: 16px; margin-top: 28px; }
 .admin-observability-header { align-items: end; margin-bottom: 0; }
 .admin-observability-header h2 { margin: 0; }
+.admin-observability-range.MuiFormControl-root { width:220px; min-width:220px; flex:0 0 220px; }
 .admin-observability-source-status { display: flex; flex-wrap: wrap; gap: 10px; }
 .admin-observability-source { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--admin-border, #e5e7eb); border-radius: 12px; background: var(--admin-surface, #fff); text-transform: capitalize; }
 .admin-observability-source small { color: var(--admin-muted, #667085); }
@@ -695,3 +698,4 @@
 .admin-observability-trace-id { max-width: 150px; overflow: hidden; font-family: monospace; text-overflow: ellipsis; }
 .admin-observability-empty { padding: 14px; border-radius: 10px; background: var(--admin-subtle, #f7f8fa); color: var(--admin-muted, #667085); font-size: .85rem; }
 @media (max-width: 900px) { .admin-observability-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .admin-observability-results-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .admin-observability-header { align-items: stretch; flex-direction: column; } .admin-observability-range.MuiFormControl-root { width:100%; min-width:0; flex-basis:auto; } }
