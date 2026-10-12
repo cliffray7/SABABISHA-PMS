@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- Local follow-up for the Super Admin health dashboard: Prometheus metric queries now use the OpenTelemetry `service_name` label and the selected bounded range; absent request metrics remain unknown/no-data, while an observed request series with no matching 5xx samples reports zero errors. The Web labels API/SQL health as core health, clarifies email/AI configuration versus SignalR/job coverage, uses a wider responsive range selector, displays missing metrics as “No data,” and corrects trace timestamp separators. Changes are local and uncommitted; Grafana's live Prometheus label/response still requires production verification. No tests/build were run in this follow-up.
+
 - Current status: Super Admin System Health backend and Web/Flutter dashboards are committed locally as `1b4cc53` and `f458636`; HotChocolate 14.3.1 is committed separately as `c25667a`. This tracker records the current documentation and verification state. Nothing has been pushed or deployed. The user reports local Grafana Cloud telemetry ingestion is verified; Grafana read queries and production host configuration remain unverified. The full HTTP authorization tests and dependency audit were subsequently completed successfully. Latest working-tree verification: API Release build passed with 0 warnings/errors, integration tests passed 143 with 13 opt-in SQL Server tests skipped, and unit tests passed 1/1. These tests ran against the working tree and do not establish isolated commit-snapshot verification. Historical Render logs remain unreviewed.
 
 ## 2026-10-10

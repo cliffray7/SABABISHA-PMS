@@ -45,7 +45,7 @@ public sealed class GrafanaObservabilityService(
         var rangeDuration = ParseRange(normalizedRange);
         var queriedAt = DateTimeOffset.UtcNow;
 
-        var metricsTask = QueryMetricsAsync(cancellationToken);
+        var metricsTask = QueryMetricsAsync(normalizedRange, cancellationToken);
         var logsTask = QueryLogsAsync(queriedAt - rangeDuration, queriedAt, cancellationToken);
         var tracesTask = QueryTracesAsync(queriedAt - rangeDuration, queriedAt, cancellationToken);
         await Task.WhenAll(metricsTask, logsTask, tracesTask);
@@ -58,7 +58,7 @@ public sealed class GrafanaObservabilityService(
             await tracesTask);
     }
 
-    private async Task<GrafanaMetricSummary> QueryMetricsAsync(CancellationToken cancellationToken)
+    private async Task<GrafanaMetricSummary> QueryMetricsAsync(string range, CancellationToken cancellationToken)
     {
         if (!TryGetDataSource("Metrics", out var endpoint, out var username, out var token))
             return new GrafanaMetricSummary("not_configured", null, null, null, null,
@@ -69,19 +69,21 @@ public sealed class GrafanaObservabilityService(
             var queryTasks = new[]
             {
                 QueryPrometheusValueAsync(endpoint, username, token,
-                    $"sum(rate(http_server_request_duration_seconds_count{{job=\"{ServiceName}\"}}[5m]))", cancellationToken),
+                    $"sum(rate(http_server_request_duration_seconds_count{{service_name=\"{ServiceName}\"}}[{range}]))", cancellationToken),
                 QueryPrometheusValueAsync(endpoint, username, token,
-                    $"sum(rate(http_server_request_duration_seconds_count{{job=\"{ServiceName}\",http_response_status_code=~\"5..\"}}[5m]))", cancellationToken),
+                    $"sum(rate(http_server_request_duration_seconds_count{{service_name=\"{ServiceName}\",http_response_status_code=~\"5..\"}}[{range}]))", cancellationToken),
                 QueryPrometheusValueAsync(endpoint, username, token,
-                    $"histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{{job=\"{ServiceName}\"}}[5m])) by (le))", cancellationToken)
+                    $"histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{{service_name=\"{ServiceName}\"}}[{range}])) by (le))", cancellationToken)
             };
             var values = await Task.WhenAll(queryTasks);
             var requestRate = values[0];
-            var serverErrorRate = values[1];
+            // If request telemetry exists but there are no 5xx samples, that is a real zero-error result.
+            // If the request series itself is absent, keep the error metrics unknown instead of inventing zeroes.
+            var serverErrorRate = requestRate.HasValue ? values[1] ?? 0d : null;
             double? errorPercent = requestRate is > 0 && serverErrorRate.HasValue
                 ? Math.Round(serverErrorRate.Value / requestRate.Value * 100d, 2)
                 : requestRate == 0 ? 0d : null;
-            var hasData = values.Any(value => value.HasValue);
+            var hasData = requestRate.HasValue || values[2].HasValue;
 
             return new GrafanaMetricSummary(
                 hasData ? "available" : "no_data",
@@ -89,7 +91,7 @@ public sealed class GrafanaObservabilityService(
                 serverErrorRate,
                 errorPercent,
                 values[2] is { } p95 ? p95 * 1000d : null,
-                hasData ? "Live Prometheus query results for Pms.Api." : "No matching request metrics were returned for Pms.Api.");
+                hasData ? $"Live Prometheus query results for Pms.Api over {range}. Missing individual series are shown as no data." : "No matching request metric series were returned for Pms.Api in this range.");
         }
         catch (Exception exception) when (IsProviderFailure(exception))
         {

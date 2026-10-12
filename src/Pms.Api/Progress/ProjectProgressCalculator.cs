@@ -27,7 +27,7 @@ public static class ProjectProgressCalculator
         var tasks = EligibleTasks(source).ToArray();
         var completed = tasks.Count(task => IsDone(task.Status));
         var outstanding = tasks.Where(task => !IsDone(task.Status)).ToArray();
-        var (timezone, timezoneId) = ResolveTimezone(configuredTimezone, organizationId, logger);
+        var (timezone, timezoneId) = ResolveTimezone(configuredTimezone, logger);
         var localToday = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utcNow, DateTimeKind.Utc), timezone).Date;
         var overdue = outstanding.Count(task => task.DueDate.HasValue && task.DueDate.Value.Date < localToday);
         var percent = tasks.Length == 0
@@ -53,8 +53,7 @@ public static class ProjectProgressCalculator
 
     private static bool IsDone(string status) => string.Equals(status, "DONE", StringComparison.OrdinalIgnoreCase);
 
-    private static (TimeZoneInfo Timezone, string Id) ResolveTimezone(string? configuredTimezone, Guid organizationId,
-        ILogger? logger)
+    private static (TimeZoneInfo Timezone, string Id) ResolveTimezone(string? configuredTimezone, ILogger? logger)
     {
         if (!string.IsNullOrWhiteSpace(configuredTimezone))
         {
@@ -68,8 +67,7 @@ public static class ProjectProgressCalculator
             catch (ArgumentException) { }
         }
 
-        logger?.LogWarning("Organization {OrganizationId} has a missing or invalid timezone; project progress uses UTC.",
-            organizationId);
+        logger?.LogWarning("An organization has a missing or invalid timezone; project progress uses UTC.");
         return (TimeZoneInfo.Utc, "UTC");
     }
 }
