@@ -4001,26 +4001,20 @@ class _AdminHealth extends StatefulWidget {
 
 class _AdminHealthState extends State<_AdminHealth> {
   DateTime? _lastChecked;
-  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted && !context.read<AppState>().loadingAdminHealth) _load();
-    });
-  }
-
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    super.dispose();
   }
 
   Future<void> _load() async {
-    await context.read<AppState>().loadAdminHealth();
-    if (mounted) setState(() => _lastChecked = _eatNow());
+    final appState = context.read<AppState>();
+    await appState.loadAdminHealth();
+    final checkedAt = appState.adminHealth?.checkedAt;
+    if (mounted && checkedAt != null) {
+      setState(() => _lastChecked = checkedAt.toUtc().add(_eatOffset));
+    }
   }
 
   @override
@@ -4034,7 +4028,7 @@ class _AdminHealthState extends State<_AdminHealth> {
         children: [
           const _PageHeader(
             title: 'System Health',
-            subtitle: 'Current availability of TaskFlow services.',
+            subtitle: 'Live checks and configuration signals for TaskFlow services.',
           ),
           Row(children: [
             OutlinedButton.icon(
@@ -4045,7 +4039,7 @@ class _AdminHealthState extends State<_AdminHealth> {
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.refresh_outlined, size: 16),
-              label: const Text('Refresh'),
+              label: const Text('Refresh checks'),
             ),
             if (_lastChecked != null) ...[
               const SizedBox(width: 12),
@@ -4062,12 +4056,37 @@ class _AdminHealthState extends State<_AdminHealth> {
                     valueColor: AlwaysStoppedAnimation(_kViolet)))
           else if (h == null)
             const _ErrorBanner('Could not check health status.')
-          else
-            Column(children: [
-              _HealthTile(label: 'API', status: h.api),
+          else ...[
+            if (h.overallStatus == 'degraded' || h.overallStatus == 'unavailable') ...[
+              const _ErrorBanner(
+                  'Core platform health is degraded. Review the component checks below.'),
               const SizedBox(height: 10),
-              _HealthTile(label: 'Database', status: h.database),
-            ]),
+            ] else if (h.overallStatus != 'healthy') ...[
+              const _InfoBanner(
+                  'Overall health is unknown because some essential dependencies are not actively checked.'),
+              const SizedBox(height: 10),
+            ],
+            _HealthTile(
+              label: 'Platform core',
+              status: h.overallStatus,
+              summary: 'Overall API and database connectivity status.',
+            ),
+            const SizedBox(height: 10),
+            ...h.components.map((component) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _HealthTile(
+                    label: component.name,
+                    status: component.status,
+                    signal: component.signal,
+                    summary: component.summary,
+                  ),
+                )),
+            const SizedBox(height: 4),
+            const Text(
+              'Historical incidents, error charts, traces, client crashes, and provider delivery events are not collected yet. Refresh checks the database only when requested.',
+              style: TextStyle(fontSize: 12, color: _kMuted),
+            ),
+          ],
         ],
       ),
     );
@@ -4079,9 +4098,16 @@ class _AdminHealthState extends State<_AdminHealth> {
 }
 
 class _HealthTile extends StatelessWidget {
-  const _HealthTile({required this.label, required this.status});
+  const _HealthTile({
+    required this.label,
+    required this.status,
+    required this.summary,
+    this.signal,
+  });
   final String label;
   final String status;
+  final String summary;
+  final String? signal;
 
   Color get _color {
     switch (status.toLowerCase()) {
@@ -4089,8 +4115,12 @@ class _HealthTile extends StatelessWidget {
         return _kSuccess;
       case 'degraded':
         return _kWarning;
-      default:
+      case 'unavailable':
         return _kDanger;
+      case 'configured':
+        return _kViolet;
+      default:
+        return _kMuted;
     }
   }
 
@@ -4100,8 +4130,12 @@ class _HealthTile extends StatelessWidget {
         return Icons.check_circle_outline;
       case 'degraded':
         return Icons.warning_amber_outlined;
-      default:
+      case 'unavailable':
         return Icons.error_outline;
+      case 'configured':
+        return Icons.settings_outlined;
+      default:
+        return Icons.help_outline;
     }
   }
 
@@ -4116,16 +4150,24 @@ class _HealthTile extends StatelessWidget {
         border: Border.all(color: isDark ? _kLineDark : _kLine),
       ),
       child: Row(children: [
-        Icon(_icon, color: _color, size: 32),
+        Icon(_icon, color: _color, size: 30),
         const SizedBox(width: 14),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 12, color: _kMuted)),
-            Text(status,
-                style: TextStyle(
-                    fontSize: 20, fontWeight: FontWeight.w700, color: _color)),
-          ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontSize: 12, color: _kMuted)),
+              if (signal != null)
+                Text(signal!.replaceAll('_', ' '),
+                    style: const TextStyle(fontSize: 10, color: _kMuted)),
+              Text(status.replaceAll('_', ' '),
+                  style: TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700, color: _color)),
+              const SizedBox(height: 4),
+              Text(summary,
+                  style: const TextStyle(fontSize: 12, color: _kMuted)),
+            ],
+          ),
         ),
       ]),
     );

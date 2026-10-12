@@ -22,7 +22,7 @@ public sealed class AppMail(IConfiguration config, IHttpClientFactory httpClient
 
     public async Task Send(string to, string subject, string link)
     {
-        logger.LogInformation("Sending email to {To}: {Subject} -> {Link}", to, subject, link);
+        logger.LogInformation("Email delivery requested {MessageKind}", "link");
         var body = $"{subject}\n\nOpen this link: {link}\n\nIf you did not request this, ignore this message.";
         if (IsLocal)
         {
@@ -36,7 +36,7 @@ public sealed class AppMail(IConfiguration config, IHttpClientFactory httpClient
     {
         const string subject = "Your TaskFlow verification code";
         var body = $"Your verification code is {code}. It expires in 10 minutes. If you did not try to log in, ignore this email.";
-        logger.LogInformation("Sending TaskFlow verification OTP to {To}", to);
+        logger.LogInformation("Email delivery requested {MessageKind}", "verification");
         if (IsLocal)
         {
             Enqueue(new LocalMail(Guid.NewGuid(), to, subject, Link("otp?email=" + Uri.EscapeDataString(to)), DateTime.UtcNow, body));
@@ -50,7 +50,7 @@ public sealed class AppMail(IConfiguration config, IHttpClientFactory httpClient
         const string subject = "You have been assigned a task on TaskFlow";
         var link = Link($"project?id={projectId}&task={taskId}");
         var body = $"Hi {assigneeName},\n\nYou have been assigned to the task \"{taskTitle}\".\n\nOpen the task: {link}\n\nIf you were not expecting this, contact your project manager.";
-        logger.LogInformation("Sending task-assigned email to {To} for task {TaskId}", to, taskId);
+        logger.LogInformation("Email delivery requested {MessageKind}", "task_assignment");
         if (IsLocal)
         {
             Enqueue(new LocalMail(Guid.NewGuid(), to, subject, link, DateTime.UtcNow, body));
@@ -123,17 +123,17 @@ public sealed class AppMail(IConfiguration config, IHttpClientFactory httpClient
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                logger.LogError("Brevo API rejected email to {To}: {StatusCode} {Error}", to, response.StatusCode, error);
+                logger.LogError("Email provider rejected delivery with status {StatusCode}", (int)response.StatusCode);
                 Enqueue(new LocalMail(Guid.NewGuid(), to, subject, string.Empty, DateTime.UtcNow, $"Delivery failed: {error}"));
             }
             else
             {
-                logger.LogInformation("Brevo accepted email for {To}", to);
+                logger.LogInformation("Email provider accepted delivery");
             }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to deliver email via Brevo HTTP API to {To}. Storing in fallback inbox.", to);
+            logger.LogError("Email provider delivery failed with exception type {ExceptionType}; using fallback inbox.", ex.GetType().FullName);
             Enqueue(new LocalMail(Guid.NewGuid(), to, subject, string.Empty, DateTime.UtcNow));
         }
     }

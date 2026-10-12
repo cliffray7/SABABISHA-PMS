@@ -232,59 +232,116 @@ export function AdminAuditTrail() {
     </>}
   </Box>;
 }
+type SystemHealthComponent = { id: string; name: string; status: string; signal: string; summary: string };
+type SystemHealthResponse = { overallStatus: string; checkedAt: string; components: SystemHealthComponent[] };
+type GrafanaMetricSummary = { status: string; requestsPerSecond: number | null; serverErrorsPerSecond: number | null; serverErrorPercent: number | null; p95DurationMilliseconds: number | null; message: string };
+type GrafanaDataResult<T> = { status: string; items: T[]; message: string };
+type GrafanaLogEntry = { timestamp: string; severity: string; message: string };
+type GrafanaTraceEntry = { traceId: string; serviceName: string; startedAt: string; durationMilliseconds: number };
+type GrafanaObservabilityResponse = { range: string; queriedAt: string; metrics: GrafanaMetricSummary; logs: GrafanaDataResult<GrafanaLogEntry>; traces: GrafanaDataResult<GrafanaTraceEntry> };
+
 export function AdminHealth() {
+  const [observabilityRange, setObservabilityRange] = useState('1h');
   const query = useQuery({
-    queryKey: ['admin-health'],
-    queryFn: async () => {
-      const [apiResult, readyResult] = await Promise.allSettled([
-        api.get<{ status: string }>('/health'),
-        api.get<{ status: string; entries?: Record<string, { status: string }> }>('/ready'),
-      ]);
-      const apiStatus = apiResult.status === 'fulfilled' ? apiResult.value.data.status || 'Unknown' : 'Unavailable';
-      const databaseStatus = readyResult.status === 'fulfilled'
-        ? readyResult.value.data.entries?.database?.status ?? readyResult.value.data.status ?? 'Unknown'
-        : 'Unavailable';
-      return { api: apiStatus, database: databaseStatus, checkedAt: new Date().toISOString() };
-    },
+    queryKey: ['admin-system-health'],
+    queryFn: async () => (await api.get<SystemHealthResponse>('/admin/system-health', { timeout: 15_000 })).data,
     retry: false,
-    refetchInterval: 30_000, // refresh platform health every 30 seconds
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  const observability = useQuery({
+    queryKey: ['admin-observability', observabilityRange],
+    queryFn: async () => (await api.get<GrafanaObservabilityResponse>('/admin/observability', {
+      params: { range: observabilityRange }, timeout: 20_000
+    })).data,
+    retry: false,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
-  const statusClass = (status: string) => {
-    const normalized = status.toLowerCase();
-    if (normalized === 'healthy' || normalized === 'ok') return 'healthy';
-    if (normalized === 'degraded') return 'degraded';
-    if (normalized === 'unhealthy') return 'unhealthy';
-    return 'unknown';
+  const statusClass = (status: string) => status.toLowerCase();
+  const iconFor = (id: string, status: string) => {
+    if (status === 'not_instrumented') return <CircleHelp size={18}/>;
+    if (id === 'database') return <Database size={18}/>;
+    return <HeartPulse size={18}/>;
   };
+  const statusLabel = (status: string) => status.split('_').join(' ');
+  const metricCards: Array<[string, number | null, (value: number) => string]> = [
+    ['Requests / sec', observability.data?.metrics.requestsPerSecond ?? null, value => value.toFixed(2)],
+    ['5xx / sec', observability.data?.metrics.serverErrorsPerSecond ?? null, value => value.toFixed(2)],
+    ['5xx rate', observability.data?.metrics.serverErrorPercent ?? null, value => `${value.toFixed(2)}%`],
+    ['p95 duration', observability.data?.metrics.p95DurationMilliseconds ?? null, value => `${Math.round(value)} ms`],
+  ];
 
   return (
     <Box className="admin-platform-page admin-health-page">
-      <header className="admin-platform-page-header"><div><Typography component="h1">System health</Typography><p>Current availability of TaskFlow services.</p></div>
-        <Button className="admin-health-refresh" variant="outlined" onClick={() => void query.refetch()} disabled={query.isFetching}>{query.isFetching && <CircularProgress size={14}/>}Refresh</Button>
+      <header className="admin-platform-page-header"><div><Typography component="h1">System health</Typography><p>Live checks and configuration signals. Refresh runs a database connectivity check.</p></div>
+        <Button className="admin-health-refresh" variant="outlined" onClick={() => { void query.refetch(); void observability.refetch(); }} disabled={query.isFetching || observability.isFetching}>{(query.isFetching || observability.isFetching) && <CircularProgress size={14}/>}Refresh checks</Button>
       </header>
-      {query.error && (
-        <Alert severity="error" className="admin-health-error">
-          Unable to check the current health status.
+      {query.error && <Alert severity="error" className="admin-health-error">Unable to load system health. Check your Super Admin access and API connection, then retry.</Alert>}
+      {query.isLoading && <div className="admin-health-skeletons" role="status" aria-label="Checking service status"><span/><span/></div>}
+      {query.data && <>
+        <Alert severity={query.data.overallStatus === 'healthy' ? 'success' : 'warning'} className="admin-health-overall">
+          Platform core: {statusLabel(query.data.overallStatus)}. Only the API request and database connectivity are checked; provider availability and uninstrumented services are not included in this overall status.
         </Alert>
-      )}
-      {query.isLoading && <div className="admin-health-skeletons" role="status" aria-label="Checking service health"><span/><span/></div>}
-      {query.data && (
         <Box className="admin-health-grid" aria-live="polite">
-          {([['API', query.data.api], ['Database', query.data.database]] as [string, string][]).map(
-            ([label, status]) => (
-                <Card key={label} className={`admin-health-card ${statusClass(status)}`}>
-                <CardContent className="admin-health-card-content">
-                  <span className="admin-health-service-icon">{statusClass(status) === 'unknown' ? <CircleHelp size={18}/> : label === 'API' ? <HeartPulse size={18}/> : <Database size={18}/>}</span>
-                  <div className="admin-health-service-copy"><span>{label}</span><strong>{status}</strong></div>
-                  <span className="admin-health-indicator" aria-hidden="true"/>
-                </CardContent>
-              </Card>
-            ),
-          )}
+          {query.data.components.map(component => (
+            <Card key={component.id} className={`admin-health-card ${statusClass(component.status)}`}>
+              <CardContent className="admin-health-card-content">
+                <span className="admin-health-service-icon">{iconFor(component.id, component.status)}</span>
+                <div className="admin-health-service-copy">
+                  <span>{component.name} · {statusLabel(component.signal)}</span>
+                  <strong>{statusLabel(component.status)}</strong>
+                  <small>{component.summary}</small>
+                </div>
+                <span className="admin-health-indicator" aria-hidden="true"/>
+              </CardContent>
+            </Card>
+          ))}
         </Box>
-      )}
-      {query.data?.checkedAt && <Typography className="admin-health-checked">Last checked {new Date(query.data.checkedAt).toLocaleString()}</Typography>}
+        <Alert severity="info" className="admin-health-note">Live signals are shown only when Grafana returns data. Platform health checks and telemetry query status are reported separately.</Alert>
+      </>}
+      {query.data?.checkedAt && <Typography className="admin-health-checked">Checked {new Date(query.data.checkedAt).toLocaleString()}</Typography>}
+
+      <section className="admin-observability-section" aria-labelledby="admin-observability-title">
+        <header className="admin-platform-page-header admin-observability-header">
+          <div><Typography component="h2" id="admin-observability-title">Telemetry overview</Typography><p>Read-only Grafana Cloud data for the TaskFlow API. Grafana credentials stay on the server.</p></div>
+          <TextField select size="small" label="Time range" value={observabilityRange} onChange={event => setObservabilityRange(event.target.value)}>
+            <MenuItem value="15m">Last 15 minutes</MenuItem><MenuItem value="1h">Last hour</MenuItem><MenuItem value="6h">Last 6 hours</MenuItem><MenuItem value="24h">Last 24 hours</MenuItem>
+          </TextField>
+        </header>
+        {observability.error && <Alert severity="error" role="alert">Unable to query telemetry. Check the TaskFlow API and retry.</Alert>}
+        {observability.isLoading && <div className="admin-health-skeletons" role="status" aria-label="Loading telemetry"><span/><span/></div>}
+        {observability.data && <>
+          <div className="admin-observability-source-status" aria-label="Telemetry source status">
+            {[['Metrics', observability.data.metrics.status], ['Logs', observability.data.logs.status], ['Traces', observability.data.traces.status]].map(([label, status]) =>
+              <span key={label} className={`admin-observability-source ${status}`}><strong>{label}</strong><small>{status.split('_').join(' ')}</small></span>)}
+          </div>
+          <div className="admin-observability-metrics" aria-label="API request metrics">
+            {metricCards.map(([label, value, format]) => <Card className="admin-observability-metric" key={label}><CardContent>
+              <span>{label}</span><strong>{value !== null ? format(value) : '—'}</strong>
+            </CardContent></Card>)}
+          </div>
+          {observability.data.metrics.status !== 'available' && <Alert severity={observability.data.metrics.status === 'unavailable' ? 'warning' : 'info'}>{observability.data.metrics.message}</Alert>}
+          <div className="admin-observability-results-grid">
+            <Card className="admin-observability-panel"><CardContent>
+              <Typography component="h3">Recent warnings and errors</Typography><p>{observability.data.logs.message}</p>
+              {observability.data.logs.items.length === 0 ? <div className="admin-observability-empty">No matching log events in this range.</div> : <ul>
+                {observability.data.logs.items.map((entry, index) => <li key={`${entry.timestamp}-${index}`}><span className={`admin-observability-severity ${entry.severity}`}>{entry.severity}</span><span>{entry.message}</span><time>{new Date(entry.timestamp).toLocaleString()}</time></li>)}
+              </ul>}
+            </CardContent></Card>
+            <Card className="admin-observability-panel"><CardContent>
+              <Typography component="h3">Recent traces</Typography><p>{observability.data.traces.message}</p>
+              {observability.data.traces.items.length === 0 ? <div className="admin-observability-empty">No traces in this range.</div> : <ul>
+                {observability.data.traces.items.map(trace => <li key={trace.traceId}><span className="admin-observability-trace-id" title={trace.traceId}>{trace.traceId}</span><span>{trace.serviceName} request</span><time>{trace.durationMilliseconds.toFixed(1)} ms Â· {new Date(trace.startedAt).toLocaleString()}</time></li>)}
+              </ul>}
+            </CardContent></Card>
+          </div>
+          <Typography className="admin-health-checked">Telemetry queried {new Date(observability.data.queriedAt).toLocaleString()} Â· Range: {observability.data.range}</Typography>
+        </>}
+      </section>
     </Box>
   );
 }

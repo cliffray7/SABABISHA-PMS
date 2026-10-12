@@ -528,7 +528,7 @@
 .admin-health-refresh .MuiCircularProgress-root { margin-right:7px; color:#5b5bd6; }
 .admin-health-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .admin-health-card.MuiCard-root { border:1px solid var(--overview-border,#e9e9ee); border-radius:12px; background:var(--overview-card,#fff); box-shadow:0 2px 8px rgba(24,24,39,.025); }
-.admin-health-card-content.MuiCardContent-root { display:flex; align-items:center; gap:12px; min-height:100px; padding:18px!important; }
+.admin-health-card-content.MuiCardContent-root { display:flex; align-items:center; gap:12px; min-height:116px; padding:18px!important; }
 .admin-health-service-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:10px; background:#ebe9fe; color:#5b5bd6; }
 .admin-health-service-copy { display:grid; gap:5px; flex:1; }
 .admin-health-service-copy>span { color:var(--overview-muted,#71717a); font-size:11px; }
@@ -536,6 +536,14 @@
 .admin-health-indicator { width:9px; height:9px; border-radius:50%; background:#a1a1aa; }
 .admin-health-card.unknown .admin-health-service-icon { background:var(--overview-soft,#f6f7f9); color:var(--overview-muted,#71717a); }
 .admin-health-card.unknown .admin-health-indicator { background:#a1a1aa; }
+.admin-health-card.not_instrumented .admin-health-service-icon,.admin-health-card.not_configured .admin-health-service-icon { background:var(--overview-soft,#f6f7f9); color:var(--overview-muted,#71717a); }
+.admin-health-card.not_instrumented .admin-health-indicator,.admin-health-card.not_configured .admin-health-indicator { background:#a1a1aa; }
+.admin-health-card.configured .admin-health-service-icon { background:#e8efff; color:#4b63b6; }
+.admin-health-card.configured .admin-health-indicator { background:#7186d5; }
+.admin-health-card.unavailable .admin-health-service-icon { background:#fde8e8; color:#c13d46; }
+.admin-health-card.unavailable .admin-health-indicator { background:#d64545; }
+.admin-health-service-copy>small { color:var(--overview-muted,#71717a); font-size:11px; line-height:1.45; }
+.admin-health-overall.MuiAlert-root,.admin-health-note.MuiAlert-root { margin-bottom:14px; border-radius:9px; }
 .admin-health-card.healthy .admin-health-service-icon { background:#e6f7ee; color:#27764f; }
 .admin-health-card.healthy .admin-health-indicator { background:#36a36d; box-shadow:0 0 0 4px #e6f7ee; }
 .admin-health-card.degraded .admin-health-service-icon { background:#fff1e3; color:#a86a1a; }
@@ -553,6 +561,7 @@
 :root[data-theme="dark"] .admin-health-card.degraded .admin-health-indicator { box-shadow:0 0 0 4px #352d20; }
 :root[data-theme="dark"] .admin-health-card.unhealthy .admin-health-service-icon { background:#38262a; color:#f1a4aa; }
 :root[data-theme="dark"] .admin-health-card.unhealthy .admin-health-indicator { box-shadow:0 0 0 4px #38262a; }
+:root[data-theme="dark"] .admin-health-card.unavailable .admin-health-service-icon { background:#38262a; color:#f1a4aa; }
 @media(max-width:560px) { .admin-health-grid,.admin-health-skeletons { grid-template-columns:1fr; }.admin-platform-page-header { align-items:flex-start; } }
 .admin-report-card { display:flex; align-items:center; gap:15px; max-width:780px; min-height:116px; padding:20px; border:1px solid var(--overview-border,#e9e9ee); border-radius:12px; background:var(--overview-card,#fff); box-shadow:0 2px 8px rgba(24,24,39,.025); }
 .admin-report-format-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; max-width:980px; margin:18px 0 12px; }
@@ -662,3 +671,27 @@
   .admin-platform-shell .admin-overview-mobile-menu { display:grid; width:34px; height:34px; flex:0 0 34px; place-items:center; border:1px solid var(--overview-border); border-radius:7px; background:var(--overview-card); color:var(--overview-secondary); }
   .admin-platform-shell .admin-overview-nav-scrim { display:block; position:fixed; inset:0; z-index:6; background:rgba(24,24,27,.35); }
 }
+.admin-observability-section { display: grid; gap: 16px; margin-top: 28px; }
+.admin-observability-header { align-items: end; margin-bottom: 0; }
+.admin-observability-header h2 { margin: 0; }
+.admin-observability-source-status { display: flex; flex-wrap: wrap; gap: 10px; }
+.admin-observability-source { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--admin-border, #e5e7eb); border-radius: 12px; background: var(--admin-surface, #fff); text-transform: capitalize; }
+.admin-observability-source small { color: var(--admin-muted, #667085); }
+.admin-observability-source.available { border-color: #a7e2c1; }
+.admin-observability-source.unavailable { border-color: #f2b8b5; }
+.admin-observability-source.not_configured, .admin-observability-source.no_data { border-color: #ead9a7; }
+.admin-observability-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.admin-observability-metric .MuiCardContent-root { display: grid; gap: 8px; }
+.admin-observability-metric span { color: var(--admin-muted, #667085); font-size: .82rem; }
+.admin-observability-metric strong { font-size: 1.45rem; }
+.admin-observability-results-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.admin-observability-panel h3 { margin: 0; font-size: 1rem; }
+.admin-observability-panel p { margin: 6px 0 14px; color: var(--admin-muted, #667085); font-size: .82rem; }
+.admin-observability-panel ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.admin-observability-panel li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; padding: 10px 0; border-top: 1px solid var(--admin-border, #e5e7eb); }
+.admin-observability-panel li time { grid-column: 2; color: var(--admin-muted, #667085); font-size: .75rem; }
+.admin-observability-severity { padding: 3px 7px; border-radius: 999px; background: #fff4e5; color: #9a5b00; font-size: .72rem; text-transform: capitalize; }
+.admin-observability-severity.error { background: #fdecea; color: #a12622; }
+.admin-observability-trace-id { max-width: 150px; overflow: hidden; font-family: monospace; text-overflow: ellipsis; }
+.admin-observability-empty { padding: 14px; border-radius: 10px; background: var(--admin-subtle, #f7f8fa); color: var(--admin-muted, #667085); font-size: .85rem; }
+@media (max-width: 900px) { .admin-observability-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .admin-observability-results-grid { grid-template-columns: 1fr; } }
