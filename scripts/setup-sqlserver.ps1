@@ -63,6 +63,7 @@ $files = @(
     'migrations\003_activity_events.sql',
     'migrations\004_platform_auth_activity.sql',
     'migrations\005_media_and_trash.sql',
+    'migrations\006_task_assignment_events.sql',
     'security\001_login_otp_codes.sql',
     'stored-procedures\000_types.sql',
     'stored-procedures\usp_CreateTaskWithAssignees.sql',
