@@ -167,6 +167,18 @@ export type AiTaskSuggestion = { title: string; description: string; priority: s
 export type Notice = { id: string; message: string; isRead: boolean; createdAt: string; relatedId?: string; projectId?: string };
 export type TrashItem = { kind: 'project' | 'task' | 'subtask' | 'comment' | 'attachment'; id: string; parentId?: string | null; projectId: string; name: string; deletedAt: string };
 export type Invitation = { id: string; email: string; role: string; expiresAt: string };
+export type DeactivatedMember = { userId: string; firstName: string; lastName: string; email: string; avatarUrl?: string | null; previousRole: string; joinedAtUtc: string };
+export type ReactivationProject = { projectId: string; name: string; lifecycle: string; previousProjectRole: string | null; actorCanRestoreProject: boolean };
+export type ReactivationPreview = { organizationId: string; userId: string; firstName: string; lastName: string; email: string; avatarUrl?: string | null; previousOrganizationRole: string; allowedMaxRole: string; eligibleProjects: ReactivationProject[]; snapshotHash: string };
+export async function getDeactivatedMembers(organizationId: string) {
+  return (await api.get<DeactivatedMember[]>(`/organizations/${organizationId}/members/deactivated`)).data;
+}
+export async function previewMemberReactivation(organizationId: string, userId: string) {
+  return (await api.get<ReactivationPreview>(`/organizations/${organizationId}/members/${userId}/reactivation-preview`)).data;
+}
+export async function reactivateMember(organizationId: string, userId: string, request: { role: string; projectIds: string[]; snapshotHash: string; reason: string }) {
+  await api.post(`/organizations/${organizationId}/members/${userId}/reactivate`, request);
+}
 export type Mail = { id: string; to: string; subject: string; link: string; createdAt: string; body?: string };
 export const statuses = ['TO DO', 'IN PROGRESS', 'REVIEW', 'DONE'];
 export const priorities = ['URGENT','HIGH','MEDIUM','LOW'];

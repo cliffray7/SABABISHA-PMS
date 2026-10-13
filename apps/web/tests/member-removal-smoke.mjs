@@ -22,7 +22,11 @@ const state = {
   denyProjectPreview: false,
   oversizedPreview: false,
   archivedPreview: false,
-  rejectOrganizationConfirmOnce: true
+  rejectOrganizationConfirmOnce: true,
+  reactivationPreviewCount: 0,
+  reactivationConfirmCount: 0,
+  reactivationStaleOnce: true,
+  reactivated: false
 };
 
 const member = (userId, firstName, role) => ({
@@ -111,6 +115,34 @@ await context.route('**/api/v1/**', async route => {
     return json(route, 200, rows);
   }
   if (method === 'GET' && path === `/organizations/${organizationId}/invitations`) return json(route, 200, []);
+  if (method === 'GET' && path === `/organizations/${organizationId}/members/deactivated`) {
+    return json(route, 200, state.reactivated ? [] : [{ userId: memberId, firstName: 'Taylor', lastName: 'Member', email: `${memberId}@example.invalid`, previousRole: 'MEMBER', joinedAtUtc: '2025-01-02T00:00:00Z' }]);
+  }
+  if (method === 'GET' && path === `/organizations/${organizationId}/members/${memberId}/reactivation-preview`) {
+    state.reactivationPreviewCount++;
+    return json(route, 200, {
+      organizationId, userId: memberId, firstName: 'Taylor', lastName: 'Member', email: `${memberId}@example.invalid`,
+      previousOrganizationRole: 'MEMBER', allowedMaxRole: state.reactivationPreviewCount === 1 ? 'ADMIN' : 'MEMBER', snapshotHash: `reactivation-snapshot-${state.reactivationPreviewCount}`,
+      eligibleProjects: [
+        { projectId, name: 'Removal Project', lifecycle: 'ACTIVE', previousProjectRole: 'PROJECT_MANAGER', actorCanRestoreProject: true },
+        { projectId: 'project-unauthorized', name: 'Restricted Project', lifecycle: 'ACTIVE', previousProjectRole: 'TEAM_LEAD', actorCanRestoreProject: false }
+      ]
+    });
+  }
+  if (method === 'POST' && path === `/organizations/${organizationId}/members/${memberId}/reactivate`) {
+    state.reactivationConfirmCount++;
+    const body = route.request().postDataJSON();
+    assert.equal(body.role, state.reactivationPreviewCount === 1 ? 'ADMIN' : 'MEMBER');
+    assert.deepEqual(body.projectIds, [projectId]);
+    assert.equal(body.reason, 'Returning to the team');
+    assert.equal(body.snapshotHash, `reactivation-snapshot-${state.reactivationPreviewCount}`);
+    if (state.reactivationStaleOnce) {
+      state.reactivationStaleOnce = false;
+      return json(route, 409, { code: 'MEMBER_REACTIVATION_SNAPSHOT_STALE', message: 'Preview stale.' });
+    }
+    state.reactivated = true;
+    return route.fulfill({ status: 204, body: '' });
+  }
   if (method === 'GET' && path === '/tasks') return json(route, 200, { data: [] });
   if (method === 'GET' && path === '/dashboard/metrics') return json(route, 200, { myTasks: 0, overdueTasks: 0, completedTasks: 0, inProgressTasks: 0, totalTasks: 0 });
   if (method === 'GET' && path === `/projects/${projectId}/progress`) return json(route, 200, {
@@ -236,11 +268,32 @@ try {
   await deactivateDialog.getByRole('button', { name: 'Deactivate member', exact: true }).click();
   await organizationRow.waitFor({ state: 'detached' });
 
+  await page.getByRole('tab', { name: 'Deactivated' }).click();
+  const deactivatedRow = page.locator('.member-row').filter({ hasText: 'member-1@example.invalid' });
+  await deactivatedRow.getByRole('button', { name: 'Reactivate' }).click();
+  const reactivateDialog = page.getByRole('dialog', { name: 'Reactivate Taylor Member' });
+  await reactivateDialog.getByText('Historical task assignments and project ownership will not be restored.').waitFor();
+  const projectAccess = page.getByRole('checkbox', { name: 'Restore project access to Removal Project' });
+  assert.equal(await projectAccess.isChecked(), false, 'Project access must default to none selected.');
+  assert.equal(await page.getByRole('checkbox', { name: 'Restore project access to Restricted Project' }).count(), 0, 'Unauthorized project must not be selectable.');
+  await projectAccess.check();
+  const confirmReactivation = reactivateDialog.getByRole('button', { name: 'Confirm reactivation' });
+  assert.equal(await confirmReactivation.isDisabled(), true, 'Reason is required before confirmation.');
+  await reactivateDialog.getByLabel('Reason for reactivation').fill('Returning to the team');
+  await confirmReactivation.click();
+  await page.getByText('Permissions or project state changed. Review the refreshed preview and confirm again.').waitFor();
+  assert.equal(await projectAccess.isChecked(), false, 'Stale preview must clear project selections.');
+  await projectAccess.check();
+  await confirmReactivation.click();
+  await page.getByRole('dialog', { name: 'Reactivate Taylor Member' }).waitFor({ state: 'detached' });
+
   assert.ok(state.projectPreviewCount >= 2, 'Stale confirmation must fetch a new preview.');
   assert.equal(state.projectConfirmCount, 2);
   assert.equal(state.organizationConfirmCount, 2, 'Organization resolutions are sent as one atomic request, and retry remains one request.');
   assert.deepEqual(state.directDeleteCalls, [], 'Member controls must not call the legacy DELETE routes.');
-  console.log('PASS: preview permission rejection, 100-task limit, archived lifecycle acknowledgement, stale reset and explicit reconfirmation, organization-wide multi-project resolution, manager-conflict rollback/retry, success refresh, and no direct DELETE calls.');
+  assert.ok(state.reactivationPreviewCount >= 2, 'Stale reactivation must reload the member-specific preview.');
+  assert.equal(state.reactivationConfirmCount, 2, 'Stale reactivation must require explicit reconfirmation.');
+  console.log('PASS: member removal and reactivation preview/confirm flows, permission restrictions, stale reset, explicit reconfirmation, organization-wide assignment resolution, success refresh, and no direct DELETE calls.');
 } finally {
   await context.close();
   await browser.close();

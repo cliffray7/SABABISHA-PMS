@@ -14,6 +14,7 @@ using Microsoft.Extensions.Options;
 using Xunit.Abstractions;
 using Pms.Api.Controllers.Rest.V1;
 using Pms.Api.MemberRemoval;
+using Pms.Api.MemberReactivation;
 using Pms.Api.Realtime;
 using Pms.Api.Auth;
 using Pms.Domain.Entities;
@@ -26,6 +27,70 @@ public sealed class SqlServerManagerRaceTests
     private readonly ITestOutputHelper output;
 
     public SqlServerManagerRaceTests(ITestOutputHelper output) => this.output = output;
+
+    [SqlServerFact]
+    public async Task ConcurrentMemberReactivation_AppliesExactlyOnceAndRejectsStaleRetry()
+    {
+        var configuredConnection = Environment.GetEnvironmentVariable("PMS_TEST_SQLSERVER_CONNECTION")!;
+        var scratchDatabase = $"PmsMemberReactivationRace_{Guid.NewGuid():N}";
+        var masterConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = "master" }.ConnectionString;
+        var scratchConnection = new SqlConnectionStringBuilder(configuredConnection) { InitialCatalog = scratchDatabase }.ConnectionString;
+        await CreateScratchDatabase(masterConnection, scratchDatabase);
+        try
+        {
+            var options = SqlOptions(scratchConnection);
+            var organizationId = Guid.NewGuid();
+            var adminId = Guid.NewGuid();
+            var targetId = Guid.NewGuid();
+            await using (var seed = new PmsDbContext(options))
+            {
+                await seed.Database.EnsureCreatedAsync();
+                seed.Organizations.Add(new Organization
+                {
+                    Id = organizationId,
+                    Name = "Reactivation race",
+                    Slug = $"reactivation-race-{organizationId:N}"
+                });
+                seed.Users.AddRange(User(adminId, "Reactivation Admin"), User(targetId, "Reactivation Target"));
+                seed.OrganizationMembers.AddRange(
+                    new OrganizationMember { Id = Guid.NewGuid(), OrganizationId = organizationId, UserId = adminId, Role = "ADMIN", Status = "active" },
+                    new OrganizationMember { Id = Guid.NewGuid(), OrganizationId = organizationId, UserId = targetId, Role = "MEMBER", Status = "inactive" });
+                await seed.SaveChangesAsync();
+            }
+
+            string snapshotHash;
+            await using (var previewDb = new PmsDbContext(options))
+            {
+                var preview = await OrganizationController(previewDb, adminId)
+                    .PreviewMemberReactivation(organizationId, targetId, CancellationToken.None);
+                snapshotHash = Assert.IsType<MemberReactivationPreview>(Assert.IsType<OkObjectResult>(preview).Value).SnapshotHash;
+            }
+
+            var request = new ReactivateMemberRequest("MEMBER", [], snapshotHash, "Concurrent SQL Server verification");
+            var results = await Task.WhenAll(
+                ReactivateOrganizationMember(options, adminId, organizationId, targetId, request),
+                ReactivateOrganizationMember(options, adminId, organizationId, targetId, request))
+                .WaitAsync(TimeSpan.FromSeconds(45));
+
+            Assert.Single(results.OfType<NoContentResult>());
+            Assert.Single(results.OfType<ObjectResult>().Where(result =>
+                result.StatusCode is StatusCodes.Status404NotFound or StatusCodes.Status409Conflict));
+
+            await using var verify = new PmsDbContext(options);
+            Assert.Equal("active", await verify.OrganizationMembers.Where(member =>
+                member.OrganizationId == organizationId && member.UserId == targetId).Select(member => member.Status).SingleAsync());
+            Assert.Equal(1, await verify.AdminAuditEvents.CountAsync(entry => entry.Action == "organization.member_reactivated"));
+            Assert.Equal(1, await verify.ActivityEvents.CountAsync(entry => entry.Action == "organization.member_reactivated"));
+        }
+        finally { await DropScratchDatabase(masterConnection, scratchDatabase); }
+    }
+
+    private static async Task<IActionResult> ReactivateOrganizationMember(
+        DbContextOptions<PmsDbContext> options, Guid actorId, Guid organizationId, Guid targetId, ReactivateMemberRequest request)
+    {
+        await using var db = new PmsDbContext(options);
+        return await OrganizationController(db, actorId).ReactivateMember(organizationId, targetId, request, CancellationToken.None);
+    }
 
     [SqlServerFact]
     public async Task ConcurrentOwnershipTransfers_EnforceExpectedOwnerPrecondition()

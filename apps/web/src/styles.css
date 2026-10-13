@@ -434,6 +434,12 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .shell:not(.admin-platform-shell) .member-row .avatar { padding: 0; border-radius: 50%; }
 .shell:not(.admin-platform-shell) .member-row strong { color: var(--overview-ink); font-size: 13px; font-weight: 550; }
 .shell:not(.admin-platform-shell) .member-row small { color: var(--overview-muted); font-size: 11px; }
+.reactivation-project-list { display: grid; gap: 8px; max-height: 240px; overflow: auto; margin: 12px 0; padding: 12px; border: 1px solid var(--overview-border, #e3e3ea); border-radius: 10px; }
+.reactivation-project-list > label { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 8px; border-radius: 7px; background: var(--overview-page, #f7f7fa); }
+.reactivation-project-list > label input { width: 17px; height: 17px; margin: 2px 0 0; accent-color: var(--violet); }
+.reactivation-project-list > label span { display: grid; gap: 3px; }
+.reactivation-project-list > label small { color: var(--overview-muted, #767887); font-size: 11px; }
+:root[data-theme="dark"] .reactivation-project-list > label { background: #202127; }
 .shell:not(.admin-platform-shell) .notification-row { min-height: 64px; border-color: var(--overview-border); background: var(--overview-card); }
 .shell:not(.admin-platform-shell) .notification-row.unread { background: #f7f6ff; }
 .shell:not(.admin-platform-shell) .notification-row:hover { background: #f4f2ff; }
