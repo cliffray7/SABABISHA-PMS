@@ -54,15 +54,13 @@ public sealed class GuestInvitationReactivationTests
         var result = await controller.Accept(new InvitationTokenRequest(token), CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("VIEWER", (await db.ProjectMembers.SingleAsync()).Role);
-        Assert.Equal("active", (await db.ProjectMembers.SingleAsync()).Status);
-        var audit = await db.AdminAuditEvents.SingleAsync();
-        Assert.Equal(userId, audit.ActorId);
-        Assert.Equal(userId, audit.TargetId);
-        Assert.Equal("project.member_guest_role_clamped", audit.Action);
-        Assert.Contains($"project_id={projectId}", audit.Reason);
-        Assert.Contains("old_role=PROJECT_MANAGER", audit.Reason);
-        Assert.Contains("new_role=VIEWER", audit.Reason);
+        var orgMember = await db.OrganizationMembers.SingleAsync();
+        Assert.Equal("active", orgMember.Status);
+        Assert.Equal("GUEST", orgMember.Role);
+        var projectMember = await db.ProjectMembers.SingleAsync();
+        Assert.Equal("inactive", projectMember.Status);
+        Assert.Equal("PROJECT_MANAGER", projectMember.Role);
+        Assert.Empty(await db.AdminAuditEvents.ToListAsync());
     }
 
     private sealed class TestHubContext : IHubContext<WorkspaceHub>

@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Pms.Api.Auth;
 using Pms.Api.Activity;
 using Pms.Api.MemberRemoval;
+using Pms.Api.MemberReactivation;
 using Pms.Domain.Entities;
 using Pms.Infrastructure.Persistence.EfCore;
 using Pms.Api.Realtime;
@@ -36,6 +37,303 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
     {
         if (!await Member(id, ct)) return Forbid();
         return Ok(await (from m in db.OrganizationMembers join u in db.Users on m.UserId equals u.Id where m.OrganizationId == id && m.Status == "active" select new { m.Id, m.UserId, u.FirstName, u.LastName, u.Email, u.AvatarUrl, m.Role }).ToListAsync(ct));
+    }
+
+    [HttpGet("{id:guid}/members/deactivated")]
+    public async Task<IActionResult> DeactivatedMembers(Guid id, CancellationToken ct)
+    {
+        if (!await Admin(id, ct)) return Forbid();
+        var deactivated = await (from m in db.OrganizationMembers
+                                 join u in db.Users on m.UserId equals u.Id
+                                 where m.OrganizationId == id && m.Status == "inactive"
+                                 orderby u.FirstName, u.LastName
+                                 select new DeactivatedMemberSummaryDto(
+                                     m.UserId,
+                                     u.FirstName,
+                                     u.LastName,
+                                     u.Email,
+                                     u.AvatarUrl,
+                                     m.Role,
+                                     m.JoinedAt
+                                 )).ToListAsync(ct);
+        return Ok(deactivated);
+    }
+
+    [HttpGet("{id:guid}/members/{userId:guid}/reactivation-preview")]
+    public async Task<IActionResult> PreviewMemberReactivation(Guid id, Guid userId, CancellationToken ct)
+    {
+        var actorId = CurrentUser.Id(User);
+        if (userId == actorId)
+            return StatusCode(StatusCodes.Status403Forbidden, new { code = "SELF_REACTIVATION_FORBIDDEN", message = "You cannot reactivate your own organization membership." });
+
+        var actorMember = await (from m in db.OrganizationMembers
+                                 join u in db.Users on m.UserId equals u.Id
+                                 where m.OrganizationId == id && m.UserId == actorId && m.Status == "active" && u.Status == "active"
+                                 select new { m.Role, m.Status, UserStatus = u.Status }).SingleOrDefaultAsync(ct);
+        if (actorMember is null || (actorMember.Role != "OWNER" && actorMember.Role != "ADMIN"))
+            return StatusCode(StatusCodes.Status403Forbidden, new { code = "MEMBER_REACTIVATION_FORBIDDEN", message = "Only organization owners and administrators may reactivate members." });
+
+        var targetMember = await (from m in db.OrganizationMembers
+                                  join u in db.Users on m.UserId equals u.Id
+                                  where m.OrganizationId == id && m.UserId == userId
+                                  select new { m.Role, m.Status, u.FirstName, u.LastName, u.Email, u.AvatarUrl, UserStatus = u.Status }).SingleOrDefaultAsync(ct);
+        if (targetMember is null || targetMember.Status != "inactive")
+            return StatusCode(StatusCodes.Status404NotFound, new { code = "MEMBER_NOT_DEACTIVATED", message = "The member is not inactive in this organization." });
+
+        if (targetMember.UserStatus != "active")
+            return StatusCode(StatusCodes.Status403Forbidden, new { code = "USER_ACCOUNT_SUSPENDED", message = "This user's account is suspended and cannot be reactivated into an organization." });
+
+        var allowedMaxRole = actorMember.Role == "OWNER" ? "ADMIN" : "MEMBER";
+
+        var now = DateTime.UtcNow;
+        var projects = await (from p in db.Projects
+                              where p.OrganizationId == id
+                                  && (p.DeletedAt == null || p.DeletedAt > now.AddDays(-30))
+                              orderby p.Name
+                              select p).ToListAsync(ct);
+
+        var previousProjectMemberships = await (from pm in db.ProjectMembers
+                                                join p in db.Projects on pm.ProjectId equals p.Id
+                                                where p.OrganizationId == id && pm.UserId == userId
+                                                select pm).ToDictionaryAsync(pm => pm.ProjectId, ct);
+
+        var actorProjectMemberships = await (from pm in db.ProjectMembers
+                                             join p in db.Projects on pm.ProjectId equals p.Id
+                                             where p.OrganizationId == id && pm.UserId == actorId && pm.Status == "active"
+                                             select pm).ToDictionaryAsync(pm => pm.ProjectId, ct);
+
+        var eligibleProjects = new List<DeactivatedMemberEligibleProjectDto>();
+        foreach (var project in projects)
+        {
+            var lifecycle = MemberRemovalResolutionSupport.Lifecycle(project, now);
+            if (lifecycle is not ("ACTIVE" or "ARCHIVED" or "TRASHED_WITHIN_RETENTION"))
+                continue;
+
+            var canRestore = actorMember.Role == "OWNER"
+                || (actorProjectMemberships.TryGetValue(project.Id, out var actorPm)
+                    && (actorPm.Role == "PROJECT_MANAGER" || actorPm.Role == "TEAM_LEAD"));
+
+            var previousRole = previousProjectMemberships.TryGetValue(project.Id, out var prevPm) ? prevPm.Role : null;
+
+            eligibleProjects.Add(new DeactivatedMemberEligibleProjectDto(
+                project.Id,
+                project.Name,
+                lifecycle,
+                previousRole,
+                canRestore
+            ));
+        }
+
+        var snapshotHash = MemberReactivationSupport.CreateSnapshotHash(
+            id,
+            userId,
+            targetMember.Role,
+            targetMember.Status,
+            targetMember.UserStatus,
+            actorId,
+            actorMember.Role,
+            actorMember.Status,
+            eligibleProjects
+        );
+
+        return Ok(new MemberReactivationPreview(
+            id,
+            userId,
+            targetMember.FirstName,
+            targetMember.LastName,
+            targetMember.Email,
+            targetMember.AvatarUrl,
+            targetMember.Role,
+            allowedMaxRole,
+            eligibleProjects,
+            snapshotHash
+        ));
+    }
+
+    [HttpPost("{id:guid}/members/{userId:guid}/reactivate")]
+    public async Task<IActionResult> ReactivateMember(Guid id, Guid userId, [FromBody] ReactivateMemberRequest request, CancellationToken ct)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Role) || string.IsNullOrWhiteSpace(request.SnapshotHash))
+            return BadRequest(new { code = "INVALID_REACTIVATION_REQUEST", message = "Specify the new role and preview snapshot hash." });
+
+        var actorId = CurrentUser.Id(User);
+        if (userId == actorId)
+            return StatusCode(StatusCodes.Status403Forbidden, new { code = "SELF_REACTIVATION_FORBIDDEN", message = "You cannot reactivate your own organization membership." });
+
+        if (!new[] { "ADMIN", "MEMBER", "GUEST" }.Contains(request.Role))
+            return BadRequest(new { code = "INVALID_ROLE", message = "Invalid organization role." });
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        var result = await strategy.ExecuteAsync<IActionResult>(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+
+            var actorMember = await (from m in db.OrganizationMembers
+                                     join u in db.Users on m.UserId equals u.Id
+                                     where m.OrganizationId == id && m.UserId == actorId && m.Status == "active" && u.Status == "active"
+                                     select new { m.Role, m.Status, UserStatus = u.Status }).SingleOrDefaultAsync(ct);
+            if (actorMember is null || (actorMember.Role != "OWNER" && actorMember.Role != "ADMIN"))
+                return StatusCode(StatusCodes.Status403Forbidden, new { code = "MEMBER_REACTIVATION_FORBIDDEN", message = "Only organization owners and administrators may reactivate members." });
+
+            if (actorMember.Role == "ADMIN" && request.Role is "ADMIN" or "OWNER")
+                return StatusCode(StatusCodes.Status403Forbidden, new { code = "ROLE_ESCALATION_FORBIDDEN", message = "Organization administrators cannot reactivate members into an admin or owner role." });
+
+            var targetMember = await (from m in db.OrganizationMembers
+                                      join u in db.Users on m.UserId equals u.Id
+                                      where m.OrganizationId == id && m.UserId == userId
+                                      select new { Member = m, u.FirstName, u.LastName, UserStatus = u.Status }).SingleOrDefaultAsync(ct);
+            if (targetMember is null || targetMember.Member.Status != "inactive")
+                return StatusCode(StatusCodes.Status404NotFound, new { code = "MEMBER_NOT_DEACTIVATED", message = "The member is not inactive in this organization." });
+
+            if (targetMember.UserStatus != "active")
+                return StatusCode(StatusCodes.Status403Forbidden, new { code = "USER_ACCOUNT_SUSPENDED", message = "This user's account is suspended and cannot be reactivated into an organization." });
+
+            var now = DateTime.UtcNow;
+            var projects = await (from p in db.Projects
+                                  where p.OrganizationId == id
+                                      && (p.DeletedAt == null || p.DeletedAt > now.AddDays(-30))
+                                  orderby p.Name
+                                  select p).ToListAsync(ct);
+
+            var previousProjectMemberships = await (from pm in db.ProjectMembers
+                                                    join p in db.Projects on pm.ProjectId equals p.Id
+                                                    where p.OrganizationId == id && pm.UserId == userId
+                                                    select pm).ToDictionaryAsync(pm => pm.ProjectId, ct);
+
+            var actorProjectMemberships = await (from pm in db.ProjectMembers
+                                                 join p in db.Projects on pm.ProjectId equals p.Id
+                                                 where p.OrganizationId == id && pm.UserId == actorId && pm.Status == "active"
+                                                 select pm).ToDictionaryAsync(pm => pm.ProjectId, ct);
+
+            var eligibleProjects = new List<DeactivatedMemberEligibleProjectDto>();
+            foreach (var project in projects)
+            {
+                var lifecycle = MemberRemovalResolutionSupport.Lifecycle(project, now);
+                if (lifecycle is not ("ACTIVE" or "ARCHIVED" or "TRASHED_WITHIN_RETENTION"))
+                    continue;
+
+                var canRestore = actorMember.Role == "OWNER"
+                    || (actorProjectMemberships.TryGetValue(project.Id, out var actorPm)
+                        && (actorPm.Role == "PROJECT_MANAGER" || actorPm.Role == "TEAM_LEAD"));
+
+                var previousRole = previousProjectMemberships.TryGetValue(project.Id, out var prevPm) ? prevPm.Role : null;
+
+                eligibleProjects.Add(new DeactivatedMemberEligibleProjectDto(
+                    project.Id,
+                    project.Name,
+                    lifecycle,
+                    previousRole,
+                    canRestore
+                ));
+            }
+
+            var expectedSnapshotHash = MemberReactivationSupport.CreateSnapshotHash(
+                id,
+                userId,
+                targetMember.Member.Role,
+                targetMember.Member.Status,
+                targetMember.UserStatus,
+                actorId,
+                actorMember.Role,
+                actorMember.Status,
+                eligibleProjects
+            );
+
+            if (!MemberReactivationSupport.SnapshotMatches(request.SnapshotHash, expectedSnapshotHash))
+                return StatusCode(StatusCodes.Status409Conflict, new { code = "MEMBER_REACTIVATION_SNAPSHOT_STALE", message = "The member state, permissions, or eligible projects changed. Refresh the preview before confirming." });
+
+            var requestedProjectIds = (request.ProjectIds ?? []).Distinct().ToList();
+            var eligibleProjectsDict = eligibleProjects.ToDictionary(p => p.ProjectId);
+
+            foreach (var requestedProjectId in requestedProjectIds)
+            {
+                if (!eligibleProjectsDict.TryGetValue(requestedProjectId, out var eligibleProject))
+                    return BadRequest(new { code = "INVALID_PROJECT", message = "One or more selected projects are invalid, unowned by this organization, or expired." });
+
+                if (!eligibleProject.ActorCanRestoreProject)
+                    return StatusCode(StatusCodes.Status403Forbidden, new { code = "PROJECT_AUTHORITY_FORBIDDEN", message = $"You do not have management authority to restore access to project '{eligibleProject.Name}'." });
+            }
+
+            targetMember.Member.Status = "active";
+            targetMember.Member.Role = request.Role;
+
+            var restoredProjectCount = 0;
+            foreach (var requestedProjectId in requestedProjectIds)
+            {
+                var existingMembership = await db.ProjectMembers.SingleOrDefaultAsync(pm => pm.ProjectId == requestedProjectId && pm.UserId == userId, ct);
+                var defaultRole = request.Role == "GUEST"
+                    ? "VIEWER"
+                    : (existingMembership is not null && existingMembership.Role == "VIEWER") ? "VIEWER" : "CONTRIBUTOR";
+
+                if (existingMembership is null)
+                {
+                    db.ProjectMembers.Add(new ProjectMember
+                    {
+                        Id = Guid.NewGuid(),
+                        ProjectId = requestedProjectId,
+                        UserId = userId,
+                        Role = defaultRole,
+                        Status = "active"
+                    });
+                }
+                else
+                {
+                    existingMembership.Status = "active";
+                    existingMembership.Role = defaultRole;
+                }
+                restoredProjectCount++;
+            }
+
+            var organization = await db.Organizations.SingleAsync(x => x.Id == id, ct);
+            var targetName = $"{targetMember.FirstName} {targetMember.LastName}";
+            var actorUser = await db.Users.AsNoTracking().Where(u => u.Id == actorId).Select(u => new { u.FirstName, u.LastName }).SingleAsync(ct);
+            var actorName = $"{actorUser.FirstName} {actorUser.LastName}";
+
+            await ActivityRecorder.RecordAsync(db, User, Request, id, "People", "organization.member_reactivated",
+                "user", userId, targetName,
+                $"reactivated {targetName} in organization \"{organization.Name}\" with role {request.Role} and {restoredProjectCount} project(s)",
+                ct);
+
+            var correlationId = Request.Headers["X-Correlation-ID"].FirstOrDefault() ?? HttpContext.TraceIdentifier;
+            var reason = request.Reason?.Trim();
+            var reasonDetail = $"role={request.Role}; restored_projects={restoredProjectCount}; justification={reason ?? "none"}";
+            if (reasonDetail.Length > 500) reasonDetail = reasonDetail[..500];
+
+            db.AdminAuditEvents.Add(new AdminAuditEvent
+            {
+                Id = Guid.NewGuid(),
+                ActorId = actorId,
+                ActorDisplayName = actorName,
+                Action = "organization.member_reactivated",
+                TargetType = "user",
+                TargetId = userId,
+                TargetDisplayName = targetName,
+                Outcome = "succeeded",
+                Reason = reasonDetail,
+                CorrelationId = correlationId,
+                OccurredAt = DateTimeOffset.UtcNow
+            });
+
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+
+            return NoContent();
+        });
+
+        if (result is NoContentResult)
+        {
+            await realtime.OrganizationChanged(id, "members", ct);
+            if (request.ProjectIds is not null)
+            {
+                foreach (var projectId in request.ProjectIds)
+                {
+                    await realtime.ProjectChanged(id, projectId, "members", ct);
+                }
+            }
+        }
+
+        return result;
     }
     [HttpPatch("{id:guid}/members/{userId:guid}")]
     public async Task<IActionResult> Role(Guid id, Guid userId, UpdateRoleRequest request, CancellationToken ct)
@@ -422,39 +720,6 @@ public sealed class OrganizationsController(PmsDbContext db, AppMail mail, Token
             var membership = await db.OrganizationMembers.SingleOrDefaultAsync(x => x.OrganizationId == invitation.OrganizationId && x.UserId == user.Id, ct);
             if (membership is null) db.OrganizationMembers.Add(new OrganizationMember { Id = Guid.NewGuid(), OrganizationId = invitation.OrganizationId, UserId = user.Id, Role = invitation.Role });
             else { membership.Status = "active"; membership.Role = invitation.Role; }
-            var reactivatedMemberships = await (from projectMember in db.ProjectMembers
-                                                join project in db.Projects on projectMember.ProjectId equals project.Id
-                                                where projectMember.UserId == user.Id && projectMember.Status == "inactive"
-                                                    && project.OrganizationId == invitation.OrganizationId
-                                                select new { Member = projectMember, project.Name, project.Id })
-                .ToListAsync(ct);
-            foreach (var reactivated in reactivatedMemberships)
-            {
-                var oldRole = reactivated.Member.Role;
-                reactivated.Member.Status = "active";
-                if (invitation.Role == "GUEST" && oldRole != "VIEWER")
-                {
-                    reactivated.Member.Role = "VIEWER";
-                    var actorName = $"{user.FirstName} {user.LastName}";
-                    var correlationId = Request.Headers["X-Correlation-ID"].FirstOrDefault();
-                    if (string.IsNullOrWhiteSpace(correlationId) || correlationId.Length > 128)
-                        correlationId = HttpContext.TraceIdentifier;
-                    db.AdminAuditEvents.Add(new AdminAuditEvent
-                    {
-                        Id = Guid.NewGuid(),
-                        ActorId = user.Id,
-                        ActorDisplayName = actorName,
-                        Action = "project.member_guest_role_clamped",
-                        TargetType = "user",
-                        TargetId = user.Id,
-                        TargetDisplayName = $"{actorName} in {reactivated.Name}: {oldRole} -> VIEWER",
-                        Outcome = "succeeded",
-                        Reason = $"project_id={reactivated.Id}; organization invitation reactivation; old_role={oldRole}; new_role=VIEWER",
-                        CorrelationId = correlationId,
-                        OccurredAt = DateTimeOffset.UtcNow
-                    });
-                }
-            }
             invitation.AcceptedAt = DateTime.UtcNow;
             var organization = await db.Organizations.SingleAsync(x => x.Id == invitation.OrganizationId, ct);
             await ActivityRecorder.RecordAsync(db, User, Request, invitation.OrganizationId, "People", "organization.invitation_accepted", "organization", organization.Id, organization.Name, $"joined organization \"{organization.Name}\"", ct);

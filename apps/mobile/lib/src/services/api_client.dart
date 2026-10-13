@@ -148,6 +148,39 @@ class ApiClient {
     return _jsonList(response).map(Member.fromJson).toList();
   }
 
+  Future<List<DeactivatedMember>> deactivatedMembers(String orgId) async {
+    final response =
+        await _authorized('GET', '/organizations/$orgId/members/deactivated');
+    return _jsonList(response).map(DeactivatedMember.fromJson).toList();
+  }
+
+  Future<ReactivationPreview> previewMemberReactivation({
+    required String orgId,
+    required String userId,
+  }) async {
+    final response = await _authorized(
+        'GET', '/organizations/$orgId/members/$userId/reactivation-preview');
+    return ReactivationPreview.fromJson(_json(response));
+  }
+
+  Future<void> reactivateMember({
+    required String orgId,
+    required String userId,
+    required String role,
+    required List<String> projectIds,
+    required String snapshotHash,
+    required String reason,
+  }) async {
+    await _authorized(
+        'POST', '/organizations/$orgId/members/$userId/reactivate',
+        body: {
+          'role': role,
+          'projectIds': projectIds,
+          'snapshotHash': snapshotHash,
+          'reason': reason,
+        });
+  }
+
   Future<void> updateMemberRole({
     required String orgId,
     required String userId,
@@ -627,11 +660,11 @@ class ApiClient {
     String? cursor,
     int pageSize = 50,
   }) async {
-    final response = await _authorized('GET', '/admin/activity-events', params: {
+    final response =
+        await _authorized('GET', '/admin/activity-events', params: {
       if (organizationId != null && organizationId.isNotEmpty)
         'organizationId': organizationId,
-      if (projectId != null && projectId.isNotEmpty)
-        'projectId': projectId,
+      if (projectId != null && projectId.isNotEmpty) 'projectId': projectId,
       if (category != null && category.isNotEmpty) 'category': category,
       if (search != null && search.isNotEmpty) 'search': search,
       if (from != null) 'from': from,
@@ -726,28 +759,41 @@ class ApiClient {
   }
 
   Future<AdminProjectDetails> adminProjectDetails(String projectId) async {
-    final response = await _authorized('GET', '/admin/projects/$projectId/details');
+    final response =
+        await _authorized('GET', '/admin/projects/$projectId/details');
     return AdminProjectDetails.fromJson(_json(response));
   }
 
-  Future<AdminProjectPage<AdminProjectMember>> adminProjectMembers(String projectId,
-      {int page = 1, int pageSize = 50}) async {
-    final response = _json(await _authorized('GET', '/admin/projects/$projectId/members',
+  Future<AdminProjectPage<AdminProjectMember>> adminProjectMembers(
+      String projectId,
+      {int page = 1,
+      int pageSize = 50}) async {
+    final response = _json(await _authorized(
+        'GET', '/admin/projects/$projectId/members',
         params: {'page': '$page', 'pageSize': '$pageSize'}));
-    return AdminProjectPage(items: ((response['items'] as List<dynamic>?) ?? const [])
-        .whereType<Map<String, dynamic>>().map(AdminProjectMember.fromJson).toList(),
-      page: response['page'] as int? ?? page, pageSize: response['pageSize'] as int? ?? pageSize,
-      totalCount: response['totalCount'] as int? ?? 0);
+    return AdminProjectPage(
+        items: ((response['items'] as List<dynamic>?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(AdminProjectMember.fromJson)
+            .toList(),
+        page: response['page'] as int? ?? page,
+        pageSize: response['pageSize'] as int? ?? pageSize,
+        totalCount: response['totalCount'] as int? ?? 0);
   }
 
   Future<AdminProjectPage<AdminProjectTask>> adminProjectTasks(String projectId,
       {int page = 1, int pageSize = 50}) async {
-    final response = _json(await _authorized('GET', '/admin/projects/$projectId/tasks',
+    final response = _json(await _authorized(
+        'GET', '/admin/projects/$projectId/tasks',
         params: {'page': '$page', 'pageSize': '$pageSize'}));
-    return AdminProjectPage(items: ((response['items'] as List<dynamic>?) ?? const [])
-        .whereType<Map<String, dynamic>>().map(AdminProjectTask.fromJson).toList(),
-      page: response['page'] as int? ?? page, pageSize: response['pageSize'] as int? ?? pageSize,
-      totalCount: response['totalCount'] as int? ?? 0);
+    return AdminProjectPage(
+        items: ((response['items'] as List<dynamic>?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(AdminProjectTask.fromJson)
+            .toList(),
+        page: response['page'] as int? ?? page,
+        pageSize: response['pageSize'] as int? ?? pageSize,
+        totalCount: response['totalCount'] as int? ?? 0);
   }
 
   /// Returns a PDF, Excel, or CSV platform report.

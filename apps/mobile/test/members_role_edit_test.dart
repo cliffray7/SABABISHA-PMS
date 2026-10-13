@@ -254,6 +254,22 @@ class _MockBackend {
     if (request.url.path == '/api/v1/dashboard/metrics') {
       return http.Response(jsonEncode({}), 200);
     }
+    if (request.url.path == '/api/v1/projects/project-1/progress') {
+      return http.Response(
+        jsonEncode({
+          'projectId': 'project-1',
+          'projectStatus': 'ACTIVE',
+          'hasTasks': false,
+          'totalEligibleTasks': 0,
+          'completedTasks': 0,
+          'progressPercent': null,
+          'outstandingTaskCount': 0,
+          'overdueTaskCount': 0,
+          'timezoneIdUsed': 'UTC',
+        }),
+        200,
+      );
+    }
     return http.Response(
       jsonEncode({'message': 'Unexpected test request: ${request.url.path}'}),
       404,

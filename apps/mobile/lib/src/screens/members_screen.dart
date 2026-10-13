@@ -95,15 +95,290 @@ class _OrgTab extends StatefulWidget {
   State<_OrgTab> createState() => _OrgTabState();
 }
 
+class _MemberReactivationDialog extends StatefulWidget {
+  const _MemberReactivationDialog({
+    required this.api,
+    required this.organizationId,
+    required this.member,
+  });
+  final ApiClient api;
+  final String organizationId;
+  final DeactivatedMember member;
+
+  @override
+  State<_MemberReactivationDialog> createState() =>
+      _MemberReactivationDialogState();
+}
+
+class _MemberReactivationDialogState extends State<_MemberReactivationDialog> {
+  final _searchController = TextEditingController();
+  final _reasonController = TextEditingController();
+  ReactivationPreview? _preview;
+  final Set<String> _projectIds = {};
+  String? _role;
+  String? _error;
+  String? _notice;
+  bool _loading = true;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreview();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPreview({bool stale = false}) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _preview = null;
+      _projectIds.clear();
+      if (stale) {
+        _notice =
+            'Permissions or project state changed. Review the refreshed preview and confirm again.';
+      }
+    });
+    try {
+      final preview = await widget.api.previewMemberReactivation(
+        orgId: widget.organizationId,
+        userId: widget.member.userId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _preview = preview;
+        _role = preview.allowedMaxRole == 'ADMIN' ? 'ADMIN' : 'MEMBER';
+      });
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted)
+        setState(() => _error = 'Could not load reactivation preview.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _submit() async {
+    final preview = _preview;
+    final role = _role;
+    final reason = _reasonController.text.trim();
+    if (preview == null || role == null || reason.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.api.reactivateMember(
+        orgId: widget.organizationId,
+        userId: widget.member.userId,
+        role: role,
+        projectIds: _projectIds.toList(),
+        snapshotHash: preview.snapshotHash,
+        reason: reason,
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } on ApiException catch (error) {
+      if (error.code == 'MEMBER_REACTIVATION_SNAPSHOT_STALE') {
+        setState(() => _busy = false);
+        await _loadPreview(stale: true);
+      } else if (mounted) {
+        setState(() => _error = error.message);
+      }
+    } catch (_) {
+      if (mounted)
+        setState(() =>
+            _error = 'Reactivation failed. Check your connection and retry.');
+    } finally {
+      if (mounted && _busy) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = _preview;
+    final eligible = (preview?.eligibleProjects ??
+            const <ReactivationProject>[])
+        .where((project) => project.actorCanRestoreProject)
+        .where((project) => project.lifecycle != 'EXPIRED_TRASH_PENDING_PURGE')
+        .where((project) =>
+            '${project.name} ${project.lifecycle} ${project.previousProjectRole ?? ''}'
+                .toLowerCase()
+                .contains(_searchController.text.toLowerCase()))
+        .toList();
+    final roles = preview?.allowedMaxRole == 'ADMIN'
+        ? const ['ADMIN', 'MEMBER', 'GUEST']
+        : const ['MEMBER', 'GUEST'];
+    return AlertDialog(
+      title: Text(
+          'Reactivate ${widget.member.firstName} ${widget.member.lastName}'),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text(
+                'Historical task assignments and project ownership will not be restored.'),
+            if (_notice != null) ...[
+              const SizedBox(height: 12),
+              Text(_notice!, style: const TextStyle(color: kViolet)),
+            ],
+            if (_loading) ...[
+              const SizedBox(height: 16),
+              const Center(child: CircularProgressIndicator()),
+              const Text('Loading reactivation preview…'),
+            ],
+            if (preview != null) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _role,
+                decoration: InputDecoration(
+                  labelText:
+                      'Organization role (previous: ${preview.previousOrganizationRole})',
+                ),
+                items: roles
+                    .map((role) =>
+                        DropdownMenuItem(value: role, child: Text(role)))
+                    .toList(),
+                onChanged:
+                    _busy ? null : (value) => setState(() => _role = value),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                    'Maximum role available to you: ${preview.allowedMaxRole}.'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  labelText: 'Search eligible projects',
+                  prefixIcon: Icon(Icons.search),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 8),
+              const Text('Project access (none selected by default)'),
+              if (eligible.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text('No eligible projects match this search.'),
+                ),
+              ...eligible.map((project) => CheckboxListTile(
+                    value: _projectIds.contains(project.projectId),
+                    onChanged: _busy
+                        ? null
+                        : (selected) => setState(() {
+                              if (selected == true) {
+                                _projectIds.add(project.projectId);
+                              } else {
+                                _projectIds.remove(project.projectId);
+                              }
+                            }),
+                    title: Text(project.name),
+                    subtitle: Text(
+                        '${project.lifecycle.replaceAll('_', ' ')} · ${project.previousProjectRole == null ? 'No previous membership' : 'Previous role: ${project.previousProjectRole}'}'),
+                    controlAffinity: ListTileControlAffinity.leading,
+                  )),
+              ...preview.eligibleProjects
+                  .where((project) => !project.actorCanRestoreProject)
+                  .map((project) => ListTile(
+                        enabled: false,
+                        title: Text(project.name),
+                        subtitle: const Text(
+                            'You lack active project-management authority to restore access.'),
+                      )),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _reasonController,
+                maxLength: 500,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Reason for reactivation',
+                  hintText: 'Explain why this member is being reactivated',
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              ErrorBanner(_error!),
+            ],
+          ]),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _loading ||
+                  _busy ||
+                  preview == null ||
+                  _role == null ||
+                  _reasonController.text.trim().isEmpty
+              ? null
+              : _submit,
+          child: Text(_busy ? 'Reactivating…' : 'Confirm reactivation'),
+        ),
+      ],
+    );
+  }
+}
+
 class _OrgTabState extends State<_OrgTab> {
   bool _busy = false;
   String? _error;
+  String _view = 'active';
+  bool _loadingDeactivated = false;
+  List<DeactivatedMember> _deactivated = [];
+
+  Future<void> _loadDeactivated() async {
+    setState(() {
+      _loadingDeactivated = true;
+      _error = null;
+    });
+    try {
+      final members = await widget.state.api.deactivatedMembers(widget.org.id);
+      if (mounted) setState(() => _deactivated = members);
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted)
+        setState(() => _error = 'Could not load deactivated members.');
+    } finally {
+      if (mounted) setState(() => _loadingDeactivated = false);
+    }
+  }
+
+  Future<void> _reactivate(DeactivatedMember member) async {
+    final reactivated = await showDialog<bool>(
+      context: context,
+      builder: (_) => _MemberReactivationDialog(
+        api: widget.state.api,
+        organizationId: widget.org.id,
+        member: member,
+      ),
+    );
+    if (reactivated == true && mounted) {
+      await widget.state.selectOrg(widget.org);
+      await _loadDeactivated();
+    }
+  }
 
   Future<void> _updateRole(Member m, String role) async {
     setState(() => _busy = true);
     try {
-      await widget.state.api.updateMemberRole(
-          orgId: widget.org.id, userId: m.userId, role: role);
+      await widget.state.api
+          .updateMemberRole(orgId: widget.org.id, userId: m.userId, role: role);
       await widget.state.selectOrg(widget.org);
     } on ApiException catch (e) {
       setState(() => _error = e.message);
@@ -147,20 +422,16 @@ class _OrgTabState extends State<_OrgTab> {
             key: formKey,
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               if (err != null)
-                ErrorBanner(err!,
-                    onDismiss: () => set(() => err = null)),
+                ErrorBanner(err!, onDismiss: () => set(() => err = null)),
               TextFormField(
                 controller: emailCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Email address'),
+                decoration: const InputDecoration(labelText: 'Email address'),
                 keyboardType: TextInputType.emailAddress,
                 autofocus: true,
-                validator: (v) =>
-                    v != null &&
-                            RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
-                                .hasMatch(v)
-                        ? null
-                        : 'Enter a valid email.',
+                validator: (v) => v != null &&
+                        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)
+                    ? null
+                    : 'Enter a valid email.',
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -203,8 +474,8 @@ class _OrgTabState extends State<_OrgTab> {
   Future<void> _cancelInvitation(Invitation inv) async {
     setState(() => _busy = true);
     try {
-      await widget.state.api.cancelInvitation(
-          orgId: widget.org.id, invitationId: inv.id);
+      await widget.state.api
+          .cancelInvitation(orgId: widget.org.id, invitationId: inv.id);
       await widget.state.selectOrg(widget.org);
     } on ApiException catch (e) {
       setState(() => _error = e.message);
@@ -221,128 +492,196 @@ class _OrgTabState extends State<_OrgTab> {
     final accountId = widget.state.account?.id ?? '';
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return RefreshIndicator(
-      color: kViolet,
-      onRefresh: () => widget.state.selectOrg(widget.org),
-      child: ListView(padding: const EdgeInsets.all(16), children: [
-        if (_error != null)
-          ErrorBanner(_error!,
-              onDismiss: () => setState(() => _error = null)),
+    return Column(children: [
+      if (isAdmin)
+        SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'active', label: Text('Active')),
+                  ButtonSegment(
+                      value: 'deactivated', label: Text('Deactivated')),
+                  ButtonSegment(
+                      value: 'invitations', label: Text('Invitations')),
+                ],
+                selected: {_view},
+                onSelectionChanged: (selected) {
+                  setState(() => _view = selected.first);
+                  if (selected.first == 'deactivated') _loadDeactivated();
+                },
+              ),
+            )),
+      Expanded(
+          child: RefreshIndicator(
+        color: kViolet,
+        onRefresh: () async {
+          if (_view == 'deactivated') {
+            await _loadDeactivated();
+          } else {
+            await widget.state.selectOrg(widget.org);
+          }
+        },
+        child: ListView(padding: const EdgeInsets.all(16), children: [
+          if (_error != null)
+            ErrorBanner(_error!,
+                onDismiss: () => setState(() => _error = null)),
 
-        // ── Section header ────────────────────────────────────────────────
-        // Web .page-heading: eyebrow + h1 + member count + invite button
-        _SectionHeading(
-          eyebrow: widget.org.name,
-          title: 'Organization',
-          subtitle: '${members.length} members',
-          actionLabel: isAdmin ? 'Invite teammate' : null,
-          onAction: isAdmin ? _showInviteDialog : null,
-        ),
-        const SizedBox(height: 16),
+          // ── Section header ────────────────────────────────────────────────
+          // Web .page-heading: eyebrow + h1 + member count + invite button
+          _SectionHeading(
+            eyebrow: widget.org.name,
+            title: 'Organization',
+            subtitle: '${members.length} members',
+            actionLabel:
+                isAdmin && _view == 'active' ? 'Invite teammate' : null,
+            onAction: isAdmin && _view == 'active' ? _showInviteDialog : null,
+          ),
+          const SizedBox(height: 16),
 
-        // ── Member rows ───────────────────────────────────────────────────
-        // Web .members-panel .member-row
-        ...members.map((m) {
-          final canManage =
-              isAdmin && m.role != 'OWNER' && m.userId != accountId;
-          return _MemberRow(
-            member: m,
-            trailing: canManage
-                ? PopupMenuButton<String>(
-                    initialValue: m.role,
-                    itemBuilder: (_) => [
-                      ...orgRoles.map((r) =>
-                          PopupMenuItem(value: r, child: Text(r))),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(
-                        value: '__remove__',
-                        child: Text('Remove',
-                            style: TextStyle(color: kDanger)),
-                      ),
-                    ],
-                    onSelected: (v) {
-                      if (v == '__remove__') {
-                        _remove(m);
-                      } else {
-                        _updateRole(m, v);
-                      }
-                    },
-                    child: RoleChip(m.role),
-                  )
-                : RoleChip(m.role),
-          );
-        }),
+          // ── Member rows ───────────────────────────────────────────────────
+          // Web .members-panel .member-row
+          if (_view == 'active')
+            ...members.map((m) {
+              final canManage =
+                  isAdmin && m.role != 'OWNER' && m.userId != accountId;
+              return _MemberRow(
+                member: m,
+                trailing: canManage
+                    ? PopupMenuButton<String>(
+                        initialValue: m.role,
+                        itemBuilder: (_) => [
+                          ...orgRoles.map(
+                              (r) => PopupMenuItem(value: r, child: Text(r))),
+                          const PopupMenuDivider(),
+                          const PopupMenuItem(
+                            value: '__remove__',
+                            child: Text('Remove',
+                                style: TextStyle(color: kDanger)),
+                          ),
+                        ],
+                        onSelected: (v) {
+                          if (v == '__remove__') {
+                            _remove(m);
+                          } else {
+                            _updateRole(m, v);
+                          }
+                        },
+                        child: RoleChip(m.role),
+                      )
+                    : RoleChip(m.role),
+              );
+            }),
 
-        // ── Pending invitations ───────────────────────────────────────────
-        if (isAdmin && invitations.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          Row(children: [
-            Text(
-              'Pending invitations',
-              style: GoogleFonts.dmSans(
-                  fontSize: 17, fontWeight: FontWeight.bold),
-            ),
-          ]),
-          const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: isDark ? kPanelDark : kPanel,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: isDark ? const Color(0xFF343845) : kLine,
+          // ── Pending invitations ───────────────────────────────────────────
+          if (_view == 'deactivated') ...[
+            if (_loadingDeactivated)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            if (!_loadingDeactivated && _error == null && _deactivated.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: Text('No deactivated members.')),
+              ),
+            ..._deactivated.map((member) => Card(
+                  child: ListTile(
+                    leading: AvatarChip(
+                      initials:
+                          '${member.firstName.isNotEmpty ? member.firstName[0] : ''}${member.lastName.isNotEmpty ? member.lastName[0] : ''}',
+                      avatarUrl: member.avatarUrl,
+                    ),
+                    title: Text('${member.firstName} ${member.lastName}'),
+                    subtitle: Text(
+                        '${member.email} · Previous role: ${member.previousRole} · Joined ${dateLabel(member.joinedAtUtc.toIso8601String())}'),
+                    trailing: TextButton(
+                      onPressed: _busy ? null : () => _reactivate(member),
+                      child: const Text('Reactivate'),
+                    ),
+                  ),
+                )),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _loadingDeactivated ? null : _loadDeactivated,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh'),
               ),
             ),
-            child: Column(
-              children: invitations.asMap().entries.map((entry) {
-                final inv = entry.value;
-                final isLast = entry.key == invitations.length - 1;
-                return Column(children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                    child: Row(children: [
-                      const Icon(Icons.mail_outline,
-                          size: 20, color: kMuted),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                          Text(inv.email,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w600)),
-                              Text(
-                                '${inv.role} · Expires ${dateLabel(inv.expiresAt)}',
-                            style: const TextStyle(
-                                fontSize: 12, color: kMuted),
-                              ),
-                        ]),
-                      ),
-                      TextButton(
-                        onPressed: _busy
-                            ? null
-                            : () => _cancelInvitation(inv),
-                        style: TextButton.styleFrom(
-                          foregroundColor: kMuted,
-                          textStyle:
-                              const TextStyle(fontSize: 13),
-                          minimumSize: Size.zero,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
+          ],
+          if (_view == 'invitations' && isAdmin && invitations.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            Row(children: [
+              Text(
+                'Pending invitations',
+                style: GoogleFonts.dmSans(
+                    fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: isDark ? kPanelDark : kPanel,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isDark ? const Color(0xFF343845) : kLine,
+                ),
+              ),
+              child: Column(
+                children: invitations.asMap().entries.map((entry) {
+                  final inv = entry.value;
+                  final isLast = entry.key == invitations.length - 1;
+                  return Column(children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                      child: Row(children: [
+                        const Icon(Icons.mail_outline, size: 20, color: kMuted),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(inv.email,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600)),
+                                Text(
+                                  '${inv.role} · Expires ${dateLabel(inv.expiresAt)}',
+                                  style: const TextStyle(
+                                      fontSize: 12, color: kMuted),
+                                ),
+                              ]),
                         ),
-                        child: const Text('Cancel'),
-                      ),
-                    ]),
-                  ),
-                  if (!isLast)
-                    const Divider(height: 1, color: kLine),
-                ]);
-              }).toList(),
+                        TextButton(
+                          onPressed:
+                              _busy ? null : () => _cancelInvitation(inv),
+                          style: TextButton.styleFrom(
+                            foregroundColor: kMuted,
+                            textStyle: const TextStyle(fontSize: 13),
+                            minimumSize: Size.zero,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                          ),
+                          child: const Text('Cancel'),
+                        ),
+                      ]),
+                    ),
+                    if (!isLast) const Divider(height: 1, color: kLine),
+                  ]);
+                }).toList(),
+              ),
             ),
-          ),
-        ],
-        const SizedBox(height: 24),
-      ]),
-    );
+          ],
+          if (_view == 'invitations' && isAdmin && invitations.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: Text('No pending invitations.')),
+            ),
+          const SizedBox(height: 24),
+        ]),
+      ))
+    ]);
   }
 }
 
@@ -366,8 +705,7 @@ String projectRoleErrorMessage(ApiException error) => switch (error.code) {
     };
 
 class _ProjectTab extends StatefulWidget {
-  const _ProjectTab(
-      {required this.state, required this.org, this.project});
+  const _ProjectTab({required this.state, required this.org, this.project});
   final AppState state;
   final Organization org;
   final Project? project;
@@ -406,16 +744,15 @@ class _ProjectTabState extends State<_ProjectTab> {
   }
 
   Future<void> _showAddMemberDialog() async {
-    final existing =
-        widget.state.projectMembers.map((m) => m.userId).toSet();
+    final existing = widget.state.projectMembers.map((m) => m.userId).toSet();
     final eligible = widget.state.orgMembers
         .where((m) => !existing.contains(m.userId))
         .toList();
     if (eligible.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-              'All organization members are already in this project.'),
+          content:
+              Text('All organization members are already in this project.'),
         ),
       );
       return;
@@ -432,8 +769,7 @@ class _ProjectTabState extends State<_ProjectTab> {
           title: const Text('Add project member'),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             if (err != null)
-              ErrorBanner(err!,
-                  onDismiss: () => set(() => err = null)),
+              ErrorBanner(err!, onDismiss: () => set(() => err = null)),
             DropdownButtonFormField<Member>(
               initialValue: selected,
               decoration: const InputDecoration(labelText: 'Member'),
@@ -458,8 +794,7 @@ class _ProjectTabState extends State<_ProjectTab> {
               initialValue: role,
               decoration: const InputDecoration(labelText: 'Role'),
               items: projectRoles
-                  .map((r) =>
-                      DropdownMenuItem(value: r, child: Text(r)))
+                  .map((r) => DropdownMenuItem(value: r, child: Text(r)))
                   .toList(),
               onChanged: (v) => set(() => role = v!),
             ),

@@ -503,6 +503,102 @@ class Invitation {
       );
 }
 
+class DeactivatedMember {
+  const DeactivatedMember({
+    required this.userId,
+    required this.firstName,
+    required this.lastName,
+    required this.email,
+    required this.previousRole,
+    required this.joinedAtUtc,
+    this.avatarUrl,
+  });
+  final String userId;
+  final String firstName;
+  final String lastName;
+  final String email;
+  final String? avatarUrl;
+  final String previousRole;
+  final DateTime joinedAtUtc;
+
+  factory DeactivatedMember.fromJson(Map<String, dynamic> json) =>
+      DeactivatedMember(
+        userId: json['userId'] as String,
+        firstName: json['firstName'] as String,
+        lastName: json['lastName'] as String,
+        email: json['email'] as String,
+        avatarUrl: json['avatarUrl'] as String?,
+        previousRole: json['previousRole'] as String,
+        joinedAtUtc: DateTime.parse(json['joinedAtUtc'] as String),
+      );
+}
+
+class ReactivationProject {
+  const ReactivationProject({
+    required this.projectId,
+    required this.name,
+    required this.lifecycle,
+    required this.actorCanRestoreProject,
+    this.previousProjectRole,
+  });
+  final String projectId;
+  final String name;
+  final String lifecycle;
+  final String? previousProjectRole;
+  final bool actorCanRestoreProject;
+
+  factory ReactivationProject.fromJson(Map<String, dynamic> json) =>
+      ReactivationProject(
+        projectId: json['projectId'] as String,
+        name: json['name'] as String,
+        lifecycle: json['lifecycle'] as String,
+        previousProjectRole: json['previousProjectRole'] as String?,
+        actorCanRestoreProject: json['actorCanRestoreProject'] as bool,
+      );
+}
+
+class ReactivationPreview {
+  const ReactivationPreview({
+    required this.organizationId,
+    required this.userId,
+    required this.firstName,
+    required this.lastName,
+    required this.email,
+    required this.previousOrganizationRole,
+    required this.allowedMaxRole,
+    required this.eligibleProjects,
+    required this.snapshotHash,
+    this.avatarUrl,
+  });
+  final String organizationId;
+  final String userId;
+  final String firstName;
+  final String lastName;
+  final String email;
+  final String? avatarUrl;
+  final String previousOrganizationRole;
+  final String allowedMaxRole;
+  final List<ReactivationProject> eligibleProjects;
+  final String snapshotHash;
+
+  factory ReactivationPreview.fromJson(Map<String, dynamic> json) =>
+      ReactivationPreview(
+        organizationId: json['organizationId'] as String,
+        userId: json['userId'] as String,
+        firstName: json['firstName'] as String,
+        lastName: json['lastName'] as String,
+        email: json['email'] as String,
+        avatarUrl: json['avatarUrl'] as String?,
+        previousOrganizationRole: json['previousOrganizationRole'] as String,
+        allowedMaxRole: json['allowedMaxRole'] as String,
+        eligibleProjects: (json['eligibleProjects'] as List<dynamic>)
+            .map((item) =>
+                ReactivationProject.fromJson(item as Map<String, dynamic>))
+            .toList(),
+        snapshotHash: json['snapshotHash'] as String,
+      );
+}
+
 // ─── Notification ────────────────────────────────────────────────────────────
 
 class Notice {
@@ -579,8 +675,8 @@ class Attachment {
 
   factory Attachment.fromJson(Map<String, dynamic> json) => Attachment(
         id: json['id'] as String,
-    uploadedBy: json['uploadedBy'] as String? ?? '',
-    fileName: json['fileName'] as String,
+        uploadedBy: json['uploadedBy'] as String? ?? '',
+        fileName: json['fileName'] as String,
         fileSize: json['fileSize'] as int? ?? 0,
         contentType: json['contentType'] as String? ?? '',
         createdAt: json['createdAt'] as String,
@@ -842,8 +938,11 @@ class AdminProject {
 
   bool get isArchived => archivedAt != null;
   bool get isTrashed => deletedAt != null;
-  String get displayStatus =>
-      isTrashed ? 'IN TRASH' : isArchived ? 'ARCHIVED' : status;
+  String get displayStatus => isTrashed
+      ? 'IN TRASH'
+      : isArchived
+          ? 'ARCHIVED'
+          : status;
 
   factory AdminProject.fromJson(Map<String, dynamic> json) => AdminProject(
         id: json['id'] as String,
@@ -860,63 +959,128 @@ class AdminProject {
 }
 
 class AdminProjectDetails {
-  const AdminProjectDetails({required this.projectId, required this.name,
-    required this.organizationId, required this.organizationName, required this.status,
-    required this.memberCount, required this.hasTasks, required this.totalEligibleTasks,
-    required this.completedTasks, required this.progressPercent, required this.outstandingTaskCount,
-    required this.overdueTaskCount, required this.createdAt, this.description, this.ownerName,
-    this.startDate, this.dueDate, this.archivedAt, this.deletedAt});
-  final String projectId, name, organizationId, organizationName, status, createdAt;
-  final String? description, ownerName, startDate, dueDate, archivedAt, deletedAt;
-  final int memberCount, totalEligibleTasks, completedTasks, outstandingTaskCount, overdueTaskCount;
+  const AdminProjectDetails(
+      {required this.projectId,
+      required this.name,
+      required this.organizationId,
+      required this.organizationName,
+      required this.status,
+      required this.memberCount,
+      required this.hasTasks,
+      required this.totalEligibleTasks,
+      required this.completedTasks,
+      required this.progressPercent,
+      required this.outstandingTaskCount,
+      required this.overdueTaskCount,
+      required this.createdAt,
+      this.description,
+      this.ownerName,
+      this.startDate,
+      this.dueDate,
+      this.archivedAt,
+      this.deletedAt});
+  final String projectId,
+      name,
+      organizationId,
+      organizationName,
+      status,
+      createdAt;
+  final String? description,
+      ownerName,
+      startDate,
+      dueDate,
+      archivedAt,
+      deletedAt;
+  final int memberCount,
+      totalEligibleTasks,
+      completedTasks,
+      outstandingTaskCount,
+      overdueTaskCount;
   final bool hasTasks;
   final int? progressPercent;
-  factory AdminProjectDetails.fromJson(Map<String, dynamic> json) => AdminProjectDetails(
-    projectId: json['projectId'] as String, name: json['name'] as String,
-    organizationId: json['organizationId'] as String, organizationName: json['organizationName'] as String,
-    status: json['status'] as String, createdAt: json['createdAt'] as String,
-    description: json['description'] as String?, ownerName: json['ownerName'] as String?,
-    startDate: json['startDate'] as String?, dueDate: json['dueDate'] as String?,
-    archivedAt: json['archivedAt'] as String?, deletedAt: json['deletedAt'] as String?,
-    memberCount: json['memberCount'] as int? ?? 0, hasTasks: json['hasTasks'] as bool? ?? false,
-    totalEligibleTasks: json['totalEligibleTasks'] as int? ?? 0,
-    completedTasks: json['completedTasks'] as int? ?? 0, progressPercent: json['progressPercent'] as int?,
-    outstandingTaskCount: json['outstandingTaskCount'] as int? ?? 0,
-    overdueTaskCount: json['overdueTaskCount'] as int? ?? 0);
+  factory AdminProjectDetails.fromJson(Map<String, dynamic> json) =>
+      AdminProjectDetails(
+          projectId: json['projectId'] as String,
+          name: json['name'] as String,
+          organizationId: json['organizationId'] as String,
+          organizationName: json['organizationName'] as String,
+          status: json['status'] as String,
+          createdAt: json['createdAt'] as String,
+          description: json['description'] as String?,
+          ownerName: json['ownerName'] as String?,
+          startDate: json['startDate'] as String?,
+          dueDate: json['dueDate'] as String?,
+          archivedAt: json['archivedAt'] as String?,
+          deletedAt: json['deletedAt'] as String?,
+          memberCount: json['memberCount'] as int? ?? 0,
+          hasTasks: json['hasTasks'] as bool? ?? false,
+          totalEligibleTasks: json['totalEligibleTasks'] as int? ?? 0,
+          completedTasks: json['completedTasks'] as int? ?? 0,
+          progressPercent: json['progressPercent'] as int?,
+          outstandingTaskCount: json['outstandingTaskCount'] as int? ?? 0,
+          overdueTaskCount: json['overdueTaskCount'] as int? ?? 0);
 }
 
 class AdminProjectMember {
-  const AdminProjectMember({required this.displayName, required this.projectRole,
-    required this.projectMembershipStatus, required this.accountStatus, required this.joinedAt,
-    this.organizationMembershipStatus});
-  final String displayName, projectRole, projectMembershipStatus, accountStatus, joinedAt;
+  const AdminProjectMember(
+      {required this.displayName,
+      required this.projectRole,
+      required this.projectMembershipStatus,
+      required this.accountStatus,
+      required this.joinedAt,
+      this.organizationMembershipStatus});
+  final String displayName,
+      projectRole,
+      projectMembershipStatus,
+      accountStatus,
+      joinedAt;
   final String? organizationMembershipStatus;
-  factory AdminProjectMember.fromJson(Map<String, dynamic> json) => AdminProjectMember(
-    displayName: json['displayName'] as String? ?? 'Unknown member',
-    projectRole: json['projectRole'] as String? ?? 'UNKNOWN',
-    projectMembershipStatus: json['projectMembershipStatus'] as String? ?? 'unknown',
-    organizationMembershipStatus: json['organizationMembershipStatus'] as String?,
-    accountStatus: json['accountStatus'] as String? ?? 'unknown', joinedAt: json['joinedAt'] as String? ?? '');
+  factory AdminProjectMember.fromJson(Map<String, dynamic> json) =>
+      AdminProjectMember(
+          displayName: json['displayName'] as String? ?? 'Unknown member',
+          projectRole: json['projectRole'] as String? ?? 'UNKNOWN',
+          projectMembershipStatus:
+              json['projectMembershipStatus'] as String? ?? 'unknown',
+          organizationMembershipStatus:
+              json['organizationMembershipStatus'] as String?,
+          accountStatus: json['accountStatus'] as String? ?? 'unknown',
+          joinedAt: json['joinedAt'] as String? ?? '');
 }
 
 class AdminProjectTask {
-  const AdminProjectTask({required this.id, required this.title, required this.status,
-    required this.priority, required this.effectiveAssigneeCount, required this.createdAt,
-    this.dueDate, this.effectiveAssignees});
+  const AdminProjectTask(
+      {required this.id,
+      required this.title,
+      required this.status,
+      required this.priority,
+      required this.effectiveAssigneeCount,
+      required this.createdAt,
+      this.dueDate,
+      this.effectiveAssignees});
   final String id, title, status, priority, createdAt;
   final String? dueDate;
   final int effectiveAssigneeCount;
   final List<String>? effectiveAssignees;
-  factory AdminProjectTask.fromJson(Map<String, dynamic> json) => AdminProjectTask(
-    id: json['id'] as String, title: json['title'] as String? ?? '',
-    status: json['status'] as String? ?? 'TO DO', priority: json['priority'] as String? ?? 'MEDIUM',
-    dueDate: json['dueDate'] as String?, createdAt: json['createdAt'] as String? ?? '',
-    effectiveAssigneeCount: json['effectiveAssigneeCount'] as int? ?? 0,
-    effectiveAssignees: (json['effectiveAssignees'] as List<dynamic>?)?.whereType<String>().toList());
+  factory AdminProjectTask.fromJson(Map<String, dynamic> json) =>
+      AdminProjectTask(
+          id: json['id'] as String,
+          title: json['title'] as String? ?? '',
+          status: json['status'] as String? ?? 'TO DO',
+          priority: json['priority'] as String? ?? 'MEDIUM',
+          dueDate: json['dueDate'] as String?,
+          createdAt: json['createdAt'] as String? ?? '',
+          effectiveAssigneeCount: json['effectiveAssigneeCount'] as int? ?? 0,
+          effectiveAssignees: (json['effectiveAssignees'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList());
 }
 
 class AdminProjectPage<T> {
-  const AdminProjectPage({required this.items, required this.page, required this.pageSize, required this.totalCount});
+  const AdminProjectPage(
+      {required this.items,
+      required this.page,
+      required this.pageSize,
+      required this.totalCount});
   final List<T> items;
   final int page, pageSize, totalCount;
 }
