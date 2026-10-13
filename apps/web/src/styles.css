@@ -434,6 +434,10 @@ input,select,textarea{min-height:32px;padding:6px var(--jira-space-100);font-siz
 .shell:not(.admin-platform-shell) .member-row .avatar { padding: 0; border-radius: 50%; }
 .shell:not(.admin-platform-shell) .member-row strong { color: var(--overview-ink); font-size: 13px; font-weight: 550; }
 .shell:not(.admin-platform-shell) .member-row small { color: var(--overview-muted); font-size: 11px; }
+.shell.tenant-workspace-shell .app-modal.reactivation-modal { display:flex; flex-direction:column; width:min(820px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:hidden; }
+.shell.tenant-workspace-shell .app-modal.reactivation-modal > .modal-head,
+.shell.tenant-workspace-shell .app-modal.reactivation-modal > .modal-foot { flex:0 0 auto; }
+.shell.tenant-workspace-shell .app-modal.reactivation-modal > .modal-body { flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
 .reactivation-project-list { display: grid; gap: 8px; max-height: 240px; overflow: auto; margin: 12px 0; padding: 12px; border: 1px solid var(--overview-border, #e3e3ea); border-radius: 10px; }
 .reactivation-project-list > label { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 8px; border-radius: 7px; background: var(--overview-page, #f7f7fa); }
 .reactivation-project-list > label input { width: 17px; height: 17px; margin: 2px 0 0; accent-color: var(--violet); }
