@@ -238,6 +238,8 @@ builder.Services
 
 var app = builder.Build();
 
+await DatabaseMigrationRunner.ApplyPendingMigrationsAsync(app.Services, app.Logger);
+
 if (telemetryEnabled && safeTelemetryUri is null)
     app.Logger.LogWarning("OTLP telemetry export is disabled because its endpoint is missing or invalid.");
 
